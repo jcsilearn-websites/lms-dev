@@ -13,6 +13,11 @@ export interface RequestOptions {
  * A tiny browser stand-in for inject(): one host, a cookie jar, and the Origin /
  * X-Requested-With headers the CSRF check requires.
  */
+/** Application routes live under /api; the health probes and /docs stay at the root. */
+export function withApiPrefix(url: string): string {
+  return /^\/(api|health|docs)(\/|\?|$)/.test(url) ? url : `/api${url}`;
+}
+
 export class TestClient {
   cookies = new Map<string, string>();
 
@@ -39,9 +44,10 @@ export class TestClient {
     if (this.cookies.size > 0 && !headers.cookie) {
       headers.cookie = [...this.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
     }
+    const path = withApiPrefix(url);
     const res = await this.t.app.inject({
       method: method as never,
-      url: opts.query ? `${url}?${opts.query}` : url,
+      url: opts.query ? `${path}?${opts.query}` : path,
       headers,
       ...(opts.body !== undefined ? { payload: opts.body as never } : {}),
     });
@@ -54,6 +60,9 @@ export class TestClient {
   }
   post(url: string, body?: unknown, opts?: RequestOptions) {
     return this.request('POST', url, { ...opts, body });
+  }
+  patch(url: string, body?: unknown, opts?: RequestOptions) {
+    return this.request('PATCH', url, { ...opts, body });
   }
   delete(url: string, opts?: RequestOptions) {
     return this.request('DELETE', url, opts);

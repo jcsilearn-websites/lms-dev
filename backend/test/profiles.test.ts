@@ -78,6 +78,29 @@ async function student(s: Awaited<ReturnType<typeof structure>>, sectionId = s.a
 }
 
 describe('creating and reading profiles', () => {
+  it('faculty have no program; a student profile moved to another section keeps its program', async () => {
+    const s = await structure();
+    const f = await addMember(owner, A.tenantId, `${uniq('fac')}@pf-a2.test`);
+    const faculty = ok(
+      await patch(admin, `/members/${f.userId}/profile`, {
+        profileType: 'faculty',
+        employeeId: uniq('EMP'),
+        departmentId: s.dept.id,
+      }),
+    );
+    expect(faculty).toMatchObject({ programId: null, programCode: null, programName: null });
+    const st = await student(s);
+    expect(st.profile).toMatchObject({ programId: s.prog.id, programName: s.prog.name });
+    const moved = ok(
+      await admin.post(`/members/${st.userId}/profile/section`, { sectionId: s.b.id }),
+    );
+    expect(moved.moved).toBe(1);
+    expect(ok(await admin.get(`/members/${st.userId}/profile`))).toMatchObject({
+      sectionCode: 'B',
+      programId: s.prog.id,
+    });
+  });
+
   it('a student profile carries register number, batch and section; the department follows the batch', async () => {
     const s = await structure();
     const m = await addMember(owner, A.tenantId, `${uniq('s')}@pf-a2.test`);
@@ -97,7 +120,9 @@ describe('creating and reading profiles', () => {
       employeeId: null,
       departmentId: s.dept.id,
       departmentCode: s.dept.code,
+      programId: s.prog.id,
       programCode: s.prog.code,
+      programName: s.prog.name,
       batchId: s.batch.id,
       batchLabel: '2023-2027',
       sectionId: s.a.id,
@@ -113,7 +138,13 @@ describe('creating and reading profiles', () => {
     const st = await student(s);
     const c = new TestClient(t, A.host);
     expect((await c.login(st.email, TEST_PASSWORD)).statusCode).toBe(200);
-    expect(ok(await c.get('/me/profile'))).toMatchObject({ userId: st.userId, sectionCode: 'A' });
+    // the program is derived through the batch and shown with its id and name, on both read paths
+    expect(ok(await c.get('/me/profile'))).toMatchObject({
+      userId: st.userId,
+      sectionCode: 'A',
+      programId: s.prog.id,
+      programName: s.prog.name,
+    });
     expect((await c.get(`/members/${A.memberUserId}/profile`)).statusCode).toBe(403);
     // a member with no profile yet
     const none = new TestClient(t, A.host);

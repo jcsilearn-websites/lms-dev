@@ -24,6 +24,9 @@ export interface AuditEntry {
   targetId: string | null;
   metadata: unknown;
   createdAt: Date;
+  /** Who did it: null only for system actions (no actor). */
+  actorName: string | null;
+  actorEmail: string | null;
 }
 
 export interface AuditListInput {
@@ -43,6 +46,21 @@ function toEntry(r: AuditListRow): AuditEntry {
     targetId: r.targetId,
     metadata: r.metadata,
     createdAt: r.createdAt,
+    ...actorOf(r),
+  };
+}
+
+/**
+ * The actor as shown to people. No actor = a system action (null). An actor who cannot be read any more
+ * (removed from the college, or deleted) is "Unknown user"; a platform administrator acting inside a
+ * college is not a member there, so the entry's own flag names them.
+ */
+function actorOf(r: AuditListRow): { actorName: string | null; actorEmail: string | null } {
+  if (r.actorUserId === null) return { actorName: null, actorEmail: null };
+  if (r.actorName) return { actorName: r.actorName, actorEmail: r.actorEmail };
+  return {
+    actorName: r.metadata.viaPlatformAdmin === true ? 'Platform administrator' : 'Unknown user',
+    actorEmail: null,
   };
 }
 

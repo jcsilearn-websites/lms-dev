@@ -366,6 +366,23 @@ describe('auth configuration policy', () => {
     ).toThrow(/MAILER/);
   });
 
+  it('MAILER=file needs MAIL_FILE and is refused in production (it writes links to disk)', () => {
+    expect(() => parseApiEnv({ ...base, MAILER: 'file' })).toThrow(/MAIL_FILE/);
+    expect(parseApiEnv({ ...base, MAILER: 'file', MAIL_FILE: '.mail/outbox.jsonl' }).MAILER).toBe(
+      'file',
+    );
+    expect(() =>
+      parseApiEnv({
+        ...base,
+        NODE_ENV: 'production',
+        DB_SSL: 'verify-full',
+        APP_BASE_DOMAIN: 'example.com',
+        MAILER: 'file',
+        MAIL_FILE: '/tmp/outbox.jsonl',
+      }),
+    ).toThrow(/"file" writes links to disk/);
+  });
+
   it('cookies are Secure (and __Host- prefixed) unless explicitly local', () => {
     expect(cookieSettings({ NODE_ENV: 'production', COOKIE_SECURE: undefined })).toEqual({
       secure: true,

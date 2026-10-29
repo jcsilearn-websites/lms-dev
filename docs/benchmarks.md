@@ -103,6 +103,53 @@ it has no statistics for holds ~1 row, which is the state of every new college a
 
 (Runs 1 - 3 were before the SQL fixes above, run 4 after them. The same suite took about 32 minutes on the remote database.)
 
+## Frontend (step 5b) — 2026-10-29
+
+Same laptop as above (2 cores, Node 22, PostgreSQL 18 on the same machine). The numbers come from `pnpm bundle:check`,
+`pnpm e2e`, `pnpm lighthouse` and `pnpm test`; the budgets are enforced in CI (`bundle-size`, `e2e`, `lighthouse` jobs).
+
+### Bundle (gzip, `frontend/scripts/check-bundle-size.mjs`, follows the real import graph of the page)
+
+| Page / route                                                                               | JS gzip       | Budget     |
+| ------------------------------------------------------------------------------------------ | ------------- | ---------- |
+| Login page, initial load (entry + everything it imports statically)                        | **112.5 KB**  | 125 KB     |
+| Login page after the first form interaction (+ the lazily loaded validation chunk 18.9 KB) | 131.5 KB      | (reported) |
+| Largest route on top of the login page (member detail: react-hook-form + contracts)        | 40.1 KB       | 150 KB     |
+| Other routes                                                                               | 0.7 - 38.2 KB | 150 KB     |
+
+Where the login page's 112.5 KB goes: React DOM + JSX runtime about 69 KB, TanStack Router 21 KB, TanStack Query 12 KB,
+application code about 11 KB. react-hook-form (12 KB) and the TypeBox contracts (19 KB) are NOT in it: the public
+forms use a tiny form hook and load the validator on the first field focus (spike numbers: 117 KB for React + Router
+- Query + react-hook-form alone, which is why the login budget is 125 KB and not the original 120 KB).
+
+### Lighthouse (mobile preset: emulated phone, simulated slow 4G, 4x CPU slowdown; production-like server with brotli/gzip)
+
+Median of 8 runs; the members list is signed in with 200 members (the first page of 25 is rendered).
+
+| Page         | Performance | Accessibility | FCP    | LCP     | TBT    | CLS |
+| ------------ | ----------- | ------------- | ------ | ------- | ------ | --- |
+| Login page   | **97**      | **100**       | 752 ms | 2052 ms | 155 ms | 0   |
+| Members list | **96**      | **100**       | 753 ms | 753 ms  | 224 ms | 0   |
+
+Single runs vary a lot on this laptop (performance 90 - 99; one accessibility run of about 26 scored 86 and did not
+reproduce), which is why the median is the figure. Before two fixes the members list scored a median of 82: the table AND the
+card list were both rendered (double DOM), and the invite dialog statically pulled react-hook-form and the contracts into the
+members route (37 KB gzip instead of 4.7 KB). Now only the layout that is shown is rendered and the dialog is a lazy chunk.
+
+### Tests
+
+| Suite                                                                         | Count                 | Time                                          |
+| ----------------------------------------------------------------------------- | --------------------- | --------------------------------------------- |
+| Component / hook tests (Vitest + Testing Library + MSW, typed from contracts) | 83 tests in 14 files  | 26 - 37 s                                     |
+| End-to-end (Playwright, headless Chromium, real API + worker + PostgreSQL)    | 24 tests, serial      | 1.6 min (about 2 min with build and start-up) |
+| Backend, unit + db in parallel / serial files                                 | 649 / 37 (+1 skipped) | 84 s / 70 s                                   |
+
+E2E covers: sign in and out, wrong password, tenant isolation in the UI, invite -> accept -> sign in, password reset,
+member suspend / reactivate (and the suspended person is locked out), academic setup (department -> program -> batch ->
+section, and a 409 conflict), the CSV import with one bad row (error report, skip invalid, progress, summary), the platform
+admin creating a college whose admin accepts the invitation, suspending a college, college branding per theme, and axe
+(fails on serious or critical violations) on every main screen in light, dark and at 360 px.
+
 # Supabase eu-west-1 (historical)
 
 Everything below was measured against the remote Supabase dev database (about 200 ms per statement from the developer

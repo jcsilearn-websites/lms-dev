@@ -93,3 +93,9 @@ export const ConfirmImportRequestSchema = Type.Object({
   /** required when the file has invalid rows: they are left out and reported */
   skipInvalid: Type.Optional(Type.Boolean()),
 });
+
+export type ImportList = Static<typeof ImportListSchema>;
+export type ImportRow = Static<typeof ImportRowSchema>;
+export type ImportRows = Static<typeof ImportRowsSchema>;
+export type ConfirmImportRequest = Static<typeof ConfirmImportRequestSchema>;
+export type ImportStatus = Static<typeof ImportStatusSchema>;

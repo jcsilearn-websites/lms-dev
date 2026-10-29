@@ -111,6 +111,21 @@ describe('round-trip budgets', () => {
     budget('POST /auth/logout', s, 3);
   });
 
+  it('GET /tenant/info (public, no session): one transaction of 3', async () => {
+    const c = new TestClient(t, A.host);
+    const s = await measure(() => c.get('/tenant/info'));
+    budget('GET /tenant/info', s, 3);
+  });
+
+  it('PATCH /tenant/branding: lookup + BEGIN + one fused statement + COMMIT = 4', async () => {
+    const c = new TestClient(t, A.host);
+    await c.login(A.adminEmail, TEST_PASSWORD);
+    const s = await measure(() =>
+      c.patch('/tenant/branding', { displayName: 'Budget College', primaryColor: '#112233' }),
+    );
+    budget('PATCH /tenant/branding', s, 4);
+  });
+
   it('GET /auth/sessions (authenticated tenant read): session lookup 1 + one transaction of 3', async () => {
     const c = new TestClient(t, A.host);
     await c.login(A.memberEmail, TEST_PASSWORD);

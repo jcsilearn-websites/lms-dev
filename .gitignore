@@ -9,3 +9,12 @@ coverage/
 .vite/
 *.crt
 *.pem
+
+# MAILER=file output (E2E / dev)
+.mail/
+
+# frontend: Playwright output and Lighthouse scores of the last local run
+frontend/e2e-results/
+frontend/e2e-report/
+frontend/lighthouse-summary.json
+frontend/.e2e-tmp/

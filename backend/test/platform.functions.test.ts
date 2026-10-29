@@ -36,6 +36,7 @@ const PLATFORM_FUNCTIONS = [
   'platform_create_tenant',
   'platform_get_tenant',
   'platform_list_audit',
+  'platform_list_audit_v2',
   'platform_list_tenants',
   'platform_set_tenant_status',
   'platform_update_tenant',
@@ -131,6 +132,11 @@ describe('every function checks that the ACTOR is a platform admin', () => {
     [
       'platform_list_audit',
       'SELECT * FROM lms.platform_list_audit($1, NULL, NULL, NULL, NULL, NULL, 10)',
+      [0],
+    ],
+    [
+      'platform_list_audit_v2',
+      'SELECT * FROM lms.platform_list_audit_v2($1, NULL, NULL, NULL, NULL, NULL, 10)',
       [0],
     ],
     [

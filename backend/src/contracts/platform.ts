@@ -64,3 +64,10 @@ export const CreateTenantResponseSchema = Type.Object({
 
 export const PlatformMembersQuerySchema = MemberListQuerySchema;
 export const PlatformMembersResponseSchema = MemberListResponseSchema;
+
+export type TenantDetail = Static<typeof TenantDetailSchema>;
+export type TenantList = Static<typeof TenantListResponseSchema>;
+export type CreateTenantRequest = Static<typeof CreateTenantRequestSchema>;
+export type CreateTenantResponse = Static<typeof CreateTenantResponseSchema>;
+export type AdminInviteRequest = Static<typeof AdminInviteRequestSchema>;
+export type AdminInviteResponse = Static<typeof AdminInviteResponseSchema>;

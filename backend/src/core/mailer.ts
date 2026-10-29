@@ -17,6 +17,26 @@ export function createConsoleMailer(log: (obj: object, msg: string) => void): Ma
   };
 }
 
+/**
+ * Dev/test mailer: appends one JSON line {to, subject, text, at} per email to `file`, so another
+ * process (the Playwright E2E tests) can read invite and reset links. It writes links to disk in
+ * clear text: never in production (rejected by assertAuthPolicy).
+ */
+export function createFileMailer(file: string): Mailer {
+  return {
+    async send(email) {
+      const { appendFile, mkdir } = await import('node:fs/promises');
+      const { dirname } = await import('node:path');
+      await mkdir(dirname(file), { recursive: true });
+      await appendFile(
+        file,
+        `${JSON.stringify({ ...email, at: new Date().toISOString() })}
+`,
+      );
+    },
+  };
+}
+
 /** Test double: remembers what would have been sent. */
 export function createCapturingMailer(): Mailer & { sent: Email[] } {
   const sent: Email[] = [];

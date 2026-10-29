@@ -1,0 +1,133 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Every colour is a CSS variable so light/dark mode and the college's brand colour
+ * only change variables, never components. Contrast (WCAG 2.1 AA) of each pair is verified in
+ * test/tokens.test.ts.
+ *
+ * The brand colour of a college is applied by src/app/theme.ts, which sets --primary-l / --primary-fg-l
+ * (light) and --primary-d / --primary-fg-d (dark) only when the colour passes AA on that theme's
+ * background; otherwise these stay unset and the default brand colour below is used for that theme.
+ */
+:root {
+  color-scheme: light;
+  --background: #ffffff;
+  --foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #475569;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --input-border: #64748b;
+  --primary: var(--primary-l, #2563eb);
+  --primary-foreground: var(--primary-fg-l, #ffffff);
+  --danger: #b91c1c;
+  --danger-foreground: #ffffff;
+  --success: #15803d;
+  --warning: #b45309;
+  --ring: var(--primary);
+  --radius: 0.5rem;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0b1220;
+  --foreground: #e2e8f0;
+  --muted: #172033;
+  --muted-foreground: #a3b1c6;
+  --surface: #111a2c;
+  --border: #243049;
+  --input-border: #8091ab;
+  --primary: var(--primary-d, #60a5fa);
+  --primary-foreground: var(--primary-fg-d, #0b1220);
+  --danger: #f87171;
+  --danger-foreground: #0b1220;
+  --success: #4ade80;
+  --warning: #fbbf24;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --background: #0b1220;
+    --foreground: #e2e8f0;
+    --muted: #172033;
+    --muted-foreground: #a3b1c6;
+    --surface: #111a2c;
+    --border: #243049;
+    --input-border: #8091ab;
+    --primary: var(--primary-d, #60a5fa);
+    --primary-foreground: var(--primary-fg-d, #0b1220);
+    --danger: #f87171;
+    --danger-foreground: #0b1220;
+    --success: #4ade80;
+    --warning: #fbbf24;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-surface: var(--surface);
+  --color-border: var(--border);
+  --color-input: var(--input-border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-ring: var(--ring);
+  --radius-md: var(--radius);
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+@layer base {
+  html {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    margin: 0;
+    min-height: 100vh;
+  }
+  *:focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  button,
+  [role="button"],
+  select,
+  summary {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * {
+      /* biome-ignore lint/complexity/noImportantStyles: must beat any component animation for people who asked for less motion */
+      animation-duration: 0.01ms !important;
+      /* biome-ignore lint/complexity/noImportantStyles: same reason */
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+.skeleton {
+  background: var(--muted);
+  border-radius: var(--radius);
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+dialog::backdrop {
+  background: rgb(2 6 23 / 0.6);
+}

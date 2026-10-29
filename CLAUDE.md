@@ -2,15 +2,15 @@
 
 Production multi-tenant SaaS LMS sold to multiple colleges. This is a commercial product, not a demo.
 Steps 1 (foundation), 1b (module-based restructure), 2 (authentication + tenant resolution), 2b (round-trip
-budget + cleanup jobs), 4 (permission system + member and tenant management) and 5 (academic structure, member
-profiles, bulk CSV import, Postgres job queue) are built. Do not build features
+budget + cleanup jobs), 4 (permission system + member and tenant management), 5 (academic structure, member
+profiles, bulk CSV import, Postgres job queue) and 5b (the frontend for all of them) are built. Do not build features
 beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
 
 - **Modular monolith**, two pnpm workspace packages: `backend/` (API + worker + DB code, one codebase) and
   `frontend/` (React SPA). No Turborepo. See `docs/adr/`.
-- Backend: Node 24 LTS + Fastify 5. Frontend: React + Vite + TanStack Query.
+- Backend: Node 24 LTS + Fastify 5. Frontend: React + Vite + TanStack Query + TanStack Router + Tailwind (ADR 0012).
 - Database: PostgreSQL, **shared schema**, every tenant-owned table has `tenant_id`, enforced by
   **Row-Level Security** (enabled AND forced). CI Postgres = newest major Cloud SQL supports (18).
 - ORM: Drizzle (typed queries). **Migrations are hand-written SQL files** (`backend/migrations`); each module's
@@ -48,14 +48,42 @@ backend/
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
 frontend/src/
-  app/              app shell, providers (TanStack Query), router
-  features/<feature>/  components, hooks, api calls (starts with: health)
-  shared/           ui components, api client (typed with backend contracts), utils
+  app/              app shell, root layout (branding, 404 college), providers, router (one route tree per host kind), theme
+  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform:
+                       <feature>.api.ts (typed with backend contracts), pages, hooks
+  shared/           ui/ (button, field, select, dialog, data-table, toast, states), api/ (client, errors), forms/, utils/
+frontend/e2e/       Playwright specs + helpers   frontend/scripts/  stack, e2e, serve, bundle check, lighthouse, screenshots
+frontend/test/      component tests (Vitest + Testing Library + MSW, typed with the contracts)
 ```
 
 The frontend imports the backend **only** through `@lms/backend/contracts` (the `./contracts` subpath export in
 `backend/package.json` → `backend/src/contracts/`). Use `import type` for contract types so no backend
 runtime code lands in the browser bundle. This is enforced by dependency-cruiser.
+
+## Frontend rules (step 5b)
+
+- **Imports from the backend**: only `import type` from `@lms/backend/contracts` in code that loads at start-up (the
+  shell, `api` modules, hooks). A VALUE import (the TypeBox schemas) belongs in lazy chunks only (route components, the
+  lazily loaded `auth.validators.ts`): it pulls TypeBox + all contracts (19 KB gzip) into whatever imports it.
+- **One origin, `/api`**: every API route is registered under `/api` (`API_PREFIX` in `app.ts`; the health probes are also at
+  the root; `/docs` stays at the root). The browser calls `/api/...`; the dev server / `scripts/serve.mjs` / the Cloud Load
+  Balancer forward `/api/*` to the API with NO rewrite and untouched Host, Origin and Cookie. A new route needs no prefix in its
+  `routes.ts` (the prefix is applied at registration); tests use `TestClient`, which adds it. `changeOrigin: false` and the `127.0.0.1` target in
+  `vite.config.ts` are load-bearing (see the comments there). Production: README "Production routing".
+- **UI hiding is cosmetic.** `usePermissions()` (from `/auth/me`) decides what is shown; the API enforces everything.
+- **Every data screen** has a skeleton, an empty state and an error state with a retry; destructive actions use
+  `ConfirmDialog` and NAME the target; mutations toast and update the TanStack Query cache in place (`setQueryData` /
+  patch the cached pages), they do not refetch whole lists. Lists are keyset "load more". Cascading pickers
+  (department -> program -> batch -> section) fetch a level only after its parent is chosen, every options request is
+  bounded (`limit=100`); never fetch all sections of a college.
+- **Forms**: public auth forms use `useSimpleForm` + the lazy validator; everything else react-hook-form + `typeboxResolver`
+  (pass `labels` so messages use the words of the form). TypeBox does not know the `uuid` / `date` formats unless they are
+  registered (`shared/forms/validation.ts` does).
+- **Accessibility (WCAG 2.1 AA)**: real labels, `role="alert"` errors linked with `aria-describedby`, native `<dialog>`,
+  visible focus, touch targets >= 44 px on phones, colours only through the tokens in `index.css` (contrast of every pair is a
+  unit test). The college colour is applied per theme only where it passes AA (`shared/utils/color.ts`).
+- **Budgets** (CI): login page initial JS <= 125 KB gzip, any route <= 150 KB (`pnpm bundle:check`); Lighthouse mobile
+  performance >= 90 and accessibility >= 95 on the login page and the members list (`pnpm lighthouse`).
 
 ## Layer responsibilities (per module, in `backend/src/modules/<module>/`)
 
@@ -144,6 +172,8 @@ fail when the committed file is stale: regenerate and commit it whenever permiss
 - **Services re-check resource-level permissions themselves** ("can this user grade THIS submission", "is this member in
   my tenant"). Route checks are coarse; **services are the source of truth** and call `can(ctx, ...)` with the
   `RequestContext`. Never compare role strings.
+- **`GET /auth/me` returns `permissions`** (the caller's account-level permission names). The frontend uses them to show or
+  hide navigation and buttons; that is cosmetic only, the backend checks every request.
 - **Roles**: `platform_admin` (admin host only), `institution_admin` and `member` (tenant host); course participation
   `instructor | assistant | learner`. An institution admin has read-only `content.view` on every course of the college plus
   `report.view`, and **no** `course.edit/publish`, `assessment.create`, `submission.grade`, `grade.finalize` unless they
@@ -152,6 +182,13 @@ fail when the committed file is stale: regenerate and commit it whenever permiss
   the admin host (their cookie is ignored -> 401). Platform permissions are never granted on a tenant host (-> 403 for a
   signed-in tenant user). The only cross-tenant access is the audited read `GET /platform/tenants/:id/members`
   (`auditService.withPlatformAdminAccess` writes the tenant `audit_log` AND `platform_audit_log` in the same transaction).
+- **Audit entries carry the actor**: `GET /audit` and `GET /platform/audit` return `actorName` / `actorEmail` next to `actorUserId`,
+  from the same query (a LEFT JOIN on `users` under RLS; the platform log through `platform_list_audit_v2`). An actor who can no
+  longer be read (removed from the college) is "Unknown user"; a platform admin acting inside a college is "Platform administrator";
+  a system action has no actor (null). Budgets unchanged.
+- **College branding** (`tenant_settings` key `branding`: display name + primary colour `#rrggbb`): public `GET /tenant/info`
+  (response is EXACTLY `{slug, displayName, primaryColor}`, pinned by a test; rate limited like every route), `PATCH /tenant/branding`
+  (`tenant.manage`, audited with before/after).
 - **Tests**: `authz-matrix.test.ts` (every endpoint x caller -> expected status; it is the spec), `route-declarations.test.ts`,
   `core/__tests__/authz-policy.unit.test.ts`. A new route needs a row in the matrix.
 
@@ -213,7 +250,7 @@ its own schema (no RLS / hand-written migrations / tenant column) - see ADR 0010
   409 `in_use`). The six entities share one generic repository / controller / routes driven by `academics.entities.ts`;
   every change is one fused statement (4 round trips).
 - **Profiles** (`member_profiles`, one per membership): student = register number + batch + section (department derived
-  from the batch by trigger; the section must belong to the batch by composite FK); faculty / staff = employee id +
+  from the batch by trigger; the profile read also returns `programId` / `programName` / `programCode`, derived through the batch; the section must belong to the batch by composite FK); faculty / staff = employee id +
   department. Section moves are within the batch, single or bulk (one statement, one audit entry per student).
   `GET /members` filters by `profileType`, `departmentId`, `batchId`, `sectionId`.
 - **Bulk import** (`/imports`): upload (streamed multipart, `csv-parse`, never buffered whole) -> staging table
@@ -368,6 +405,11 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
   and in tests that have ever failed intermittently (run those repeatedly when you touch the code they cover).
 - The app's readiness timeout stays short (2s default).
 - `backend/test/query-budget.test.ts` enforces the round-trip budgets (see above).
+- **Frontend tests** (`frontend/test`): Vitest + Testing Library + MSW with handlers typed from the contracts (`test/server.ts`);
+  a typed fixture changes when a contract changes, so drift breaks the build. **E2E** (`pnpm e2e`): Playwright against the real
+  API, worker and PostgreSQL in the dedicated database `lms_e2e` (guard: `backend/test/e2e-database.ts`, same refusals as the
+  test databases; migrated, truncated and seeded before every run), `MAILER=file` for emailed links, axe (fails on serious or
+  critical violations) on every main screen in light, dark and at 360 px. It is serial and takes about 1-2 minutes locally.
 - Required coverage that must stay green: health, error shape/no leaks, tenant isolation, role model, env validation,
   SSL policy, migration runner, schema drift, policy audit, layering (`pnpm lint`).
 - Graceful-shutdown signal test runs on Linux/macOS only (Windows cannot deliver SIGTERM to Node).
@@ -386,6 +428,7 @@ every extra statement also holds a pooled connection longer. So round trips are 
   (role, suspend, reactivate, delete, resend-invite) 4 = lookup + BEGIN + one fused statement + COMMIT; platform reads /
   rename / suspend / reactivate 2 (lookup + one definer call); `POST /platform/tenants` and `admin-invite` 3;
   `GET /platform/tenants/:id/members` 6 (two audit writes + the read).
+  Step 5b: public `GET /tenant/info` 3 (no session; one `withTenant` read), `PATCH /tenant/branding` 4 (one fused statement incl. audit).
   Step 5: academics reads 4, every academic change 4 (one fused statement), profile read / upsert / section moves 4,
   `GET /members` with profile filters 4, `GET /imports*` 4 (`/rows` and `/errors.csv` 5: the import and its page share a
   transaction), confirm / cancel 4, `POST /imports` = 7 + 1 per 1,000 rows staged (10,000 rows: 16 statements). The worker
@@ -445,6 +488,7 @@ pnpm bench               autocannon on /health/live and /health/ready (docs/benc
 pnpm docs:permissions    regenerate docs/permissions.md (--check = fail if stale; CI runs it)
 pnpm --filter @lms/backend run bench:members   GET /members incl. the section filter (throwaway tenant, self-cleaning)
 pnpm --filter @lms/backend run bench:search    EXPLAIN experiment for member search, throwaway schema, self-cleaning
+pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
 Per package: `pnpm --filter @lms/backend run <script>` / `pnpm --filter @lms/frontend run <script>`.
 Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-ignored too. CI creates `anon` and
@@ -463,6 +507,8 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - The tenant slug cache (`TENANT_CACHE_TTL_MS`) is per instance: a newly created or suspended college is seen by other
   instances within the TTL (suspension is enforced immediately for sessions regardless).
 - A platform admin cannot sign in on a tenant host; the only cross-tenant access is the audited member view.
-- Real mail provider (only `console` and capturing mailers exist); the auth rate limits are per instance.
+- Production gateway: `/api/*` -> API service, everything else -> SPA, no rewrite (README "Production routing"); logos for the
+  college branding come with file storage.
+- Real mail provider (only `console`, `file` (dev/E2E) and capturing mailers exist); the auth rate limits are per instance.
 - Re-run the full suite on Node 24 (local machine was on 22).
 - Upgrade TypeScript to 7.x once dependency-cruiser supports it.

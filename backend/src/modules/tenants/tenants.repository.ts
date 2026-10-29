@@ -1,5 +1,6 @@
 import { asc, eq, gt, sql } from 'drizzle-orm';
 import type { Executor } from '../../db/client';
+import { auditInsertFrom } from '../audit';
 import { tenantSettings, tenants } from './tenants.model';
 
 const tenantColumns = {
@@ -20,6 +21,13 @@ export interface ResolvedTenantRow {
   id: string;
   slug: string;
   status: string;
+}
+
+export interface InfoRow {
+  slug: string;
+  name: string;
+  /** the `branding` setting as stored (untrusted shape: validated by the service) */
+  branding: unknown;
 }
 
 export interface SettingInput {
@@ -68,6 +76,62 @@ export function createTenantsRepository() {
         })
         .returning(settingColumns);
       return row;
+    },
+
+    /** Slug, name and the `branding` setting of the tenant in one query (RLS: only its own rows). */
+    async readInfo(tx: Executor, tenantId: string): Promise<InfoRow | undefined> {
+      const result = await tx.execute(sql`
+        SELECT t.slug, t.name, s.value AS branding
+          FROM lms.tenants t
+          LEFT JOIN lms.tenant_settings s ON s.tenant_id = t.id AND s.key = 'branding'
+         WHERE t.id = ${tenantId}::uuid`);
+      return result.rows[0] as InfoRow | undefined;
+    },
+
+    /**
+     * ONE statement: remember the old value, upsert the `branding` setting, write the audit entry
+     * (before/after). Returns the tenant slug and the stored value.
+     */
+    async upsertBranding(
+      tx: Executor,
+      o: {
+        tenantId: string;
+        actorUserId: string;
+        settingId: string;
+        auditId: string;
+        value: { displayName: string; primaryColor: string };
+      },
+    ): Promise<{ slug: string; branding: unknown } | undefined> {
+      const result = await tx.execute(sql`
+        WITH old AS (
+          SELECT value FROM lms.tenant_settings WHERE tenant_id = ${o.tenantId}::uuid AND key = 'branding'
+        ), up AS (
+          INSERT INTO lms.tenant_settings (id, tenant_id, key, value, updated_by_membership_id)
+          VALUES (${o.settingId}::uuid, ${o.tenantId}::uuid, 'branding', ${JSON.stringify(o.value)}::jsonb,
+                  (SELECT id FROM lms.tenant_memberships
+                    WHERE tenant_id = ${o.tenantId}::uuid AND user_id = ${o.actorUserId}::uuid))
+          ON CONFLICT (tenant_id, key) DO UPDATE
+            SET value = EXCLUDED.value, updated_by_membership_id = EXCLUDED.updated_by_membership_id,
+                updated_at = now()
+          RETURNING value
+        ), aud AS (
+          ${auditInsertFrom(
+            {
+              id: o.auditId,
+              tenantId: o.tenantId,
+              actorUserId: o.actorUserId,
+              action: 'tenant.branding_updated',
+              targetType: 'tenant',
+            },
+            {
+              from: sql`up`,
+              targetId: sql`${o.tenantId}::uuid`,
+              metadata: sql`jsonb_build_object('before', (SELECT value FROM old), 'after', up.value)`,
+            },
+          )}
+        )
+        SELECT t.slug, up.value AS branding FROM up, lms.tenants t WHERE t.id = ${o.tenantId}::uuid`);
+      return result.rows[0] as { slug: string; branding: unknown } | undefined;
     },
 
     async deleteSetting(tx: Executor, key: string) {

@@ -7,6 +7,7 @@ import {
   createBackgroundTasks,
   createCapturingMailer,
   createConsoleMailer,
+  createFileMailer,
   type Mailer,
 } from './core/mailer';
 import { createPasswordHasher } from './core/password';
@@ -138,6 +139,7 @@ export function modulesConfigFromEnv(
     | 'TENANT_CACHE_TTL_MS'
     | 'TENANT_CACHE_MAX'
     | 'MAILER'
+    | 'MAIL_FILE'
     | 'PURGE_RETENTION_DAYS'
     | 'PURGE_INTERVAL_SECONDS'
     | 'PURGE_BATCH_SIZE'
@@ -213,7 +215,9 @@ export function modulesConfigFromEnv(
       mailer ??
       (env.MAILER === 'console'
         ? createConsoleMailer((obj, msg) => logger.info(obj, msg))
-        : createCapturingMailer()),
+        : env.MAILER === 'file' && env.MAIL_FILE
+          ? createFileMailer(env.MAIL_FILE)
+          : createCapturingMailer()),
     onBackgroundError: (err) => logger.error({ err }, 'background task failed'),
   };
 }

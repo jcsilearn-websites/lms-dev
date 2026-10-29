@@ -64,6 +64,66 @@ pnpm bench
 - CI (GitHub Actions) runs lint, typecheck, build and tests against a `postgres:18` service container.
 - Moving to Google Cloud SQL (production TLS: `DB_SSL=verify-full`): [docs/migrating-to-cloud-sql.md](docs/migrating-to-cloud-sql.md).
 
+## Frontend
+
+React + Vite + TanStack Query + TanStack Router, Tailwind (design tokens in `frontend/src/index.css`, light and dark),
+screens in `frontend/src/features/<feature>`, shared pieces in `frontend/src/shared`. Why these choices:
+[ADR 0012](docs/adr/0012-frontend.md).
+
+```
+pnpm dev                      # API :3000 + web :5173 (hot reload)
+pnpm --filter @lms/frontend run test        # component tests (Vitest + Testing Library + MSW)
+pnpm e2e                      # Playwright end-to-end tests against the real stack and PostgreSQL (below)
+pnpm bundle:check             # bundle budgets (after `pnpm build`): login <= 125 KB gzip, any route <= 150 KB
+pnpm lighthouse               # Lighthouse, mobile preset: login page + members list (median of 3)
+pnpm screenshots              # docs/screenshots (light/dark x desktop/phone)
+```
+
+### Hosts and the `/api` proxy (dev, preview and E2E)
+
+A college is a host name: `<slug>.localhost:5173` (the platform area is `admin.localhost:5173`). Browsers resolve
+`*.localhost` to your machine, so cookies are host-only per college exactly like production subdomains. The browser
+calls **`/api/...` on its own origin**; the Vite dev server (`frontend/vite.config.ts`) forwards `/api/*` to the API on
+`127.0.0.1:3000` **unchanged**: every API route is registered under `/api` (the health probes also stay at the root), because
+the SPA owns the other paths (`/members`, `/audit`, ...). Two details matter:
+
+- `changeOrigin: false`: Vite would otherwise rewrite the `Host` header to the target. The API resolves the college from
+  `Host` and its CSRF check compares `Origin` with `Host`, so a rewritten Host means 404 or `csrf_rejected`.
+- the target is `127.0.0.1`, not `localhost`: Node resolves `localhost` to IPv6 first and the API listens on IPv4.
+
+`VITE_DEV_API_TARGET` points the proxy elsewhere. To open the seeded colleges see "Signing in locally" below.
+
+### UI permissions are cosmetic
+
+`GET /auth/me` returns the caller's `permissions`; the navigation and buttons use them to show only what a person can do.
+That is a convenience, **not a security boundary**: the API checks every request again and stays the source of truth
+(`docs/permissions.md`). Never rely on a hidden button.
+
+### End-to-end tests
+
+`pnpm e2e` (`frontend/scripts/e2e.mjs`) prepares a dedicated database **`lms_e2e`** on the same local server (created,
+migrated, truncated and seeded before every run; the guard refuses anything that could be `lms_dev` or a unit-test database),
+builds the SPA, starts the API, the worker and a production-like web server (`frontend/scripts/serve.mjs`: compression,
+SPA fallback, `/api` proxy) on ports 3100 / 4173 and runs Playwright serially. Emails go to a git-ignored file
+(`MAILER=file` -> `.mail/e2e-outbox.jsonl`) which the tests read for invite and reset links. First time only:
+`pnpm --filter @lms/frontend exec playwright install chromium`. On a machine with little free memory close other
+heavy applications (a browser with many tabs) before running it.
+
+## Production routing (GCP TODOs)
+
+The SPA and the API share one origin per college; in production a gateway has to do what `frontend/scripts/serve.mjs` and
+the Vite proxy do locally (route `/api/*` to the API, the rest to the SPA):
+
+- **Cloud Load Balancer** (URL map): route `/api/*` to the API service (Cloud Run) and everything else to the SPA (static
+  bucket or service) with a fallback to `index.html` for client-side routes. **No URL rewrite** anywhere: the API already
+  serves its routes under `/api`. The probes `/health/live` and `/health/ready` are also served at the root for Cloud Run.
+- Do **not** rewrite or replace the `Host` header, and forward `Origin`, `Cookie` and `X-Forwarded-*` untouched: the college is
+  resolved from `Host`, cookies are host-only, and `TRUST_PROXY` must match the proxy chain.
+- Serve `/assets/*` with `Cache-Control: public, max-age=31536000, immutable` (file names are content hashes) and
+  `index.html` with `no-cache`; compress text assets (brotli/gzip); send the security headers `serve.mjs` sends (CSP,
+  `nosniff`, `frame-ancestors 'none'`).
+- Wildcard certificate and wildcard DNS for `*.<APP_BASE_DOMAIN>` (tenants) plus `admin.<APP_BASE_DOMAIN>`.
+
 ## Signing in locally
 
 Tenants are served on subdomains, and `*.localhost` resolves to your machine:

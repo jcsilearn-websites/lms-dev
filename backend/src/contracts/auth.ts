@@ -27,6 +27,12 @@ export const MeResponseSchema = Type.Object({
   tenant: Type.Union([Type.Object({ id: Uuid, slug: Type.String() }), Type.Null()]),
   role: Type.Union([MembershipRoleSchema, Type.Null()]),
   isPlatformAdmin: Type.Boolean(),
+  /**
+   * Account-level permission names the caller holds in this scope (see docs/permissions.md). For
+   * the UI only: it decides what to SHOW. Hiding a button is cosmetic; the backend checks every
+   * request again and stays the source of truth.
+   */
+  permissions: Type.Array(Type.String()),
 });
 export type MeResponse = Static<typeof MeResponseSchema>;
 

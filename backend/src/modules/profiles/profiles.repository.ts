@@ -35,10 +35,10 @@ const PROFILE_COLS_X = PROFILE_COLS.split(', ')
   .map((c) => `x.${c}`)
   .join(', ');
 
-/** The display shape: the profile with the codes of its department / program / batch / section. */
+/** The display shape: the profile with the codes of its department / program / batch / section (the program is derived through the batch). */
 const displayFrom = (profile: SQL, userId: SQL) => sql`
   SELECT ${userId} AS user_id, p.profile_type, p.phone, p.designation, p.register_number, p.employee_id,
-         p.department_id, d.code AS department_code, pr.code AS program_code, p.batch_id,
+         p.department_id, d.code AS department_code, pr.id AS program_id, pr.code AS program_code, pr.name AS program_name, p.batch_id,
          b.admission_year, b.graduation_year, p.section_id, s.code AS section_code,
          p.created_at, p.updated_at
     FROM ${profile} p

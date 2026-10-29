@@ -35,6 +35,9 @@ export interface AppDeps {
  * Builds (but does not start) the API: composition root that wires every module's routes.
  * Callers `listen()` (server.ts) or use `inject()` (tests).
  */
+/** Prefix of every application route (health probes are also served at the root). */
+export const API_PREFIX = '/api';
+
 export function buildApp({ env, db, logger, mailer }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
@@ -67,22 +70,35 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
   // background work (failed-login bookkeeping, reset emails) is awaited on shutdown
   app.addHook('onClose', async () => modules.background.drain());
 
+  // Platform probes (load balancer, Cloud Run) hit the health routes at the ROOT.
   void app.register(createHealthRoutes({ healthController: modules.health.controller }));
-  void app.register(createTenantsRoutes({ tenantsController: modules.tenants.controller }));
-  void app.register(createUsersRoutes({ usersController: modules.users.controller }));
+
+  // Every application route lives under /api: the SPA owns the other paths (/members, /audit, ...), so a
+  // gateway can send /api/* to this service and everything else to the SPA without rewriting any URL.
+  // The health probes are also reachable under /api/health/* for the same reason.
   void app.register(
-    createMembershipsRoutes({ membershipsController: modules.memberships.controller }),
-  );
-  void app.register(createAcademicsRoutes({ academicsController: modules.academics.controller }));
-  void app.register(createImportsRoutes({ importsController: modules.imports.controller }));
-  void app.register(createProfilesRoutes({ profilesController: modules.profiles.controller }));
-  void app.register(createAuditRoutes({ auditController: modules.audit.controller }));
-  void app.register(createSessionsRoutes({ sessionsController: modules.sessions.controller }));
-  void app.register(
-    createAuthRoutes({
-      authController: modules.auth.controller,
-      rateLimits: modules.config.authRateLimits,
-    }),
+    async (api) => {
+      void api.register(createHealthRoutes({ healthController: modules.health.controller }));
+      void api.register(createTenantsRoutes({ tenantsController: modules.tenants.controller }));
+      void api.register(createUsersRoutes({ usersController: modules.users.controller }));
+      void api.register(
+        createMembershipsRoutes({ membershipsController: modules.memberships.controller }),
+      );
+      void api.register(
+        createAcademicsRoutes({ academicsController: modules.academics.controller }),
+      );
+      void api.register(createImportsRoutes({ importsController: modules.imports.controller }));
+      void api.register(createProfilesRoutes({ profilesController: modules.profiles.controller }));
+      void api.register(createAuditRoutes({ auditController: modules.audit.controller }));
+      void api.register(createSessionsRoutes({ sessionsController: modules.sessions.controller }));
+      void api.register(
+        createAuthRoutes({
+          authController: modules.auth.controller,
+          rateLimits: modules.config.authRateLimits,
+        }),
+      );
+    },
+    { prefix: API_PREFIX },
   );
 
   return Object.assign(app, { modules });

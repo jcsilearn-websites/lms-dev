@@ -6,9 +6,11 @@ import type {
   MemberListQuerySchema,
   TenantListQuerySchema,
   TenantParamsSchema,
+  UpdateBrandingRequestSchema,
   UpdateTenantRequestSchema,
 } from '../../contracts';
 import { contextFrom } from '../../core/context';
+import { NotFoundError } from '../../core/errors';
 import type { Member } from '../memberships';
 import type {
   AdminInviteResult,
@@ -59,8 +61,19 @@ export function createTenantsController(deps: {
   tenantsService: TenantsService;
   platformService: TenantsPlatformService;
 }) {
-  const { platformService: platform } = deps;
+  const { tenantsService, platformService: platform } = deps;
   return {
+    /** Public. Only a tenant host has branding; the admin host and unknown hosts get 404. */
+    info: async (request: FastifyRequest) => {
+      const tenant = request.tenant;
+      if (!tenant) throw new NotFoundError('tenant_not_found', 'Tenant not found');
+      return tenantsService.getInfo(tenant.id);
+    },
+
+    updateBranding: async (
+      request: FastifyRequest<{ Body: Static<typeof UpdateBrandingRequestSchema> }>,
+    ) => tenantsService.updateBranding(contextFrom(request), request.body),
+
     list: async (
       request: FastifyRequest<{ Querystring: Static<typeof TenantListQuerySchema> }>,
     ) => {

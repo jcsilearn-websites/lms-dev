@@ -82,7 +82,20 @@ const authenticated = (method: string, url: string, ok: number, body?: unknown):
   adminHost: [401, 401, 401, ok],
 });
 
+/** Public, but only meaningful on a tenant host: the admin host has no college behind it (404). */
+const publicTenantOnly = (method: string, url: string): Row => ({
+  endpoint: `${method} ${url}`,
+  method,
+  url,
+  // every caller (a foreign or platform cookie is ignored on a tenant host) gets the public answer
+  tenantHost: [200, 200, 200, 200, 200],
+  adminHost: [404, 404, 404, 404],
+});
+
 const ROWS: Row[] = [
+  // ---- college branding: public read (sign-in page), institution admin writes
+  publicTenantOnly('GET', '/tenant/info'),
+  tenantPerm('PATCH', '/tenant/branding', 400, {}),
   // ---- tenant host, institution admin
   tenantPerm('GET', '/members', 200),
   tenantPerm('GET', `/members/${U}`, 404),
@@ -164,7 +177,7 @@ let owner: pg.Pool;
 let t: TestApp;
 let A: AuthFixture;
 let B: AuthFixture;
-const routes: { key: string; kinds: number }[] = [];
+const routes: { key: string; url: string; kinds: number }[] = [];
 
 // one client per caller, per host
 let tenant: {
@@ -191,7 +204,9 @@ beforeAll(async () => {
     if (route.url.startsWith('/docs') || route.schema?.hide === true || route.method === 'HEAD')
       return;
     routes.push({
-      key: `${String(route.method)} ${route.url}`,
+      // the matrix lists routes WITHOUT the /api prefix (TestClient adds it); see the prefix test below
+      key: `${String(route.method)} ${route.url.replace(/^\/api(?=\/)/, '')}`,
+      url: route.url,
       kinds: declarationCount(route.config as RouteDeclaration | undefined),
     });
   });
@@ -283,6 +298,18 @@ describe('the matrix covers the whole API', () => {
         (k) => !inMatrix.has(k) && !(k.replace(U, ':x') in NOT_IN_MATRIX) && !(k in NOT_IN_MATRIX),
       );
     expect(uncovered).toEqual([]);
+  });
+
+  it('every application route lives under /api; only the health probes are also at the root', () => {
+    const outside = routes.filter(
+      (r) => !r.url.startsWith('/api/') && !r.url.startsWith('/health/'),
+    );
+    expect(outside.map((r) => r.key)).toEqual([]);
+    // the probes are reachable at both places
+    for (const probe of ['/health/live', '/health/ready']) {
+      expect(routes.some((r) => r.url === probe)).toBe(true);
+      expect(routes.some((r) => r.url === `/api${probe}`)).toBe(true);
+    }
   });
 
   it('every route declares exactly one authorization kind', () => {

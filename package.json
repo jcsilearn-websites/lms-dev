@@ -25,7 +25,11 @@
     "start": "pnpm --filter @lms/backend run start",
     "db:dev:clean": "pnpm --filter @lms/backend run db:dev:clean --",
     "prepare": "git config core.hooksPath .githooks || exit 0",
-    "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml"
+    "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml",
+    "e2e": "pnpm --filter @lms/frontend run e2e",
+    "bundle:check": "pnpm --filter @lms/frontend run bundle:check",
+    "lighthouse": "pnpm --filter @lms/frontend run lighthouse",
+    "screenshots": "pnpm --filter @lms/frontend run screenshots"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6.3",

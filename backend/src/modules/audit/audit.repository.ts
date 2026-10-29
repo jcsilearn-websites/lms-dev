@@ -13,6 +13,9 @@ export interface AuditListRow {
   metadata: Record<string, unknown>;
   createdAt: Date;
   cursorAt: string;
+  /** Name and email of the actor when the actor can be read (null: no actor, or not visible). */
+  actorName: string | null;
+  actorEmail: string | null;
 }
 
 export interface AuditListFilter {
@@ -24,8 +27,8 @@ export interface AuditListFilter {
   to?: string | undefined;
 }
 
-const CURSOR_AT = sql.raw(
-  `to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
+const CURSOR_AT_A = sql.raw(
+  `to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`,
 );
 
 export interface AuditRow {
@@ -58,6 +61,8 @@ function toRow(r: Record<string, unknown>): AuditListRow {
     metadata: (r.metadata as Record<string, unknown>) ?? {},
     createdAt: new Date(r.created_at as Date | string),
     cursorAt: r.cursor_at as string,
+    actorName: (r.actor_name as string | null) ?? null,
+    actorEmail: (r.actor_email as string | null) ?? null,
   };
 }
 
@@ -81,19 +86,24 @@ export function createAuditRepository() {
      * applies as well) so the planner can use the index.
      */
     async listTenant(tx: Executor, tenantId: string, f: AuditListFilter): Promise<AuditListRow[]> {
-      const where: SQL[] = [sql`tenant_id = ${tenantId}::uuid`];
-      if (f.action !== undefined) where.push(sql`action = ${f.action}::text`);
-      if (f.from !== undefined) where.push(sql`created_at >= ${f.from}::timestamptz`);
-      if (f.to !== undefined) where.push(sql`created_at < ${f.to}::timestamptz`);
+      const where: SQL[] = [sql`a.tenant_id = ${tenantId}::uuid`];
+      if (f.action !== undefined) where.push(sql`a.action = ${f.action}::text`);
+      if (f.from !== undefined) where.push(sql`a.created_at >= ${f.from}::timestamptz`);
+      if (f.to !== undefined) where.push(sql`a.created_at < ${f.to}::timestamptz`);
       if (f.after) {
         where.push(
-          sql`(created_at, id) < (${f.after.createdAt}::timestamptz, ${f.after.id}::uuid)`,
+          sql`(a.created_at, a.id) < (${f.after.createdAt}::timestamptz, ${f.after.id}::uuid)`,
         );
       }
+      // The actor comes from the same statement: a LEFT JOIN on the primary key of at most `limit` rows
+      // (no query per row). Row-level security on users only shows the actor while they are a member of
+      // this college (or the signed-in user), so a removed actor has no name here.
       const res = await tx.execute(
-        sql`SELECT id, actor_user_id, action, target_type, target_id, metadata, created_at, ${CURSOR_AT} AS cursor_at
-              FROM lms.audit_log WHERE ${sql.join(where, sql` AND `)}
-             ORDER BY created_at DESC, id DESC LIMIT ${f.limit}`,
+        sql`SELECT a.id, a.actor_user_id, a.action, a.target_type, a.target_id, a.metadata, a.created_at,
+                   ${CURSOR_AT_A} AS cursor_at, u.display_name::text AS actor_name, u.email::text AS actor_email
+              FROM lms.audit_log a LEFT JOIN lms.users u ON u.id = a.actor_user_id
+             WHERE ${sql.join(where, sql` AND `)}
+             ORDER BY a.created_at DESC, a.id DESC LIMIT ${f.limit}`,
       );
       return res.rows.map(toRow);
     },
@@ -103,8 +113,9 @@ export function createAuditRepository() {
       const res = await db.execute(
         sql`SELECT r_id AS id, r_actor_user_id AS actor_user_id, r_action AS action,
                    r_target_type AS target_type, r_target_id AS target_id, r_metadata AS metadata,
-                   r_created_at AS created_at, r_cursor_at AS cursor_at
-              FROM lms.platform_list_audit(${actorUserId}::uuid, ${f.action ?? null}::text,
+                   r_created_at AS created_at, r_cursor_at AS cursor_at,
+                   r_actor_name AS actor_name, r_actor_email AS actor_email
+              FROM lms.platform_list_audit_v2(${actorUserId}::uuid, ${f.action ?? null}::text,
                    ${f.from ?? null}::timestamptz, ${f.to ?? null}::timestamptz,
                    ${f.after?.createdAt ?? null}::timestamptz, ${f.after?.id ?? null}::uuid, ${f.limit}::int)`,
       );

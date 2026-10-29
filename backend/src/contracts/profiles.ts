@@ -27,7 +27,10 @@ export const ProfileSchema = Type.Object({
   employeeId: Nullable(Type.String()),
   departmentId: Nullable(Id),
   departmentCode: Nullable(Type.String()),
+  /** Students: the program of the batch (derived, not stored on the profile). */
+  programId: Nullable(Id),
   programCode: Nullable(Type.String()),
+  programName: Nullable(Type.String()),
   batchId: Nullable(Id),
   /** e.g. "2023-2027" */
   batchLabel: Nullable(Type.String()),
@@ -66,3 +69,6 @@ export const MoveSectionResponseSchema = Type.Object({
   /** not a student, no profile, not in the section's batch, or not a member of this college */
   skipped: Type.Array(Id),
 });
+
+export type MoveSectionResponse = Static<typeof MoveSectionResponseSchema>;
+export type UpdateProfileRequest = Static<typeof UpdateProfileRequestSchema>;

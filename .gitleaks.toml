@@ -15,9 +15,6 @@ keywords = ["postgres://", "postgresql://"]
 description = "Known dead / throwaway values"
 regexTarget = "match"
 regexes = [
-  # The former Supabase DEV database (project ref thplgm...). It was committed in .env.example by mistake;
-  # both Supabase projects are being deleted (ADR 0011), so the string is dead. Only THIS string is allowed.
-  '''postgres\.thplgmztyympcxoxxoyr:EeFVzkwu2CyfWdQq@aws-0-eu-west-1\.pooler\.supabase\.com''',
   # Throwaway Postgres service container of CI (not a secret): TEST_DATABASE_URL in .github/workflows/ci.yml
   '''postgresql://postgres:postgres@localhost:5432/lms_test''',
   '''postgresql://lms_app:ci0lms0app0password0000@localhost:5432/lms_test''',

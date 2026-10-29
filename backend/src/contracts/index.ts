@@ -10,3 +10,4 @@ export * from './members';
 export * from './platform';
 export * from './profiles';
 export * from './roles';
+export * from './tenant';

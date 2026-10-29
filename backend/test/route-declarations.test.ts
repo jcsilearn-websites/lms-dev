@@ -21,6 +21,10 @@ describe('route declarations', () => {
       await t.app.ready();
       expect(seen.length).toBeGreaterThan(10);
       expect(seen.filter((r) => r.kinds !== 1)).toEqual([]);
+      // every route is under /api (or is a health probe, which is also served at the root)
+      expect(
+        seen.filter((r) => !/^\w+ \/(api\/|health\/)/.test(r.route)).map((r) => r.route),
+      ).toEqual([]);
     } finally {
       await t.close();
     }

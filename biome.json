@@ -15,6 +15,7 @@
       "!docs/permissions.md"
     ]
   },
+  "css": { "parser": { "tailwindDirectives": true } },
   "formatter": {
     "indentStyle": "space",
     "indentWidth": 2,
@@ -62,7 +63,9 @@
         "**/bench/**",
         "**/src/server.ts",
         "**/src/worker.ts",
-        "**/src/cli/**"
+        "**/src/cli/**",
+        "**/backend/test/e2e-prepare.ts",
+        "**/frontend/scripts/**"
       ],
       "linter": {
         "rules": {

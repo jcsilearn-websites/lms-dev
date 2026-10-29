@@ -11,6 +11,8 @@ type Query = { Querystring: Static<typeof AuditListQuerySchema> };
 const toDto = (e: AuditEntry) => ({
   id: e.id,
   actorUserId: e.actorUserId,
+  actorName: e.actorName,
+  actorEmail: e.actorEmail,
   action: e.action,
   targetType: e.targetType,
   targetId: e.targetId,

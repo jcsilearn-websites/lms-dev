@@ -7,14 +7,29 @@ import {
   MemberListQuerySchema,
   PlatformMembersResponseSchema,
   TenantDetailSchema,
+  TenantInfoSchema,
   TenantListQuerySchema,
   TenantListResponseSchema,
   TenantParamsSchema,
   TenantSchema,
+  UpdateBrandingRequestSchema,
   UpdateTenantRequestSchema,
 } from '../../contracts';
 
 const tags = ['platform'];
+
+export const tenantInfoRouteSchema = {
+  tags: ['tenant'],
+  summary: 'Public branding of the college behind this host (display name, primary colour, slug)',
+  response: { 200: TenantInfoSchema, ...COMMON_ERRORS },
+};
+
+export const updateBrandingRouteSchema = {
+  tags: ['tenant'],
+  summary: 'Change the college branding (institution admin)',
+  body: UpdateBrandingRequestSchema,
+  response: { 200: TenantInfoSchema, ...COMMON_ERRORS },
+};
 
 export const createTenantRouteSchema = {
   tags,

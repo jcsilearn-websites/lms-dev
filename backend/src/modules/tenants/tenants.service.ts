@@ -1,4 +1,9 @@
+import type { TenantInfo, UpdateBrandingRequest } from '../../contracts';
+import { HEX_COLOR_PATTERN } from '../../contracts';
 import type { ResolvedTenant } from '../../core/auth-context';
+import { can } from '../../core/authz';
+import type { RequestContext } from '../../core/context';
+import { BadRequestError, ForbiddenError } from '../../core/errors';
 import { buildPage, normalizePage, type Page, type PageRequest } from '../../core/pagination';
 import { newId } from '../../core/uuid';
 import type { Database } from '../../db/client';
@@ -18,6 +23,21 @@ export interface TenantSetting {
   value: unknown;
   updatedByMembershipId: string | null;
   updatedAt: Date;
+}
+
+export const DEFAULT_PRIMARY_COLOR = '#2563eb';
+const HEX = new RegExp(HEX_COLOR_PATTERN);
+
+/** The stored `branding` setting is jsonb: never trust its shape, fall back to the defaults. */
+function brandingOf(raw: unknown, name: string): { displayName: string; primaryColor: string } {
+  const v = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const displayName =
+    typeof v.displayName === 'string' && v.displayName.trim() ? v.displayName.trim() : name;
+  const primaryColor =
+    typeof v.primaryColor === 'string' && HEX.test(v.primaryColor)
+      ? v.primaryColor.toLowerCase()
+      : DEFAULT_PRIMARY_COLOR;
+  return { displayName, primaryColor };
 }
 
 export interface TenantCacheOptions {
@@ -79,6 +99,36 @@ export function createTenantsService(deps: {
       const tenant = await db.withTenant(tenantId, (tx) => tenantsRepo.findById(tx, tenantId));
       if (!tenant) throw new TenantNotFoundError();
       return tenant;
+    },
+
+    /** PUBLIC branding of a tenant: slug, display name, primary colour. Nothing else leaves here. */
+    async getInfo(tenantId: string): Promise<TenantInfo> {
+      const row = await db.withTenant(tenantId, (tx) => tenantsRepo.readInfo(tx, tenantId));
+      if (!row) throw new TenantNotFoundError();
+      return { slug: row.slug, ...brandingOf(row.branding, row.name) };
+    },
+
+    /** PATCH /tenant/branding. The service re-checks the permission (the route check is coarse). */
+    async updateBranding(ctx: RequestContext, input: UpdateBrandingRequest): Promise<TenantInfo> {
+      if (!ctx.tenantId || !can(ctx, 'tenant.manage', { tenantId: ctx.tenantId })) {
+        throw new ForbiddenError();
+      }
+      const displayName = input.displayName.trim();
+      if (!displayName) {
+        throw new BadRequestError('invalid_display_name', 'The display name must not be empty');
+      }
+      const tenantId = ctx.tenantId;
+      const row = await db.withTenant(tenantId, (tx) =>
+        tenantsRepo.upsertBranding(tx, {
+          tenantId,
+          actorUserId: ctx.userId,
+          settingId: newId(),
+          auditId: newId(),
+          value: { displayName, primaryColor: input.primaryColor.toLowerCase() },
+        }),
+      );
+      if (!row) throw new TenantNotFoundError();
+      return { slug: row.slug, ...brandingOf(row.branding, displayName) };
     },
 
     async listSettings(tenantId: string, request?: PageRequest): Promise<Page<TenantSetting>> {

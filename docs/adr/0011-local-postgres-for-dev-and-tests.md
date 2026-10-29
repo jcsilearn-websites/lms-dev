@@ -38,9 +38,9 @@ could not make the test run fast, and they hid database-side problems behind lat
   `docs/benchmarks.md` under "Supabase eu-west-1 (historical)".
 - Local PostgreSQL has no Supabase-style pooler: the dev machine connects directly, so `DB_POOL_MAX` stays small (5)
   because every test worker holds connections against the default limit of 100.
-- **Secrets**: a Supabase dev connection string (with its password) was committed in `.env.example` between f4d2fae
-  and 0c9a151. Deleting both projects makes it useless; the history is not rewritten. It is the ONLY allowlisted
-  value in `.gitleaks.toml`. Secret scanning is now enforced: a gitleaks pre-commit hook (`.githooks/`, enabled by
-  `pnpm install`) and a CI job that scans the full history (the default rules missed this string, so
-  `.gitleaks.toml` adds a rule for database URLs with a password).
+- **Secrets**: a Supabase dev connection string (with its password) was once committed in `.env.example`. Both projects are
+  being deleted, which makes it useless, and the published history no longer contains it, so `.gitleaks.toml` has no
+  allowlist entry for it. Secret scanning is enforced: a gitleaks pre-commit hook (`.githooks/`, enabled by `pnpm install`) and
+  a CI job that scans the full history. The default rules missed that string, so `.gitleaks.toml` adds a rule for database
+  URLs with a password (allowlisted: only the throwaway CI container and a made-up unreachable test URL).
 - A hosted Supabase-style server is still tolerated by the code (pooler usernames, `no-verify`) but no longer exercised.

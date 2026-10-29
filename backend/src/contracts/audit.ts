@@ -5,6 +5,9 @@ const Uuid = Type.String({ format: 'uuid' });
 export const AuditEntrySchema = Type.Object({
   id: Uuid,
   actorUserId: Type.Union([Uuid, Type.Null()]),
+  /** Display name of the actor; "Unknown user" when they can no longer be read; null for system actions. */
+  actorName: Type.Union([Type.Null(), Type.String()]),
+  actorEmail: Type.Union([Type.Null(), Type.String()]),
   action: Type.String(),
   targetType: Type.String(),
   targetId: Type.Union([Type.String(), Type.Null()]),
@@ -28,3 +31,5 @@ export const AuditListResponseSchema = Type.Object({
   items: Type.Array(AuditEntrySchema),
   nextCursor: Type.Union([Type.String(), Type.Null()]),
 });
+
+export type AuditListResponse = Static<typeof AuditListResponseSchema>;

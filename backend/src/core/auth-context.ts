@@ -74,7 +74,7 @@ export function registerAuthContext(
     request.hostInfo = parseHost(request.host, deps.baseDomain);
     const info = request.hostInfo;
     // probes and non-tenant hosts carry no tenant/session context
-    if (info.kind === 'none' || request.url.startsWith('/health')) return;
+    if (info.kind === 'none' || /^(\/api)?\/health(\/|\?|$)/.test(request.url)) return;
 
     if (info.kind === 'tenant') {
       const tenant = await deps.tenantResolver.resolveBySlug(info.slug);

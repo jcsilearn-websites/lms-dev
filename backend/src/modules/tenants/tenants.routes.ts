@@ -7,7 +7,9 @@ import {
   listTenantsRouteSchema,
   reactivateTenantRouteSchema,
   suspendTenantRouteSchema,
+  tenantInfoRouteSchema,
   tenantMembersRouteSchema,
+  updateBrandingRouteSchema,
   updateTenantRouteSchema,
 } from './tenants.schemas';
 
@@ -18,6 +20,13 @@ export function createTenantsRoutes(deps: {
 }): FastifyPluginAsyncTypebox {
   const { tenantsController: c } = deps;
   return async (app) => {
+    // Public (the sign-in page needs it) but NOT exempt from the global rate limit.
+    app.get('/tenant/info', { config: { public: true }, schema: tenantInfoRouteSchema }, c.info);
+    app.patch(
+      '/tenant/branding',
+      { config: { permission: 'tenant.manage' }, schema: updateBrandingRouteSchema },
+      c.updateBranding,
+    );
     app.post(
       '/platform/tenants',
       { config: { permission: 'platform.tenant.manage' }, schema: createTenantRouteSchema },

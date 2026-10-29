@@ -1,5 +1,5 @@
 import { isMembershipRole, type MeResponse } from '../../contracts';
-import { can } from '../../core/authz';
+import { ALL_PERMISSIONS, can } from '../../core/authz';
 import type { ClientInfo, RequestContext } from '../../core/context';
 import { assertValidEmail, normalizeEmail } from '../../core/email';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../core/errors';
@@ -92,11 +92,19 @@ export function createAuthService(deps: {
     role: MeResponse['role'];
     isPlatformAdmin: boolean;
   }): MeResponse {
+    const subject = {
+      userId: args.user.id,
+      tenantId: args.tenant?.id ?? null,
+      role: args.role,
+      isPlatformAdmin: args.isPlatformAdmin,
+    };
     return {
       user: args.user,
       tenant: args.tenant ? { id: args.tenant.id, slug: args.tenant.slug } : null,
       role: args.role,
       isPlatformAdmin: args.isPlatformAdmin,
+      // account-level permissions only (course participation is resolved per course); UI hint, not enforcement
+      permissions: ALL_PERMISSIONS.filter((p) => can(subject, p)),
     };
   }
 

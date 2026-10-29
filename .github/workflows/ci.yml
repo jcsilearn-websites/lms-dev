@@ -98,6 +98,113 @@ jobs:
 
       - run: pnpm test
 
+  # Bundle budgets: login page <= 125 KB gzip (initial load), every route <= 150 KB gzip.
+  bundle-size:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @lms/frontend run build
+      - run: pnpm bundle:check
+
+  # Playwright end-to-end tests (headless Chromium) against the real API, worker and PostgreSQL.
+  e2e:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway CI database: not a secret. The E2E and Lighthouse runs create lms_e2e next to lms_test
+      # on this server (frontend/scripts/stack.mjs, guarded like the test databases).
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lms_test
+      TEST_DATABASE_APP_URL: postgresql://lms_app:ci0lms0app0password0000@localhost:5432/lms_test
+      DB_SSL: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Playwright
+        run: pnpm --filter @lms/frontend exec playwright install --with-deps chromium
+      - run: pnpm e2e
+      - name: Keep the Playwright report and traces of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/e2e-report
+            frontend/e2e-results
+          retention-days: 7
+
+  # Lighthouse (mobile preset) on the login page and the members list: performance >= 90, accessibility >= 95.
+  lighthouse:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: lms_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Throwaway CI database: not a secret. The E2E and Lighthouse runs create lms_e2e next to lms_test
+      # on this server (frontend/scripts/stack.mjs, guarded like the test databases).
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/lms_test
+      TEST_DATABASE_APP_URL: postgresql://lms_app:ci0lms0app0password0000@localhost:5432/lms_test
+      DB_SSL: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Playwright (Lighthouse drives it)
+        run: pnpm --filter @lms/frontend exec playwright install --with-deps chromium
+      - run: pnpm --filter @lms/frontend run lighthouse:ci
+      - name: Keep the scores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lighthouse-summary
+          path: frontend/lighthouse-summary.json
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Nightly / manual: the full suite three times in a row (flakiness check). Per-step work runs the
   # affected tests only; see "Verification policy" in CLAUDE.md.
   flakiness:

@@ -91,7 +91,11 @@ const authFields = {
   PASSWORD_HASH_CONCURRENCY: Type.Integer({ minimum: 1, maximum: 8, default: 2 }),
   TENANT_CACHE_TTL_MS: Type.Integer({ minimum: 0, default: 60_000 }),
   TENANT_CACHE_MAX: Type.Integer({ minimum: 1, default: 1000 }),
-  MAILER: Type.Union([Type.Literal('console'), Type.Literal('none')], { default: 'console' }),
+  MAILER: Type.Union([Type.Literal('console'), Type.Literal('file'), Type.Literal('none')], {
+    default: 'console',
+  }),
+  // MAILER=file: the JSONL outbox (dev / E2E only). Git-ignored location by convention: .mail/outbox.jsonl
+  MAIL_FILE: Type.Optional(Type.String({ minLength: 1 })),
   // cleanup of dead sessions and used/expired tokens (run by the worker)
   PURGE_RETENTION_DAYS: Type.Integer({ minimum: 0, default: 30 }),
   PURGE_INTERVAL_SECONDS: Type.Integer({ minimum: 1, default: 3600 }),
@@ -238,15 +242,23 @@ export function parseApiEnv(source: Record<string, string | undefined> = process
 
 /** Production must configure the base domain explicitly and may not use the console mailer. */
 export function assertAuthPolicy(
-  env: { NODE_ENV: string; MAILER: string },
+  env: { NODE_ENV: string; MAILER: string; MAIL_FILE?: string | undefined },
   source: Record<string, string | undefined>,
 ): void {
+  if (env.MAILER === 'file' && !env.MAIL_FILE) {
+    throw new EnvError(['MAIL_FILE: required when MAILER=file']);
+  }
   if (env.NODE_ENV !== 'production') return;
   const issues: string[] = [];
   if (!source.APP_BASE_DOMAIN) issues.push('APP_BASE_DOMAIN: required when NODE_ENV=production');
   if (env.MAILER === 'console') {
     issues.push(
       'MAILER: "console" is a dev mailer (it logs links) and is not allowed in production',
+    );
+  }
+  if (env.MAILER === 'file') {
+    issues.push(
+      'MAILER: "file" writes links to disk in clear text and is not allowed in production',
     );
   }
   if (issues.length > 0) throw new EnvError(issues);
