@@ -1,0 +1,57 @@
+{
+  "name": "@lms/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./contracts": "./src/contracts/index.ts"
+  },
+  "scripts": {
+    "dev": "cross-env UV_THREADPOOL_SIZE=8 tsx watch src/server.ts",
+    "dev:worker": "cross-env UV_THREADPOOL_SIZE=8 tsx watch src/worker.ts",
+    "build": "tsup",
+    "start": "cross-env UV_THREADPOOL_SIZE=8 node dist/server.js",
+    "start:worker": "cross-env UV_THREADPOOL_SIZE=8 node dist/worker.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run --project unit --project db && vitest run --project serial --maxWorkers=1 --no-file-parallelism",
+    "test:remote": "cross-env REMOTE_DB=1 vitest run --project unit --project db --project serial",
+    "test:serial": "vitest run --project serial --maxWorkers=1 --no-file-parallelism",
+    "db:local:setup": "tsx src/cli/local-setup.ts",
+    "db:migrate": "tsx src/db/migrate-cli.ts",
+    "db:seed": "tsx src/db/seed.ts",
+    "bench": "cross-env UV_THREADPOOL_SIZE=8 tsx bench/bench.ts",
+    "bench:search": "tsx bench/search-explain.ts",
+    "bench:members": "tsx bench/members-bench.ts",
+    "docs:permissions": "tsx src/cli/docs-permissions.ts",
+    "admin:create": "tsx src/cli/create-platform-admin.ts",
+    "db:dev:clean": "tsx src/cli/dev-clean.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.5",
+    "@fastify/cors": "^11.3.1",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/multipart": "^10.1.6",
+    "@fastify/rate-limit": "^11.2.1",
+    "@fastify/swagger": "^9.9.2",
+    "@fastify/swagger-ui": "^6.1.2",
+    "@fastify/type-provider-typebox": "^6.3.0",
+    "@node-rs/argon2": "^2.2.2",
+    "@sinclair/typebox": "^0.34.52",
+    "csv-parse": "^7.0.3",
+    "drizzle-orm": "^0.45.4",
+    "fastify": "^5.12.7",
+    "pg": "^8.23.1",
+    "pino": "^10.4.0",
+    "uuidv7": "^1.2.1"
+  },
+  "devDependencies": {
+    "@types/autocannon": "^7.12.7",
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.23.1",
+    "autocannon": "^8.0.0",
+    "cross-env": "^10.1.0",
+    "tsup": "^9.0.0",
+    "tsx": "^4.23.15",
+    "vitest": "^5.0.5"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "lms",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.10.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @lms/backend --filter @lms/frontend run dev",
+    "dev:worker": "pnpm --filter @lms/backend run dev:worker",
+    "build": "pnpm --filter @lms/backend run build && pnpm --filter @lms/frontend run build",
+    "lint": "biome check . && pnpm run lint:deps",
+    "lint:deps": "depcruise backend/src backend/test backend/bench frontend/src --config .dependency-cruiser.cjs",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "typecheck": "pnpm --filter @lms/backend run typecheck && pnpm --filter @lms/frontend run typecheck",
+    "test": "pnpm --filter @lms/backend run test && pnpm --filter @lms/frontend run test",
+    "db:local:setup": "pnpm --filter @lms/backend run db:local:setup",
+    "db:migrate": "pnpm --filter @lms/backend run db:migrate",
+    "db:seed": "pnpm --filter @lms/backend run db:seed",
+    "bench": "pnpm --filter @lms/backend run bench",
+    "docs:permissions": "pnpm --filter @lms/backend run docs:permissions",
+    "admin:create": "pnpm --filter @lms/backend run admin:create --",
+    "start": "pnpm --filter @lms/backend run start",
+    "db:dev:clean": "pnpm --filter @lms/backend run db:dev:clean --",
+    "prepare": "git config core.hooksPath .githooks || exit 0",
+    "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6.3",
+    "dependency-cruiser": "^18.7.0",
+    "typescript": "~6.0.3"
+  }
+}

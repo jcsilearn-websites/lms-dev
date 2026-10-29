@@ -1,0 +1,26 @@
+# Secret scanning: gitleaks default rules + a rule for database URLs that carry a password
+# (the default rules do not flag them: one such URL sat in .env.example for several commits).
+title = "JCS iLearn gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "database-url-with-password"
+description = "PostgreSQL connection string with an inline password"
+regex = '''postgres(?:ql)?://[^:\s/@'"<>]+:[^@\s'"<>$]{4,}@[^\s'"]+'''
+keywords = ["postgres://", "postgresql://"]
+
+[allowlist]
+description = "Known dead / throwaway values"
+regexTarget = "match"
+regexes = [
+  # The former Supabase DEV database (project ref thplgm...). It was committed in .env.example by mistake;
+  # both Supabase projects are being deleted (ADR 0011), so the string is dead. Only THIS string is allowed.
+  '''postgres\.thplgmztyympcxoxxoyr:EeFVzkwu2CyfWdQq@aws-0-eu-west-1\.pooler\.supabase\.com''',
+  # Throwaway Postgres service container of CI (not a secret): TEST_DATABASE_URL in .github/workflows/ci.yml
+  '''postgresql://postgres:postgres@localhost:5432/lms_test''',
+  '''postgresql://lms_app:ci0lms0app0password0000@localhost:5432/lms_test''',
+  # A deliberately unreachable URL (127.0.0.1:1) with a made-up password in the health route test
+  '''postgresql://lms_app:secretpw@127\.0\.0\.1:1/postgres''',
+]
