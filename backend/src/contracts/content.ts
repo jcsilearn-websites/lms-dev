@@ -1,4 +1,5 @@
 import { type Static, Type } from '@sinclair/typebox';
+import { ItemVideoSchema } from './video';
 
 const Id = Type.String({ format: 'uuid' });
 const DateTime = Type.String({ format: 'date-time' });
@@ -45,6 +46,8 @@ export const OutlineItemSchema = Type.Object({
   locked: Type.Boolean(),
   url: Nullable(Type.String()),
   file: Type.Union([Type.Null(), OutlineFileSchema]),
+  /** A video item's video (null for other kinds and for a locked item). */
+  video: Type.Union([Type.Null(), ItemVideoSchema]),
   /** A text item has a body (fetched with GET .../items/:id; the outline stays small). */
   hasBody: Type.Boolean(),
 });
@@ -77,6 +80,7 @@ export const ItemSchema = Type.Object({
   locked: Type.Boolean(),
   url: Nullable(Type.String()),
   file: Type.Union([Type.Null(), OutlineFileSchema]),
+  video: Type.Union([Type.Null(), ItemVideoSchema]),
   body: Type.Union([Type.Null(), RichTextSchema]),
   updatedAt: DateTime,
 });
@@ -120,6 +124,8 @@ export const CreateItemRequestSchema = Type.Object({
   title: Type.String({ minLength: 1, maxLength: 200 }),
   body: Type.Optional(RichTextSchema),
   fileId: Type.Optional(Id),
+  /** a video item: the READY video (uploaded in this offering by the caller, or already used here) */
+  videoId: Type.Optional(Id),
   url: Type.Optional(Type.String({ maxLength: 2000 })),
   published: Type.Optional(Type.Boolean()),
   availableFrom: Type.Optional(Nullable(DateTime)),
@@ -129,6 +135,8 @@ export const UpdateItemRequestSchema = Type.Object({
   title: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
   body: Type.Optional(RichTextSchema),
   fileId: Type.Optional(Id),
+  /** replace the video of a video item */
+  videoId: Type.Optional(Id),
   url: Type.Optional(Type.String({ maxLength: 2000 })),
   published: Type.Optional(Type.Boolean()),
   availableFrom: Type.Optional(Nullable(DateTime)),

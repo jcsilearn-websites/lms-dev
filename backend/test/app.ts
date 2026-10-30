@@ -23,6 +23,9 @@ export function testEnv(overrides: Record<string, string> = {}): ApiEnv {
     // a fake key for the local storage driver (the tests write to a throwaway directory)
     STORAGE_SIGNING_SECRET: 'test-only-signing-secret-0123456789abcdef',
     STORAGE_LOCAL_DIR: process.env.TEST_STORAGE_DIR ?? '.storage-test',
+    // video: throwaway scratch directory, small chunks so even tiny clips are sent in several requests
+    VIDEO_WORK_DIR: process.env.TEST_VIDEO_DIR ?? '.video-work-test',
+    VIDEO_UPLOAD_CHUNK_BYTES: '32768',
     ...overrides,
   });
 }

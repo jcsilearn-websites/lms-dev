@@ -466,7 +466,7 @@ function ModuleCard({
           </DndContext>
         )}
         <div className="mt-3 flex flex-wrap gap-2">
-          {(['text', 'file', 'link'] as const).map((k) => (
+          {(['text', 'file', 'link', 'video'] as const).map((k) => (
             <Button
               key={k}
               variant="secondary"
@@ -521,6 +521,13 @@ function ItemRow({
       </button>
       <Badge>{KIND_LABEL[item.kind] ?? item.kind}</Badge>
       <span className="min-w-0 flex-1 break-words font-medium">{item.title}</span>
+      {item.video?.status === 'processing' && (
+        <Badge tone="warning">Processing {item.video.progress}%</Badge>
+      )}
+      {item.video?.status === 'failed' && <Badge tone="danger">Video failed</Badge>}
+      {item.video?.status === 'ready' && item.video.durationMs ? (
+        <Badge>{Math.max(1, Math.round(item.video.durationMs / 60000))} min</Badge>
+      ) : null}
       {!item.published && <Badge tone="warning">Hidden</Badge>}
       {when && <Badge>Opens {toLocalInput(item.availableFrom).replace('T', ' ') || when}</Badge>}
       <div className="flex flex-wrap items-center gap-1">

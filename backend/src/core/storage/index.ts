@@ -3,6 +3,7 @@ export { createGcsStorage } from './gcs';
 export {
   createLocalStorage,
   type LocalStorage,
+  type ObjectRange,
   TooLargeError,
   type UrlClaims,
 } from './local';

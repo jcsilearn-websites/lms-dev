@@ -3,11 +3,13 @@ import { assertTestDatabases, projectKey, TestGuardError } from '../../../test/g
 import {
   apiEnvSchema,
   assertSslPolicy,
+  assertVideoPolicy,
   cookieSettings,
   EnvError,
   migrateEnvSchema,
   parseApiEnv,
   parseEnv,
+  parseWorkerEnv,
   resolvePoolMax,
 } from '../env';
 import { redactSecrets } from '../secrets';
@@ -225,6 +227,68 @@ describe('helpers', () => {
   });
 });
 
+describe('video provider policy', () => {
+  const dev = {
+    DATABASE_APP_URL: devApp,
+    STORAGE_SIGNING_SECRET: 'x'.repeat(40),
+    DB_SSL: 'no-verify',
+  };
+  const prod = {
+    ...dev,
+    NODE_ENV: 'production',
+    APP_BASE_DOMAIN: 'example.com',
+    MAILER: 'none',
+    STORAGE_DRIVER: 'gcs',
+    STORAGE_GCS_BUCKET: 'prod-files',
+    DB_SSL: 'verify-full',
+    DB_SSL_CA: '/certs/ca.crt',
+  };
+  it('the local provider (ffmpeg in the worker) is the default for development and test', () => {
+    for (const NODE_ENV of ['development', 'test']) {
+      expect(parseApiEnv({ ...dev, NODE_ENV }).VIDEO_PROVIDER).toBe('local');
+      expect(parseWorkerEnv({ ...dev, NODE_ENV }).VIDEO_PROVIDER).toBe('local');
+    }
+  });
+  it('refuses VIDEO_PROVIDER=local when NODE_ENV=production: ffmpeg is never shipped in a production image', () => {
+    for (const parse of [parseApiEnv, parseWorkerEnv]) {
+      expect(() => parse({ ...prod, VIDEO_PROVIDER: 'local' })).toThrow(
+        /VIDEO_PROVIDER.*local.*production/,
+      );
+      // forgetting to choose a provider is the same mistake: the default is local
+      expect(() => parse({ ...prod })).toThrow(/VIDEO_PROVIDER/);
+    }
+    expect(() =>
+      assertVideoPolicy({ NODE_ENV: 'production', VIDEO_PROVIDER: 'local', STORAGE_DRIVER: 'gcs' }),
+    ).toThrow(EnvError);
+  });
+  it('accepts a managed provider in production', () => {
+    for (const VIDEO_PROVIDER of ['gcp', 'bunny']) {
+      expect(parseApiEnv({ ...prod, VIDEO_PROVIDER }).VIDEO_PROVIDER).toBe(VIDEO_PROVIDER);
+      expect(parseWorkerEnv({ ...prod, VIDEO_PROVIDER }).VIDEO_PROVIDER).toBe(VIDEO_PROVIDER);
+    }
+  });
+  it('the local provider stores through the local storage driver', () => {
+    expect(() =>
+      parseApiEnv({
+        ...dev,
+        NODE_ENV: 'development',
+        STORAGE_DRIVER: 'gcs',
+        STORAGE_GCS_BUCKET: 'bucket',
+      }),
+    ).toThrow(/VIDEO_PROVIDER.*STORAGE_DRIVER=local/);
+  });
+  it('has defaults that match the documented limits', () => {
+    const env = parseApiEnv({ ...dev, NODE_ENV: 'development' });
+    expect(env).toMatchObject({
+      VIDEO_MAX_BYTES: 2 * 1024 ** 3,
+      VIDEO_MAX_DURATION_SECONDS: 3 * 3600,
+      VIDEO_SOURCE_RETENTION_DAYS: 30,
+      VIDEO_SESSION_CACHE_TTL_SECONDS: 60,
+      VIDEO_PLAYBACK_TTL_SECONDS: 7200,
+    });
+  });
+});
+
 describe('DB_SSL policy', () => {
   // storage: the API needs a driver (a signing key for the local one; the GCS driver is checked in files.test.ts)
   const base = { DATABASE_APP_URL: devApp, STORAGE_SIGNING_SECRET: 'x'.repeat(40) };
@@ -251,6 +315,7 @@ describe('DB_SSL policy', () => {
       MAILER: 'none',
       STORAGE_DRIVER: 'gcs',
       STORAGE_GCS_BUCKET: 'prod-files',
+      VIDEO_PROVIDER: 'gcp',
       DB_SSL: 'verify-full',
       DB_SSL_CA: '/certs/prod-ca.crt',
     });

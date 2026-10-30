@@ -4,6 +4,7 @@ import { NotFoundError } from './errors';
 import { type HostInfo, parseHost } from './host';
 import { bindTenantToLog } from './tenant-log';
 import { hashToken } from './tokens';
+import type { TtlCache } from './video/ttl-cache';
 
 export type MembershipRole = 'institution_admin' | 'member';
 
@@ -63,6 +64,13 @@ export function registerAuthContext(
     cookieName: string;
     tenantResolver: TenantResolver;
     sessionResolver: SessionResolver;
+    /**
+     * Optional: for URLs where `keyOf(url)` is non-null (the video segment requests, one every few seconds per
+     * viewer) a successful session lookup is remembered per (session, key) for the cache's TTL, so those
+     * requests do not each query the database. A session revoked meanwhile keeps working on those URLs for at most
+     * that TTL (VIDEO_SESSION_CACHE_TTL_SECONDS); every other URL is checked on every request as always.
+     */
+    cachedSessions?: { cache: TtlCache<AuthContext>; keyOf(url: string): string | null };
   },
 ): void {
   void app.register(cookie);
@@ -87,7 +95,17 @@ export function registerAuthContext(
 
     const token = readCookie(request.headers.cookie, deps.cookieName);
     if (!token || !TOKEN_SHAPE.test(token)) return;
-    const auth = await deps.sessionResolver.lookup(hashToken(token), request.tenant?.id ?? null);
+    const tokenHash = hashToken(token);
+    const urlKey = deps.cachedSessions?.keyOf(request.url) ?? null;
+    const cacheKey = urlKey
+      ? `${tokenHash.toString('hex')}|${request.tenant?.id ?? ''}|${urlKey}`
+      : null;
+    let auth = cacheKey ? deps.cachedSessions?.cache.get(cacheKey) : undefined;
+    if (!auth) {
+      auth =
+        (await deps.sessionResolver.lookup(tokenHash, request.tenant?.id ?? null)) ?? undefined;
+      if (auth && cacheKey) deps.cachedSessions?.cache.set(cacheKey, auth);
+    }
     if (auth) {
       request.auth = auth;
       request.log = request.log.child({ user_id: auth.userId });

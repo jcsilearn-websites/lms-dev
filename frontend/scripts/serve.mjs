@@ -41,9 +41,17 @@ const SECURITY = {
   'x-content-type-options': 'nosniff',
   'referrer-policy': 'same-origin',
   // the app loads nothing from other origins; inline styles are used for the progress bar width
+  // media-src blob: hls.js feeds the <video> element through a MediaSource (a blob: URL); the video files themselves
+  // come from /api on this origin (connect-src 'self')
   'content-security-policy':
-    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
+    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
 };
+
+/**
+ * The pages that play video (the item page, the builder with its preview) send NO referrer: the playback link in
+ * their requests is a credential and must not travel to anything they might link to or load.
+ */
+const PLAYS_VIDEO = /^\/offerings\/[^/]+\/(items\/[^/]+|build)\/?$/;
 
 const cache = new Map(); // path -> { raw, gzip, br }
 function load(path) {
@@ -75,6 +83,9 @@ function serveFile(req, res, file) {
   const accept = String(req.headers['accept-encoding'] ?? '');
   const headers = {
     ...SECURITY,
+    ...(req.url && PLAYS_VIDEO.test(new URL(req.url, 'http://localhost').pathname)
+      ? { 'referrer-policy': 'no-referrer' }
+      : {}),
     'content-type': TYPES[ext] ?? 'application/octet-stream',
     'cache-control': isAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
     vary: 'accept-encoding',

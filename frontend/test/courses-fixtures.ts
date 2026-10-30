@@ -55,6 +55,7 @@ export const item = (n: number, over: Partial<OutlineItem> = {}): OutlineItem =>
   locked: false,
   url: null,
   file: null,
+  video: null,
   hasBody: true,
   ...over,
 });

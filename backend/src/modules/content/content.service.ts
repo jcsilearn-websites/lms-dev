@@ -11,6 +11,7 @@ import {
   OfferingNotFoundError,
 } from '../courses';
 import type { FilesService } from '../files';
+import { VideoNotReadyError, type VideoService } from '../video';
 import {
   CopyInProgressError,
   CopyNotPossibleError,
@@ -18,13 +19,13 @@ import {
   InvalidItemError,
   InvalidLinkError,
   InvalidRichTextError,
+  InvalidVideoError,
   ItemNotFoundError,
   isPositionConflict,
   ModuleNotFoundError,
   mapContentDbError,
   NothingToChangeError,
   SiblingNotFoundError,
-  VideoNotAvailableError,
 } from './content.errors';
 import type { After, ContentRepository, Row } from './content.repository';
 import { normalizeRichText } from './content.richtext';
@@ -39,6 +40,7 @@ export interface ItemInput {
   title: string;
   body?: unknown;
   fileId?: string | undefined;
+  videoId?: string | undefined;
   url?: string | undefined;
   published?: boolean | undefined;
   availableFrom?: string | null | undefined;
@@ -49,6 +51,7 @@ export interface ItemChange {
   title?: string | undefined;
   body?: unknown;
   fileId?: string | undefined;
+  videoId?: string | undefined;
   url?: string | undefined;
   published?: boolean | undefined;
   availableFrom?: string | null | undefined;
@@ -75,8 +78,9 @@ export function createContentService(deps: {
   db: Pick<Database, 'withTenant'>;
   contentRepo: ContentRepository;
   filesService: FilesService;
+  videoService: VideoService;
 }) {
-  const { db, contentRepo, filesService } = deps;
+  const { db, contentRepo, filesService, videoService } = deps;
 
   function spec(ctx: RequestContext, offeringId: string, permission: Permission): AccessSpec {
     if (!ctx.tenantId) throw new ForbiddenError();
@@ -139,6 +143,24 @@ export function createContentService(deps: {
         storage_key: r.file.storage_key as string,
         original_name: r.file.original_name as string,
         content_type: r.file.content_type as string,
+      });
+    },
+
+    /**
+     * A playback session for the video of an item the caller may open (not locked, not hidden, caller takes part
+     * in the offering): the same visibility rules as the outline, decided in one statement. 4 round trips.
+     */
+    async playback(ctx: RequestContext, offeringId: string, itemId: string) {
+      const a = spec(ctx, offeringId, 'content.view');
+      const r = await db.withTenant(a.tenantId, (tx) => contentRepo.itemVideo(tx, a, itemId));
+      assertAccess(r.acc);
+      if (!r.video || r.locked) throw new ItemNotFoundError();
+      if (r.video.status !== 'ready') throw new VideoNotReadyError();
+      return videoService.createPlayback(ctx, {
+        assetId: r.video.assetId as string,
+        durationMs: Number(r.video.durationMs),
+        renditions: (r.video.renditions as { name: string; height: number }[]) ?? [],
+        captions: (r.video.captions as { language: string; label: string }[]) ?? [],
       });
     },
 
@@ -214,7 +236,6 @@ export function createContentService(deps: {
       moduleId: string,
       input: ItemInput,
     ): Promise<Row> {
-      if (input.kind === 'video') throw new VideoNotAvailableError();
       const a = spec(ctx, offeringId, 'course.edit');
       const v = {
         id: newId(),
@@ -222,19 +243,31 @@ export function createContentService(deps: {
         title: input.title.trim(),
         body: null as unknown,
         fileId: null as string | null,
+        videoId: null as string | null,
         url: null as string | null,
         published: input.published ?? false,
         availableFrom: input.availableFrom ?? null,
         after: input.after as After,
       };
       if (input.kind === 'text') {
-        if (input.body === undefined || input.fileId || input.url) throw new InvalidItemError();
+        if (input.body === undefined || input.fileId || input.url || input.videoId) {
+          throw new InvalidItemError();
+        }
         v.body = cleanBody(input.body);
       } else if (input.kind === 'file') {
-        if (!input.fileId || input.body !== undefined || input.url) throw new InvalidItemError();
+        if (!input.fileId || input.body !== undefined || input.url || input.videoId) {
+          throw new InvalidItemError();
+        }
         v.fileId = input.fileId;
+      } else if (input.kind === 'video') {
+        if (!input.videoId || input.body !== undefined || input.fileId || input.url) {
+          throw new InvalidItemError();
+        }
+        v.videoId = input.videoId;
       } else {
-        if (!input.url || input.body !== undefined || input.fileId) throw new InvalidItemError();
+        if (!input.url || input.body !== undefined || input.fileId || input.videoId) {
+          throw new InvalidItemError();
+        }
         v.url = cleanUrl(input.url);
       }
       const r = await withRetry(() =>
@@ -244,6 +277,7 @@ export function createContentService(deps: {
       if (!r.moduleFound) throw new ModuleNotFoundError();
       if (!r.posFound) throw new SiblingNotFoundError();
       if (!r.fileOk) throw new InvalidFileError();
+      if (!r.videoOk) throw new InvalidVideoError();
       return r.item as Row;
     },
 
@@ -259,6 +293,7 @@ export function createContentService(deps: {
       if (change.body !== undefined) v.body = cleanBody(change.body);
       if (change.url !== undefined) v.url = cleanUrl(change.url);
       if (change.fileId !== undefined) v.fileId = change.fileId;
+      if (change.videoId !== undefined) v.videoId = change.videoId;
       if (change.published !== undefined) v.published = change.published;
       if (change.availableFrom !== undefined) v.availableFrom = change.availableFrom;
       if (Object.keys(v).length === 0) throw new NothingToChangeError();
@@ -267,6 +302,7 @@ export function createContentService(deps: {
       );
       mayEdit(r.acc);
       if (!r.fileOk) throw new InvalidFileError();
+      if (!r.videoOk) throw new InvalidVideoError();
       if (!r.item) throw new ItemNotFoundError();
       return r.item;
     },

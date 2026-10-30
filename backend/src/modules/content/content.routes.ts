@@ -23,6 +23,11 @@ export function createContentRoutes(deps: {
       { config: view, schema: s.downloadItemRouteSchema },
       c.downloadFile,
     );
+    app.post(
+      '/offerings/:id/items/:itemId/playback',
+      { config: view, schema: s.playbackRouteSchema },
+      c.playback,
+    );
 
     app.post(
       '/offerings/:id/modules',

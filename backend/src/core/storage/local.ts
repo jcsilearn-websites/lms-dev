@@ -1,6 +1,6 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, open, rename, rm, stat } from 'node:fs/promises';
+import { cp, mkdir, open, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
@@ -12,6 +12,23 @@ import type { DownloadTarget, StorageProvider, StoredObject, UploadTarget } from
 /** `<tenant uuid>/<file uuid>`: the only shape of a key the local driver accepts (no traversal possible). */
 const KEY =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/**
+ * Keys of the video objects: `<tenant uuid>/<asset uuid>` and up to three levels below it
+ * (`hls/720p/seg_00001.m4s`). Every segment starts with a letter or digit, so `..` can never appear.
+ */
+const UUID_PART = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+const OBJECT_KEY = new RegExp(`^${UUID_PART}/${UUID_PART}(/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){1,3}$`);
+const PREFIX_KEY = new RegExp(`^${UUID_PART}/${UUID_PART}(/[A-Za-z0-9][A-Za-z0-9._-]{0,99}){0,2}$`);
+
+export interface ObjectRange {
+  stream: Readable;
+  /** total size of the object */
+  size: number;
+  /** first and last byte served (inclusive) */
+  start: number;
+  end: number;
+}
 
 export interface UrlClaims {
   /** object key */
@@ -43,6 +60,26 @@ export interface LocalStorage extends StorageProvider {
   write(key: string, body: Readable, maxBytes: number): Promise<number>;
   /** The object as a stream with its size; null when it does not exist. */
   read(key: string): Promise<{ stream: Readable; size: number } | null>;
+
+  // ---- object-level operations used by the video provider (keys: see OBJECT_KEY)
+  /**
+   * Writes `body` into the object starting at byte `offset` (creating it when `offset` is 0), never more than
+   * `maxBytes`; returns the number of bytes written. This is the resumable upload: bytes past a failed chunk
+   * are simply overwritten by the retry.
+   */
+  writeAt(key: string, offset: number, body: Readable, maxBytes: number): Promise<number>;
+  /** Bytes `start..end` (inclusive; default all) of an object; null when it does not exist. */
+  readRange(key: string, range?: { start: number; end: number }): Promise<ObjectRange | null>;
+  /** The size of an object; null when it does not exist. */
+  sizeOf(key: string): Promise<number | null>;
+  /** Stores a file from the local disk under `key` (replacing it). */
+  putFile(key: string, localPath: string): Promise<void>;
+  /** Atomically replaces everything below `prefix` with the contents of the local directory. */
+  replacePrefix(prefix: string, localDir: string): Promise<void>;
+  /** Deletes everything below `prefix` (a missing prefix is not an error). */
+  removePrefix(prefix: string): Promise<void>;
+  /** The absolute path of an object (for ffmpeg, which reads files). Local driver only. */
+  pathOf(key: string): string;
 }
 
 export function createLocalStorage(opts: {
@@ -62,6 +99,18 @@ export function createLocalStorage(opts: {
     const file = path.resolve(root, key);
     if (!file.startsWith(root + path.sep)) throw new Error('invalid storage key');
     return file;
+  };
+  const objectFile = (key: string): string => {
+    if (!OBJECT_KEY.test(key)) throw new Error('invalid storage key');
+    const file = path.resolve(root, key);
+    if (!file.startsWith(root + path.sep)) throw new Error('invalid storage key');
+    return file;
+  };
+  const prefixDir = (prefix: string): string => {
+    if (!PREFIX_KEY.test(prefix)) throw new Error('invalid storage prefix');
+    const dir = path.resolve(root, prefix);
+    if (!dir.startsWith(root + path.sep)) throw new Error('invalid storage prefix');
+    return dir;
   };
   const sign = (payload: string) =>
     createHmac('sha256', opts.secret).update(payload).digest('base64url');
@@ -167,7 +216,87 @@ export function createLocalStorage(opts: {
     },
 
     async remove(keys): Promise<void> {
-      for (const key of keys) await rm(fileOf(key), { force: true });
+      // a file key (<tenant>/<file>) or a video object key (<tenant>/<asset>/...)
+      for (const key of keys)
+        await rm(KEY.test(key) ? fileOf(key) : objectFile(key), { force: true });
+    },
+
+    async writeAt(key, offset, body, maxBytes): Promise<number> {
+      const file = objectFile(key);
+      await mkdir(path.dirname(file), { recursive: true });
+      let size = 0;
+      const counter = async function* (src: Readable) {
+        for await (const chunk of src) {
+          size += (chunk as Buffer).length;
+          if (size > maxBytes) throw new TooLargeError();
+          yield chunk;
+        }
+      };
+      // 'r+' keeps what is already there; a first chunk creates the file
+      const exists = await stat(file).then(
+        () => true,
+        () => false,
+      );
+      await pipeline(
+        body,
+        counter,
+        createWriteStream(file, { flags: exists ? 'r+' : 'w', start: offset }),
+      );
+      return size;
+    },
+
+    async readRange(key, range) {
+      const file = objectFile(key);
+      let total: number;
+      try {
+        total = (await stat(file)).size;
+      } catch {
+        return null;
+      }
+      const start = range?.start ?? 0;
+      const end = Math.min(range?.end ?? total - 1, total - 1);
+      if (total === 0 || start > end || start < 0) return null;
+      return { stream: createReadStream(file, { start, end }), size: total, start, end };
+    },
+
+    async sizeOf(key) {
+      try {
+        return (await stat(objectFile(key))).size;
+      } catch {
+        return null;
+      }
+    },
+
+    async putFile(key, localPath) {
+      const file = objectFile(key);
+      await mkdir(path.dirname(file), { recursive: true });
+      await cp(localPath, file, { force: true });
+    },
+
+    async replacePrefix(prefix, localDir) {
+      const dir = prefixDir(prefix);
+      await mkdir(path.dirname(dir), { recursive: true });
+      const old = `${dir}.old-${randomBytes(6).toString('hex')}`;
+      const had = await rename(dir, old).then(
+        () => true,
+        () => false,
+      );
+      try {
+        await rename(localDir, dir);
+      } catch {
+        // another volume: copy instead of renaming
+        await cp(localDir, dir, { recursive: true, force: true });
+        await rm(localDir, { recursive: true, force: true });
+      }
+      if (had) await rm(old, { recursive: true, force: true });
+    },
+
+    async removePrefix(prefix) {
+      await rm(prefixDir(prefix), { recursive: true, force: true });
+    },
+
+    pathOf(key) {
+      return objectFile(key);
     },
   };
 }

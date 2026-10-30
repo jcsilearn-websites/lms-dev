@@ -41,6 +41,15 @@ const BODIES: Record<string, unknown> = {
   'POST /offerings/:id/items/:itemId/move': { after: null },
   'POST /offerings/:id/copy': { sourceOfferingId: U },
   'POST /offerings/:id/files': { name: 'a.pdf', size: 10 },
+  'POST /offerings/:id/videos': { fileName: 'a.mp4', size: 10 },
+  'PATCH /offerings/:id/videos/:videoId/upload': {},
+  'POST /offerings/:id/videos/:videoId/complete': {},
+  'POST /offerings/:id/videos/:videoId/captions': {
+    language: 'en',
+    label: 'English',
+    content: 'WEBVTT\n\n00:00.000 --> 00:01.000\nHi\n',
+  },
+  'POST /offerings/:id/items/:itemId/playback': {},
 };
 
 interface Probe {

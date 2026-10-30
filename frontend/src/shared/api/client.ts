@@ -4,6 +4,8 @@ import type { ErrorResponse } from '@lms/backend/contracts';
 // balancer) forwards it to the backend. Cookies are host-only per college, so each college host has
 // its own session.
 const BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
+/** For the few calls that cannot go through `api()` (raw bytes, XHR progress). */
+export const API_BASE = BASE;
 
 /** An error answered by the API (standard error shape) or a network failure (status 0). */
 export class ApiError extends Error {

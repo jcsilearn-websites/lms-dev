@@ -49,6 +49,7 @@ const toOutlineItem = (i: ItemDto): OutlineItem => ({
   locked: i.locked,
   url: i.url,
   file: i.file,
+  video: i.video,
   hasBody: i.body !== null,
 });
 

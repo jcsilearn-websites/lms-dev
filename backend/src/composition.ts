@@ -1,5 +1,6 @@
 import type { ApiEnv, WorkerEnv } from './config/env';
 import { cookieSettings } from './config/env';
+import type { AuthContext } from './core/auth-context';
 import type { AuthRateLimitConfig } from './core/auth-rate-limit';
 import type { HandlerMap } from './core/handlers';
 import { buildOrigin } from './core/host';
@@ -17,6 +18,17 @@ import {
   type LocalStorage,
   type StorageProvider,
 } from './core/storage';
+import {
+  createBunnyVideoProvider,
+  createGcpVideoProvider,
+  createLocalVideoProvider,
+  createPlaybackTokens,
+  createTtlCache,
+  playbackKey,
+  type TtlCache,
+  tokenOfPlaybackUrl,
+  type VideoProvider,
+} from './core/video';
 import type { Database } from './db/client';
 import {
   createAcademicsController,
@@ -112,6 +124,14 @@ import {
   createUsersRepository,
   createUsersService,
 } from './modules/users';
+import {
+  createPlaybackController,
+  createVideoController,
+  createVideoHandlers,
+  createVideoRepository,
+  createVideoService,
+  type VideoConfig,
+} from './modules/video';
 
 export interface ModulesConfig {
   readyTimeoutMs: number;
@@ -126,6 +146,7 @@ export interface ModulesConfig {
   jobs: JobsConfig;
   imports: ImportsConfig;
   storage: StorageConfig;
+  video: VideoModuleConfig;
   /** port of the web app for links in queued emails (development only) */
   publicPort: number | undefined;
   mailer: Mailer;
@@ -143,6 +164,15 @@ export interface StorageConfig {
   purgeEveryMs: number;
 }
 
+export interface VideoModuleConfig extends VideoConfig {
+  provider: 'local' | 'gcp' | 'bunny';
+  /** HMAC key of the playback tokens; absent: derived from the storage signing secret */
+  signingSecret: string | undefined;
+  /** segment requests re-use a validated session for this long (0 = never) */
+  sessionCacheTtlSeconds: number;
+  sessionCacheMax: number;
+}
+
 type Logging = {
   info: (obj: object, msg: string) => void;
   error: (obj: object, msg: string) => void;
@@ -150,7 +180,8 @@ type Logging = {
 
 /** "imports:1,invites:4,default:2" -> { imports: 1, invites: 4, default: 2 } (already shape-checked by the env schema). */
 export function parseConcurrency(value: string): Record<string, number> {
-  const out: Record<string, number> = { default: 2 };
+  // the transcoder uses every core it is given: one video at a time unless the env says otherwise
+  const out: Record<string, number> = { default: 2, video: 1 };
   for (const part of value.split(',')) {
     const [name, n] = part.split(':');
     if (name && n) out[name] = Number(n);
@@ -205,6 +236,22 @@ export function modulesConfigFromEnv(
     | 'STORAGE_GCS_BUCKET'
     | 'FILE_PURGE_GRACE_HOURS'
     | 'FILE_PURGE_INTERVAL_SECONDS'
+    | 'VIDEO_PROVIDER'
+    | 'VIDEO_SIGNING_SECRET'
+    | 'VIDEO_MAX_BYTES'
+    | 'VIDEO_MAX_DURATION_SECONDS'
+    | 'VIDEO_UPLOAD_CHUNK_BYTES'
+    | 'VIDEO_PLAYBACK_TTL_SECONDS'
+    | 'VIDEO_SESSION_CACHE_TTL_SECONDS'
+    | 'VIDEO_SESSION_CACHE_MAX'
+    | 'VIDEO_SOURCE_RETENTION_DAYS'
+    | 'VIDEO_UPLOAD_GRACE_HOURS'
+    | 'VIDEO_PURGE_INTERVAL_SECONDS'
+    | 'VIDEO_WORK_DIR'
+    | 'FFMPEG_PATH'
+    | 'FFPROBE_PATH'
+    | 'VIDEO_TRANSCODE_TIMEOUT_FACTOR'
+    | 'VIDEO_FFMPEG_THREADS'
   > & { READY_TIMEOUT_MS?: number },
   logger: Logging,
   mailer?: Mailer,
@@ -263,6 +310,24 @@ export function modulesConfigFromEnv(
       urlTtlSeconds: env.STORAGE_URL_TTL_SECONDS,
       purgeGraceHours: env.FILE_PURGE_GRACE_HOURS,
       purgeEveryMs: env.FILE_PURGE_INTERVAL_SECONDS * 1000,
+    },
+    video: {
+      provider: env.VIDEO_PROVIDER,
+      signingSecret: env.VIDEO_SIGNING_SECRET,
+      sessionCacheTtlSeconds: env.VIDEO_SESSION_CACHE_TTL_SECONDS,
+      sessionCacheMax: env.VIDEO_SESSION_CACHE_MAX,
+      maxBytes: env.VIDEO_MAX_BYTES,
+      maxDurationSeconds: env.VIDEO_MAX_DURATION_SECONDS,
+      chunkBytes: env.VIDEO_UPLOAD_CHUNK_BYTES,
+      playbackTtlSeconds: env.VIDEO_PLAYBACK_TTL_SECONDS,
+      sourceRetentionDays: env.VIDEO_SOURCE_RETENTION_DAYS,
+      graceHours: env.VIDEO_UPLOAD_GRACE_HOURS,
+      workDir: env.VIDEO_WORK_DIR,
+      ffmpegPath: env.FFMPEG_PATH,
+      ffprobePath: env.FFPROBE_PATH,
+      timeoutFactor: env.VIDEO_TRANSCODE_TIMEOUT_FACTOR,
+      threads: env.VIDEO_FFMPEG_THREADS,
+      purgeEveryMs: env.VIDEO_PURGE_INTERVAL_SECONDS * 1000,
     },
     publicPort: env.APP_PUBLIC_PORT,
     baseDomain: env.APP_BASE_DOMAIN,
@@ -373,10 +438,53 @@ export function createModules(db: Database, config: ModulesConfig) {
     storage,
     config: { maxBytes: config.storage.maxBytes, purgeGraceHours: config.storage.purgeGraceHours },
   });
+  // ---- video (step 7). `local` = ffmpeg in the worker + HLS served by this API: development and CI only.
+  const video = config.video;
+  const localStorage = config.storage.driver === 'local' ? (storage as LocalStorage) : null;
+  const playbackTokens =
+    video.provider === 'local'
+      ? createPlaybackTokens(
+          playbackKey({
+            videoSecret: video.signingSecret,
+            storageSecret: config.storage.signingSecret,
+          }),
+        )
+      : null;
+  const videoProvider: VideoProvider =
+    video.provider === 'local' && localStorage && playbackTokens
+      ? createLocalVideoProvider({
+          storage: localStorage,
+          tokens: playbackTokens,
+          chunkBytes: video.chunkBytes,
+        })
+      : video.provider === 'gcp'
+        ? createGcpVideoProvider()
+        : createBunnyVideoProvider();
+  const videoService = createVideoService({
+    db,
+    videoRepo: createVideoRepository(),
+    provider: videoProvider,
+    local:
+      localStorage && playbackTokens
+        ? { storage: localStorage, tokens: playbackTokens }
+        : undefined,
+    jobs: jobsService,
+    config: video,
+  });
+  /** validated sessions of playback requests (see registerAuthContext) */
+  const playbackSessions: TtlCache<AuthContext> | null =
+    video.provider === 'local'
+      ? createTtlCache<AuthContext>({
+          ttlMs: video.sessionCacheTtlSeconds * 1000,
+          max: video.sessionCacheMax,
+        })
+      : null;
+
   const contentService = createContentService({
     db,
     contentRepo: createContentRepository(),
     filesService,
+    videoService,
   });
   const coursesService = createCoursesService({ db, coursesRepo: createCoursesRepository() });
 
@@ -393,6 +501,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createProfilesHandlers({ profilesService }),
     ...createImportsHandlers({ importsService, purge: config.purge }),
     ...createContentHandlers({ contentService }),
+    ...createVideoHandlers({ videoService, sweep: { everyMs: video.purgeEveryMs } }),
     ...createFilesHandlers({ filesService, purge: { everyMs: config.storage.purgeEveryMs } }),
     ...createCoursesHandlers({
       coursesService,
@@ -421,6 +530,16 @@ export function createModules(db: Database, config: ModulesConfig) {
         storage.driver === 'local'
           ? createStorageController({ storage: storage as LocalStorage })
           : null,
+    },
+    video: {
+      service: videoService,
+      controller: createVideoController({ videoService, maxBytes: video.maxBytes }),
+      /** only the local provider serves its own playback files */
+      playbackController:
+        video.provider === 'local' ? createPlaybackController({ videoService }) : null,
+      sessionCache: playbackSessions
+        ? { cache: playbackSessions, keyOf: tokenOfPlaybackUrl }
+        : null,
     },
     courses: {
       service: coursesService,

@@ -46,10 +46,9 @@ export class InvalidFileError extends BadRequestError {
   }
 }
 
-/** The schema knows video items, the API does not create them until the video step. */
-export class VideoNotAvailableError extends BadRequestError {
+export class InvalidVideoError extends BadRequestError {
   constructor() {
-    super('video_not_supported', 'Video items are not available yet');
+    super('invalid_video', 'Choose a video of this offering that has finished processing');
   }
 }
 

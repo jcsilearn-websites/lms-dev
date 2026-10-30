@@ -195,6 +195,25 @@ const ROWS: Row[] = [
   offeringScoped('POST', `/offerings/${U}/copy`, 400, {}),
   offeringScoped('POST', `/offerings/${U}/files`, 400, {}),
   memberOnly('POST', `/files/${U}/confirm`, 404),
+  // ---- video lessons (step 7): the same offering-scoped rules
+  offeringScoped('POST', `/offerings/${U}/videos`, 400, {}),
+  offeringScoped('GET', `/offerings/${U}/videos/${U}`, 404),
+  offeringScoped('GET', `/offerings/${U}/videos/${U}/upload`, 404),
+  offeringScoped('PATCH', `/offerings/${U}/videos/${U}/upload`, 404),
+  offeringScoped('POST', `/offerings/${U}/videos/${U}/complete`, 404),
+  offeringScoped('DELETE', `/offerings/${U}/videos/${U}`, 404),
+  offeringScoped('POST', `/offerings/${U}/videos/${U}/captions`, 400, {}),
+  offeringScoped('DELETE', `/offerings/${U}/videos/${U}/captions/${U}`, 404),
+  offeringScoped('POST', `/offerings/${U}/items/${U}/playback`, 404),
+  // the local video provider's playback files: the token in the path is the credential, the session says who
+  // asks; a made-up token is 403 for every signed-in caller (on the admin host a platform admin has no college)
+  {
+    endpoint: `GET /video/play/${U}/${U}/*`,
+    method: 'GET',
+    url: `/video/play/${U}/${U}/master.m3u8`,
+    tenantHost: [401, 403, 403, 401, 401],
+    adminHost: [401, 401, 401, 403],
+  },
   // ---- the local storage driver's signed URLs (development driver; the token is the credential)
   signedLink('PUT', `/storage/upload/${U}`),
   signedLink('GET', `/storage/download/${U}`),

@@ -1,0 +1,56 @@
+import {
+  bigint,
+  boolean,
+  integer,
+  jsonb,
+  smallint,
+  text,
+  timestamp,
+  uuid,
+} from 'drizzle-orm/pg-core';
+import { createdAt, lms, updatedAt } from '../../db/lms-schema';
+
+// Migration 0025. Metadata and processing state only: the bytes live in object storage (or at the provider).
+export const videoAssets = lms.table('video_assets', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id').notNull(),
+  offeringId: uuid('offering_id').notNull(),
+  createdBy: uuid('created_by').notNull(),
+  originalName: text('original_name').notNull(),
+  provider: text('provider').notNull().default('local'),
+  declaredSize: bigint('declared_size', { mode: 'number' }).notNull(),
+  uploadOffset: bigint('upload_offset', { mode: 'number' }).notNull().default(0),
+  status: text('status').notNull().default('uploading'),
+  progress: smallint('progress').notNull().default(0),
+  container: text('container'),
+  durationMs: integer('duration_ms'),
+  width: integer('width'),
+  height: integer('height'),
+  hasAudio: boolean('has_audio'),
+  sourceMeta: jsonb('source_meta').notNull().default({}),
+  renditions: jsonb('renditions').notNull().default([]),
+  sourceKey: text('source_key'),
+  hlsPrefix: text('hls_prefix'),
+  posterKey: text('poster_key'),
+  errorCode: text('error_code'),
+  errorMessage: text('error_message'),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+  lastActivityAt: timestamp('last_activity_at', { withTimezone: true }).notNull().defaultNow(),
+  readyAt: timestamp('ready_at', { withTimezone: true }),
+  sourceExpiresAt: timestamp('source_expires_at', { withTimezone: true }),
+  sourceDeletedAt: timestamp('source_deleted_at', { withTimezone: true }),
+  lastUnreferencedAt: timestamp('last_unreferenced_at', { withTimezone: true }),
+});
+
+export const videoCaptions = lms.table('video_captions', {
+  id: uuid('id').primaryKey(),
+  tenantId: uuid('tenant_id').notNull(),
+  assetId: uuid('asset_id').notNull(),
+  language: text('language').notNull(),
+  label: text('label').notNull(),
+  sizeBytes: integer('size_bytes').notNull(),
+  storageKey: text('storage_key').notNull(),
+  createdBy: uuid('created_by').notNull(),
+  createdAt: createdAt(),
+});

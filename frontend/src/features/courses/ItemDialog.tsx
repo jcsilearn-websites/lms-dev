@@ -1,7 +1,7 @@
 import type { ItemDto, OutlineItem } from '@lms/backend/contracts';
 import { Type } from '@sinclair/typebox';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { lazy, Suspense, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { describeError } from '../../shared/api/errors';
 import { typeboxResolver } from '../../shared/forms/validation';
@@ -10,6 +10,7 @@ import { Dialog } from '../../shared/ui/dialog';
 import { Field } from '../../shared/ui/field';
 import { Skeleton } from '../../shared/ui/states';
 import { toast } from '../../shared/ui/toast';
+import { VideoField } from '../video/VideoField';
 import { courseKeys, createItem, getItem, updateItem } from './courses.api';
 import { loadEditor } from './editor/loadEditor';
 import { patchOutline, withItem, withItemChanged } from './outlineCache';
@@ -32,7 +33,7 @@ interface Values {
   published: boolean;
 }
 
-export type ItemKindChoice = 'text' | 'file' | 'link';
+export type ItemKindChoice = 'text' | 'file' | 'link' | 'video';
 
 /** ISO time -> the value of an <input type="datetime-local"> in the viewer's time zone. */
 export function toLocalInput(iso: string | null): string {
@@ -76,6 +77,14 @@ export function ItemDialog({
   const [progress, setProgress] = useState<number | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const abort = useRef<AbortController | null>(null);
+  // video: the one to save (null = keep the item's current one), whether it can be saved, and whether bytes travel
+  const [videoId, setVideoId] = useState<string | null>(item?.video?.id ?? null);
+  const [videoReady, setVideoReady] = useState(item?.video?.status === 'ready');
+  const [videoBusy, setVideoBusy] = useState(false);
+  const onVideoSelect = useCallback((id: string | null, ready: boolean) => {
+    setVideoId(id);
+    setVideoReady(ready);
+  }, []);
 
   const form = useForm<Values>({
     defaultValues: {
@@ -102,9 +111,13 @@ export function ItemDialog({
             ? fileId
               ? { fileId }
               : {}
-            : bodyTouched || !editing
-              ? { body: body ?? { type: 'doc', content: [] } }
-              : {};
+            : kind === 'video'
+              ? videoId && videoId !== item?.video?.id
+                ? { videoId }
+                : {}
+              : bodyTouched || !editing
+                ? { body: body ?? { type: 'doc', content: [] } }
+                : {};
       if (item)
         return {
           saved: await updateItem(offeringId, item.id, { ...common, ...extra }),
@@ -149,8 +162,11 @@ export function ItemDialog({
     }
   };
 
-  const canSave = kind !== 'file' || !!fileId || (editing && !!item?.file);
-  const label = { text: 'text', file: 'file', link: 'link' }[kind];
+  const canSave =
+    kind === 'video'
+      ? videoReady && !videoBusy
+      : kind !== 'file' || !!fileId || (editing && !!item?.file);
+  const label = { text: 'text', file: 'file', link: 'link', video: 'video' }[kind];
   return (
     <Dialog open onClose={onClose} title={`${editing ? 'Edit' : 'Add'} ${label}`}>
       <form onSubmit={form.handleSubmit((v) => save.mutate(v))} noValidate className="space-y-4">
@@ -217,6 +233,17 @@ export function ItemDialog({
               </p>
             )}
           </div>
+        )}
+
+        {kind === 'video' && (
+          <VideoField
+            offeringId={offeringId}
+            current={item?.video ?? null}
+            itemId={item?.id}
+            itemTitle={item?.title}
+            onSelect={onVideoSelect}
+            onBusy={setVideoBusy}
+          />
         )}
 
         {kind === 'text' && (

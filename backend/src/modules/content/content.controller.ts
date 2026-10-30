@@ -47,6 +47,9 @@ export function createContentController(deps: { contentService: ContentService }
       return { ...t, expiresAt: t.expiresAt.toISOString() };
     },
 
+    playback: async (request: FastifyRequest<Itm>) =>
+      (await svc.playback(contextFrom(request), request.params.id, request.params.itemId)) as never,
+
     createModule: async (
       request: FastifyRequest<Off & { Body: Static<typeof CreateModuleRequestSchema> }>,
       reply: FastifyReply,

@@ -14,6 +14,7 @@ import {
   OfferingParamsSchema,
   OkResponseSchema,
   OutlineSchema,
+  PlaybackSessionSchema,
   UpdateItemRequestSchema,
   UpdateModuleRequestSchema,
 } from '../../contracts';
@@ -38,6 +39,14 @@ export const downloadItemRouteSchema = {
   summary: 'A short-lived signed download URL for the file of an item',
   params: OfferingItemParamsSchema,
   response: { 200: DownloadTargetSchema, ...COMMON_ERRORS },
+};
+
+export const playbackRouteSchema = {
+  tags,
+  summary:
+    'A short-lived playback session (manifest URL, poster, captions) for the video of an item the caller may open',
+  params: OfferingItemParamsSchema,
+  response: { 200: PlaybackSessionSchema, ...COMMON_ERRORS },
 };
 
 export const createModuleRouteSchema = {
@@ -70,7 +79,7 @@ export const deleteModuleRouteSchema = {
 
 export const createItemRouteSchema = {
   tags,
-  summary: 'Add an item (text, file or link; video is not available yet) to a module',
+  summary: 'Add an item (text, file, link or a READY video) to a module',
   params: OfferingModuleParamsSchema,
   body: CreateItemRequestSchema,
   response: { 201: ItemSchema, ...COMMON_ERRORS },

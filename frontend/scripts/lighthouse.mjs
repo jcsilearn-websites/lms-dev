@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 // Lighthouse (mobile preset: emulated phone, simulated slow 4G and 4x CPU slowdown) on the login page,
-// the members list (signed in, 200 members) and a learner's course page (6 modules, 35 items), against the real stack served by scripts/serve.mjs
+// the members list (signed in, 200 members), a learner's course page (6 modules, 35 items) and a video item page,
+// against the real stack served by scripts/serve.mjs
 // (compression, long caching). Each page is measured 3 times; the MEDIAN scores are reported.
 //
 //   node scripts/lighthouse.mjs            prints the table
@@ -139,6 +140,12 @@ const rows = await withStack(
         url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}`,
         cookie: learnerCookie,
       },
+      {
+        // the video item page: the player (hls.js) is a lazy chunk, the poster is the picture
+        name: 'Video item',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/items/${demo.videoItemId}`,
+        cookie: learnerCookie,
+      },
     ];
     const out = [];
     for (const p of pages) {
@@ -164,10 +171,10 @@ const rows = await withStack(
 );
 
 console.log(`\nLighthouse, mobile preset, median of ${RUNS} runs`);
-console.log('page            perf  a11y  FCP ms  LCP ms  TBT ms  CLS    runs (perf/a11y)');
+console.log('page             perf  a11y  FCP ms  LCP ms  TBT ms  CLS    runs (perf/a11y)');
 for (const r of rows) {
   console.log(
-    `${r.page.padEnd(15)} ${String(r.performance).padEnd(5)} ${String(r.accessibility).padEnd(5)} ${String(r.fcpMs).padEnd(7)} ${String(r.lcpMs).padEnd(7)} ${String(r.tbtMs).padEnd(7)} ${String(r.cls).padEnd(6)} ${r.runs.map((x) => `${x.performance}/${x.accessibility}`).join(' ')}`,
+    `${r.page.padEnd(16)} ${String(r.performance).padEnd(5)} ${String(r.accessibility).padEnd(5)} ${String(r.fcpMs).padEnd(7)} ${String(r.lcpMs).padEnd(7)} ${String(r.tbtMs).padEnd(7)} ${String(r.cls).padEnd(6)} ${r.runs.map((x) => `${x.performance}/${x.accessibility}`).join(' ')}`,
   );
   if (r.failedAccessibilityAudits.length)
     console.log(`   failed accessibility audits: ${r.failedAccessibilityAudits.join(', ')}`);

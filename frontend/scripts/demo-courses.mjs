@@ -3,9 +3,11 @@
 // locked entry and one hidden entry), an instructor and a learner who can sign in. Everything goes through the API of
 // the real stack (the Host header names the college), the same way the E2E specs set up their data.
 
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { request } from '@playwright/test';
-import { MAIL_FILE } from './stack.mjs';
+import { FRONTEND, MAIL_FILE } from './stack.mjs';
 
 export const INSTRUCTOR = 'member@e2e-one.test'; // seeded member with the E2E password
 export const LEARNER = 'lh.learner@e2e-one.test';
@@ -43,6 +45,74 @@ function inviteToken(email) {
   const link = mail && /(https?:\/\/\S+\?token=[A-Za-z0-9_-]+)/.exec(mail.text)?.[1];
   if (!link) throw new Error(`no invitation mail for ${email}`);
   return new URL(link).searchParams.get('token');
+}
+
+/**
+ * Uploads a short generated clip (a test pattern and a tone, made with the ffmpeg on the PATH) through the real
+ * chunked upload, waits until the worker has transcoded it, and returns its id.
+ */
+async function uploadDemoVideo(teach, offeringId) {
+  const dir = join(FRONTEND, '.e2e-tmp', 'video');
+  mkdirSync(dir, { recursive: true });
+  const file = join(dir, 'demo.mp4');
+  execFileSync('ffmpeg', [
+    '-hide_banner',
+    '-loglevel',
+    'error',
+    '-y',
+    '-f',
+    'lavfi',
+    '-i',
+    'testsrc2=s=640x360:r=25:d=8',
+    '-f',
+    'lavfi',
+    '-i',
+    'sine=f=440:d=8',
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-pix_fmt',
+    'yuv420p',
+    '-c:a',
+    'aac',
+    '-shortest',
+    file,
+  ]);
+  const bytes = readFileSync(file);
+  const created = await must(
+    await teach.post(`offerings/${offeringId}/videos`, {
+      data: { fileName: 'demo.mp4', size: bytes.length },
+    }),
+    'video upload',
+  );
+  const chunk = created.upload.chunkBytes;
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    await must(
+      await teach.patch(`offerings/${offeringId}/videos/${created.video.id}/upload`, {
+        data: bytes.subarray(offset, offset + chunk),
+        headers: {
+          'content-type': 'application/offset+octet-stream',
+          'upload-offset': String(offset),
+        },
+      }),
+      'video chunk',
+    );
+  }
+  await must(
+    await teach.post(`offerings/${offeringId}/videos/${created.video.id}/complete`),
+    'video complete',
+  );
+  for (let i = 0; i < 200; i++) {
+    const v = await must(
+      await teach.get(`offerings/${offeringId}/videos/${created.video.id}`),
+      'video status',
+    );
+    if (v.status === 'ready') return created.video.id;
+    if (v.status === 'failed') throw new Error(`the demo video failed: ${v.error?.message}`);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error('the demo video was not ready in time');
 }
 
 /** Creates the demo course. Returns what the screens need. */
@@ -123,6 +193,7 @@ export async function seedCourseDemo({ webPort, password }) {
 
   // content, built by the instructor
   const teach = await api(webPort, INSTRUCTOR, password);
+  let videoItemId = '';
   const topics = [
     'Getting started',
     'Variables and types',
@@ -172,6 +243,19 @@ export async function seedCourseDemo({ webPort, password }) {
       'link item',
     );
     if (n === 0) {
+      const videoId = await uploadDemoVideo(teach, offering.id);
+      const video = await must(
+        await teach.post(`offerings/${offering.id}/modules/${mod.id}/items`, {
+          data: {
+            kind: 'video',
+            title: 'Lecture: welcome to the course',
+            videoId,
+            published: true,
+          },
+        }),
+        'video item',
+      );
+      videoItemId = video.id;
       await must(
         await teach.post(`offerings/${offering.id}/modules/${mod.id}/items`, {
           data: {
@@ -194,5 +278,10 @@ export async function seedCourseDemo({ webPort, password }) {
   }
   await must(await teach.post(`offerings/${offering.id}/publish`), 'publish');
   await teach.dispose();
-  return { offeringId: offering.id, learnerEmail: LEARNER, instructorEmail: INSTRUCTOR };
+  return {
+    offeringId: offering.id,
+    videoItemId,
+    learnerEmail: LEARNER,
+    instructorEmail: INSTRUCTOR,
+  };
 }

@@ -25,6 +25,7 @@ import { createProfilesRoutes } from './modules/profiles';
 import { createSessionsRoutes } from './modules/sessions';
 import { createTenantsRoutes } from './modules/tenants';
 import { createUsersRoutes } from './modules/users';
+import { createPlaybackRoutes, createVideoRoutes, createVideoUploadRoutes } from './modules/video';
 
 export interface AppDeps {
   env: ApiEnv;
@@ -68,6 +69,7 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
     cookieName: modules.config.cookie.name,
     tenantResolver: modules.tenants.service,
     sessionResolver: modules.sessions.service,
+    ...(modules.video.sessionCache ? { cachedSessions: modules.video.sessionCache } : {}),
   });
   registerRoutePolicy(app);
   registerOpenApi(app, env);
@@ -97,6 +99,18 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
       void api.register(createCoursesRoutes({ coursesController: modules.courses.controller }));
       void api.register(createContentRoutes({ contentController: modules.content.controller }));
       void api.register(createFilesRoutes({ filesController: modules.files.controller }));
+      void api.register(createVideoRoutes({ videoController: modules.video.controller }));
+      void api.register(
+        createVideoUploadRoutes({
+          videoController: modules.video.controller,
+          chunkBytes: modules.config.video.chunkBytes,
+        }),
+      );
+      if (modules.video.playbackController) {
+        void api.register(
+          createPlaybackRoutes({ playbackController: modules.video.playbackController }),
+        );
+      }
       if (modules.files.storageController) {
         void api.register(
           createStorageRoutes({

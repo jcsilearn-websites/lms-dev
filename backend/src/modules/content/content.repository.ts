@@ -61,12 +61,15 @@ const itemJson = (staff: SQL, withBody: boolean, from: SQL = sql`lms.content_ite
     'url', CASE WHEN l.locked THEN NULL ELSE i.url END,
     'file', CASE WHEN l.locked OR f.id IS NULL THEN NULL ELSE jsonb_build_object(
               'id', f.id, 'name', f.original_name, 'size', f.size_bytes, 'contentType', f.content_type) END,
+    'video', CASE WHEN l.locked OR vd.id IS NULL THEN NULL ELSE jsonb_build_object(
+              'id', vd.id, 'status', vd.status, 'progress', vd.progress::int, 'durationMs', vd.duration_ms) END,
     'hasBody', (i.body IS NOT NULL AND NOT l.locked),
     ${withBody ? sql`'body', CASE WHEN l.locked THEN NULL ELSE i.body END,` : sql``}
     'updatedAt', i.updated_at) AS j, i.position AS pos
     FROM ${from} i
     JOIN lms.content_modules mo ON mo.tenant_id = i.tenant_id AND mo.id = i.module_id
     LEFT JOIN lms.files f ON f.tenant_id = i.tenant_id AND f.id = i.file_id AND f.status = 'ready'
+    LEFT JOIN lms.video_assets vd ON vd.tenant_id = i.tenant_id AND vd.id = i.video_asset_id
     CROSS JOIN LATERAL (${lockOf(staff)}) l`;
 
 export function createContentRepository() {
@@ -135,6 +138,34 @@ export function createContentRepository() {
       const r = res.rows[0];
       const file = (r?.file as Row | null) ?? null;
       return { acc: asAcc(r?.acc), file, locked: file?.locked === true };
+    },
+
+    /** The video of an item the caller may open (not locked, not hidden): for a playback session. */
+    async itemVideo(
+      tx: Executor,
+      a: AccessSpec,
+      itemId: string,
+    ): Promise<{ acc: AccessRow | null; video: Row | null; locked: boolean }> {
+      const staff = staffOf(a);
+      const res = await tx.execute(sql`
+        WITH ${accessCte(a)}
+        SELECT (SELECT to_jsonb(acc) FROM acc) AS acc,
+               (SELECT to_jsonb(r) FROM (
+                  SELECT va.id AS "assetId", va.status, va.duration_ms AS "durationMs", va.renditions, l.locked,
+                         coalesce((SELECT jsonb_agg(jsonb_build_object('language', c.language, 'label', c.label)
+                                                    ORDER BY c.language)
+                                     FROM lms.video_captions c
+                                    WHERE c.tenant_id = va.tenant_id AND c.asset_id = va.id), '[]'::jsonb) AS captions
+                    FROM lms.content_items i
+                    JOIN lms.content_modules mo ON mo.tenant_id = i.tenant_id AND mo.id = i.module_id
+                    JOIN lms.video_assets va ON va.tenant_id = i.tenant_id AND va.id = i.video_asset_id
+                    CROSS JOIN LATERAL (${lockOf(staff)}) l
+                   WHERE i.tenant_id = ${a.tenantId}::uuid AND i.offering_id = ${a.offeringId}::uuid
+                     AND i.id = ${itemId}::uuid AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)
+                     AND (${staff} OR (i.published AND mo.published))) r) AS video`);
+      const r = res.rows[0];
+      const video = (r?.video as Row | null) ?? null;
+      return { acc: asAcc(r?.acc), video, locked: video?.locked === true };
     },
 
     // ---------------------------------------------------------------- modules
@@ -234,6 +265,7 @@ export function createContentRepository() {
         title: string;
         body: unknown;
         fileId: string | null;
+        videoId: string | null;
         url: string | null;
         published: boolean;
         availableFrom: string | null;
@@ -245,6 +277,7 @@ export function createContentRepository() {
       moduleFound: boolean;
       posFound: boolean;
       fileOk: boolean;
+      videoOk: boolean;
       item: Row | null;
     }> {
       const scope = sql`s.module_id = ${moduleId}::uuid`;
@@ -260,19 +293,28 @@ export function createContentRepository() {
                   OR EXISTS (SELECT 1 FROM lms.content_items ci
                               WHERE ci.tenant_id = f.tenant_id AND ci.offering_id = ${a.offeringId}::uuid
                                 AND ci.file_id = f.id))),
+        vd AS (
+          SELECT va.id FROM lms.video_assets va
+           WHERE va.tenant_id = ${a.tenantId}::uuid AND va.id = ${v.videoId}::uuid AND va.status = 'ready'
+             AND (va.offering_id = ${a.offeringId}::uuid
+                  OR EXISTS (SELECT 1 FROM lms.content_items ci
+                              WHERE ci.tenant_id = va.tenant_id AND ci.offering_id = ${a.offeringId}::uuid
+                                AND ci.video_asset_id = va.id))),
         ins AS (
           INSERT INTO lms.content_items
-            (id, tenant_id, offering_id, module_id, kind, title, position, body, file_id, url, published,
-             available_from, created_by)
+            (id, tenant_id, offering_id, module_id, kind, title, position, body, file_id, video_asset_id, url,
+             published, available_from, created_by)
           SELECT ${v.id}::uuid, ${a.tenantId}::uuid, acc.id, mod.id, ${v.kind}, ${v.title}, pos.p,
-                 ${v.body === null ? null : JSON.stringify(v.body)}::jsonb, ${v.fileId}::uuid, ${v.url},
-                 ${v.published}, ${v.availableFrom}::timestamptz, ${createdBy}::uuid
+                 ${v.body === null ? null : JSON.stringify(v.body)}::jsonb, ${v.fileId}::uuid, ${v.videoId}::uuid,
+                 ${v.url}, ${v.published}, ${v.availableFrom}::timestamptz, ${createdBy}::uuid
             FROM acc, mod, pos
            WHERE ${may} AND (${v.fileId}::uuid IS NULL OR EXISTS (SELECT 1 FROM fl))
+             AND (${v.videoId}::uuid IS NULL OR EXISTS (SELECT 1 FROM vd))
           RETURNING *)
         SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, EXISTS (SELECT 1 FROM mod) AS module_found,
                EXISTS (SELECT 1 FROM pos) AS pos_found,
                (${v.fileId}::uuid IS NULL OR EXISTS (SELECT 1 FROM fl)) AS file_ok,
+               (${v.videoId}::uuid IS NULL OR EXISTS (SELECT 1 FROM vd)) AS video_ok,
                (SELECT x.j FROM (${itemJson(sql`TRUE`, true, sql`ins`)}) x) AS item`);
       const r = res.rows[0];
       return {
@@ -280,6 +322,7 @@ export function createContentRepository() {
         moduleFound: r?.module_found === true,
         posFound: r?.pos_found === true,
         fileOk: r?.file_ok === true,
+        videoOk: r?.video_ok === true,
         item: (r?.item as Row | null) ?? null,
       };
     },
@@ -292,17 +335,19 @@ export function createContentRepository() {
         title?: string;
         body?: unknown;
         fileId?: string;
+        videoId?: string;
         url?: string;
         published?: boolean;
         availableFrom?: string | null;
       },
       actor: string,
-    ): Promise<{ acc: AccessRow | null; fileOk: boolean; item: Row | null }> {
+    ): Promise<{ acc: AccessRow | null; fileOk: boolean; videoOk: boolean; item: Row | null }> {
       const set: SQL[] = [];
       if (v.title !== undefined) set.push(sql`title = ${v.title}`);
       if (v.body !== undefined) set.push(sql`body = ${JSON.stringify(v.body)}::jsonb`);
       if (v.url !== undefined) set.push(sql`url = ${v.url}`);
       if (v.fileId !== undefined) set.push(sql`file_id = ${v.fileId}::uuid`);
+      if (v.videoId !== undefined) set.push(sql`video_asset_id = ${v.videoId}::uuid`);
       if (v.published !== undefined) set.push(sql`published = ${v.published}`);
       if (v.availableFrom !== undefined)
         set.push(sql`available_from = ${v.availableFrom}::timestamptz`);
@@ -315,18 +360,28 @@ export function createContentRepository() {
                   OR EXISTS (SELECT 1 FROM lms.content_items ci
                               WHERE ci.tenant_id = f.tenant_id AND ci.offering_id = ${a.offeringId}::uuid
                                 AND ci.file_id = f.id))),
+        vd AS (
+          SELECT va.id FROM lms.video_assets va
+           WHERE va.tenant_id = ${a.tenantId}::uuid AND va.id = ${v.videoId ?? null}::uuid AND va.status = 'ready'
+             AND (va.offering_id = ${a.offeringId}::uuid
+                  OR EXISTS (SELECT 1 FROM lms.content_items ci
+                              WHERE ci.tenant_id = va.tenant_id AND ci.offering_id = ${a.offeringId}::uuid
+                                AND ci.video_asset_id = va.id))),
         upd AS (
           UPDATE lms.content_items x SET ${sql.join(set, sql`, `)}, updated_at = now() FROM acc
            WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${itemId}::uuid AND ${may}
              AND (${v.fileId ?? null}::uuid IS NULL OR EXISTS (SELECT 1 FROM fl))
+             AND (${v.videoId ?? null}::uuid IS NULL OR EXISTS (SELECT 1 FROM vd))
           RETURNING x.*)
         SELECT (SELECT to_jsonb(acc) FROM acc) AS acc,
                (${v.fileId ?? null}::uuid IS NULL OR EXISTS (SELECT 1 FROM fl)) AS file_ok,
+               (${v.videoId ?? null}::uuid IS NULL OR EXISTS (SELECT 1 FROM vd)) AS video_ok,
                (SELECT x.j FROM (${itemJson(sql`TRUE`, true, sql`upd`)}) x) AS item`);
       const r = res.rows[0];
       return {
         acc: asAcc(r?.acc),
         fileOk: r?.file_ok === true,
+        videoOk: r?.video_ok === true,
         item: (r?.item as Row | null) ?? null,
       };
     },
@@ -422,10 +477,10 @@ export function createContentRepository() {
           RETURNING id),
         ni AS (
           INSERT INTO lms.content_items
-            (id, tenant_id, offering_id, module_id, kind, title, position, body, file_id, url, published,
-             available_from, created_by)
+            (id, tenant_id, offering_id, module_id, kind, title, position, body, file_id, video_asset_id, url,
+             published, available_from, created_by)
           SELECT lms.uuid_v7(), ${t}, ${v.targetId}::uuid, mm.new_id, i.kind, i.title, i.position, i.body, i.file_id,
-                 i.url, false, NULL, ${v.actorUserId}::uuid
+                 i.video_asset_id, i.url, false, NULL, ${v.actorUserId}::uuid
             FROM lms.content_items i JOIN mm ON mm.old_id = i.module_id
            WHERE i.tenant_id = ${t}
           RETURNING id),

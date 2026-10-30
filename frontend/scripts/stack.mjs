@@ -80,6 +80,12 @@ export async function withStack(fn, { extraMembers = 0 } = {}) {
     STORAGE_DRIVER: 'local',
     STORAGE_LOCAL_DIR: join(FRONTEND, '.e2e-tmp', 'storage'),
     STORAGE_SIGNING_SECRET: 'e2e-only-signing-secret-0123456789abcdef',
+    // video lessons: ffmpeg from the PATH (development and CI only), a scratch directory, small chunks so even a
+    // short clip is uploaded in several requests, and playback links that expire quickly (the expiry test waits)
+    VIDEO_PROVIDER: 'local',
+    VIDEO_WORK_DIR: join(FRONTEND, '.e2e-tmp', 'video-work'),
+    VIDEO_UPLOAD_CHUNK_BYTES: '65536',
+    VIDEO_PLAYBACK_TTL_SECONDS: '20',
   };
   const children = [];
   function start(name, cmd, args, shell = isWindows) {

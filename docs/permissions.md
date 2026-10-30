@@ -137,6 +137,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | PATCH | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
 | GET | `/api/offerings/:id/items/:itemId/download` | `content.view` in the offering |
 | POST | `/api/offerings/:id/items/:itemId/move` | `course.edit` in the offering |
+| POST | `/api/offerings/:id/items/:itemId/playback` | `content.view` in the offering |
 | POST | `/api/offerings/:id/modules` | `course.edit` in the offering |
 | DELETE | `/api/offerings/:id/modules/:moduleId` | `course.edit` in the offering |
 | PATCH | `/api/offerings/:id/modules/:moduleId` | `course.edit` in the offering |
@@ -152,6 +153,14 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/offerings/:id/sections` | `offering.manage` in the offering |
 | DELETE | `/api/offerings/:id/sections/:sectionId` | `offering.manage` in the offering |
 | POST | `/api/offerings/:id/unpublish` | `course.publish` in the offering |
+| POST | `/api/offerings/:id/videos` | `course.edit` in the offering |
+| DELETE | `/api/offerings/:id/videos/:videoId` | `course.edit` in the offering |
+| GET | `/api/offerings/:id/videos/:videoId` | `course.edit` in the offering |
+| POST | `/api/offerings/:id/videos/:videoId/captions` | `course.edit` in the offering |
+| DELETE | `/api/offerings/:id/videos/:videoId/captions/:language` | `course.edit` in the offering |
+| POST | `/api/offerings/:id/videos/:videoId/complete` | `course.edit` in the offering |
+| GET | `/api/offerings/:id/videos/:videoId/upload` | `course.edit` in the offering |
+| PATCH | `/api/offerings/:id/videos/:videoId/upload` | `course.edit` in the offering |
 | GET | `/api/platform/audit` | `platform.audit.read` |
 | GET | `/api/platform/tenants` | `platform.tenant.read` |
 | POST | `/api/platform/tenants` | `platform.tenant.manage` |
@@ -187,5 +196,6 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | PATCH | `/api/terms/:id` | `academic.manage` |
 | POST | `/api/terms/:id/archive` | `academic.manage` |
 | POST | `/api/terms/:id/unarchive` | `academic.manage` |
+| GET | `/api/video/play/:token/:assetId/*` | any signed-in user |
 | GET | `/health/live` | public |
 | GET | `/health/ready` | public |

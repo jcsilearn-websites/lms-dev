@@ -24,3 +24,12 @@ frontend/.e2e-tmp/
 backend/.storage/
 backend/.storage-test/
 .storage-test/
+
+# local video provider: scratch space of the transcoder, generated test clips
+.video-work/
+.video-work-test/
+backend/.video-work/
+backend/.video-work-test/
+frontend/.e2e-tmp/
+.video-bench/
+backend/.video-bench/

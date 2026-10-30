@@ -14,3 +14,4 @@ export * from './platform';
 export * from './profiles';
 export * from './roles';
 export * from './tenant';
+export * from './video';

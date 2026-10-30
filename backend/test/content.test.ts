@@ -152,13 +152,14 @@ describe('modules and items: editing and ordering', () => {
     expect(new Set(ids(mods)).size).toBe(8);
   });
 
-  it('an item has what its kind needs; video is refused until a later step', async () => {
+  it('an item has what its kind needs', async () => {
     const c = await course();
     const i = c.instructor.client;
     const o = c.offering.id;
     const m = ok(await i.post(`/offerings/${o}/modules`, { title: 'M' }));
     const add = (body: Json) => i.post(`/offerings/${o}/modules/${m.id}/items`, body);
-    expect(errorCode(await add({ kind: 'video', title: 'v' }))).toBe('video_not_supported');
+    expect(errorCode(await add({ kind: 'video', title: 'v' }))).toBe('invalid_item');
+    expect(errorCode(await add({ kind: 'text', title: 't', videoId: m.id }))).toBe('invalid_item');
     expect(errorCode(await add({ kind: 'text', title: 'no body' }))).toBe('invalid_item');
     expect(errorCode(await add({ kind: 'link', title: 'no url' }))).toBe('invalid_item');
     expect(errorCode(await add({ kind: 'file', title: 'no file' }))).toBe('invalid_item');

@@ -41,6 +41,7 @@ import { memberProfiles, profileType } from '../src/modules/profiles/profiles.mo
 import { sessions } from '../src/modules/sessions/sessions.model';
 import { tenantSettings, tenantStatus, tenants } from '../src/modules/tenants/tenants.model';
 import { users } from '../src/modules/users/users.model';
+import { videoAssets, videoCaptions } from '../src/modules/video/video.model';
 
 const schema = {
   tenants,
@@ -83,6 +84,8 @@ const schema = {
   files,
   contentModules,
   contentItems,
+  videoAssets,
+  videoCaptions,
 };
 
 import { testOwnerPool } from './support';

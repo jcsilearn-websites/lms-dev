@@ -180,6 +180,15 @@ await withStack(
             await t.pg.getByRole('textbox', { name: 'Text of this item' }).click();
             await t.pg.keyboard.type('Welcome to the course. Read the syllabus first.');
             await t.snap('course-editor');
+            // the video item of the demo course: its dialog (ready, with its renditions and the captions panel)
+            await t.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/build`);
+            await t.pg.getByRole('button', { name: /^Edit Lecture: welcome/ }).click();
+            await t.pg
+              .getByRole('dialog', { name: 'Edit video' })
+              .getByText('Ready')
+              .first()
+              .waitFor();
+            await t.snap('video-dialog');
             await t.c.close();
 
             const l = await signedIn(demo.learnerEmail);
@@ -194,6 +203,19 @@ await withStack(
               .click();
             await l.pg.getByText('Read this carefully before the lab.').waitFor();
             await l.snap('course-item');
+            // the video item: the poster with its Play button, then the player while it plays
+            await l.pg.goto(
+              `${origin('e2e-one')}/offerings/${demo.offeringId}/items/${demo.videoItemId}`,
+            );
+            const player = l.pg.getByRole('region', { name: /Video player/ });
+            await player.getByRole('button', { name: 'Play' }).waitFor();
+            await l.pg.waitForTimeout(600); // the poster
+            await l.snap('video-poster');
+            await player.getByRole('button', { name: 'Play' }).click();
+            await l.pg.waitForFunction(
+              () => (document.querySelector('video')?.currentTime ?? 0) > 1.5,
+            );
+            await l.snap('video-playing');
             await l.c.close();
           }
 

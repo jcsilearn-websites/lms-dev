@@ -6,6 +6,7 @@ import { Button } from '../../shared/ui/button';
 import { Badge, Card, PageHeader } from '../../shared/ui/layout';
 import { ErrorState, ListSkeleton } from '../../shared/ui/states';
 import { toast } from '../../shared/ui/toast';
+import { VideoItemView } from '../video/VideoItemView';
 import { courseKeys, getItem, itemDownload } from './courses.api';
 
 function formatSize(n: number): string {
@@ -20,6 +21,8 @@ export function ItemPage() {
   const item = useQuery({
     queryKey: courseKeys.item(id, itemId),
     queryFn: ({ signal }) => getItem(id, itemId, signal),
+    // a video that is still being prepared: look again until it is ready
+    refetchInterval: (q) => (q.state.data?.video?.status === 'processing' ? 3000 : false),
   });
   const download = useMutation({
     mutationFn: () => itemDownload(id, itemId),
@@ -86,6 +89,7 @@ export function ItemPage() {
               </p>
             </Card>
           )}
+          {it.kind === 'video' && <VideoItemView offeringId={id} item={it} />}
           {it.kind === 'file' && it.file && (
             <Card>
               <p className="font-medium">{it.file.name}</p>

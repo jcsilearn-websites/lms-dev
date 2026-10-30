@@ -150,6 +150,46 @@ const storageFields = {
   FILE_PURGE_INTERVAL_SECONDS: Type.Integer({ minimum: 1, default: 3600 }),
 };
 
+/**
+ * Video lessons (step 7). `local` (ffmpeg in the worker, HLS served by this API) is for development and CI ONLY:
+ * it is refused when NODE_ENV=production, and ffmpeg is never shipped in a production image. Production uses a
+ * managed provider (`gcp` Transcoder API, or a video service such as `bunny`), which carries the codec licensing.
+ */
+const videoFields = {
+  VIDEO_PROVIDER: Type.Union([Type.Literal('local'), Type.Literal('gcp'), Type.Literal('bunny')], {
+    default: 'local',
+  }),
+  // HMAC key of the playback tokens (>= 32 characters). Absent: derived (HKDF, own label) from STORAGE_SIGNING_SECRET.
+  VIDEO_SIGNING_SECRET: Type.Optional(Type.String({ minLength: 32 })),
+  VIDEO_MAX_BYTES: Type.Integer({ minimum: 1024, default: 2 * 1024 * 1024 * 1024 }),
+  VIDEO_MAX_DURATION_SECONDS: Type.Integer({ minimum: 1, default: 3 * 3600 }),
+  // one PATCH of the resumable upload carries at most this many bytes
+  VIDEO_UPLOAD_CHUNK_BYTES: Type.Integer({
+    minimum: 16 * 1024,
+    maximum: 64 * 1024 * 1024,
+    default: 8 * 1024 * 1024,
+  }),
+  // a playback session (and its token) is valid this long; the player asks for a new one when it expires
+  VIDEO_PLAYBACK_TTL_SECONDS: Type.Integer({ minimum: 2, maximum: 86_400, default: 7200 }),
+  // segment requests re-use a validated (session, asset) pair for this long (a revoked session may play on
+  // for at most this long) in a cache of at most VIDEO_SESSION_CACHE_MAX entries
+  VIDEO_SESSION_CACHE_TTL_SECONDS: Type.Integer({ minimum: 0, maximum: 600, default: 60 }),
+  VIDEO_SESSION_CACHE_MAX: Type.Integer({ minimum: 1, default: 10_000 }),
+  // the uploaded original is kept this many days after a successful transcode, then deleted
+  VIDEO_SOURCE_RETENTION_DAYS: Type.Integer({ minimum: 0, default: 30 }),
+  // an abandoned upload / an unreferenced video is deleted this long after its last activity
+  VIDEO_UPLOAD_GRACE_HOURS: Type.Integer({ minimum: 0, default: 24 }),
+  VIDEO_PURGE_INTERVAL_SECONDS: Type.Integer({ minimum: 1, default: 3600 }),
+  // local provider: scratch space of the transcoder (one directory per job)
+  VIDEO_WORK_DIR: Type.String({ minLength: 1, default: '.video-work' }),
+  FFMPEG_PATH: Type.String({ minLength: 1, default: 'ffmpeg' }),
+  FFPROBE_PATH: Type.String({ minLength: 1, default: 'ffprobe' }),
+  // a transcode is killed after max(10 min, factor x the video's duration)
+  VIDEO_TRANSCODE_TIMEOUT_FACTOR: Type.Number({ minimum: 0.5, default: 8 }),
+  // encoder threads per ffmpeg process (0 = ffmpeg decides)
+  VIDEO_FFMPEG_THREADS: Type.Integer({ minimum: 0, maximum: 64, default: 0 }),
+};
+
 export const apiEnvSchema = Type.Object({
   NODE_ENV: nodeEnv,
   LOG_LEVEL: logLevel,
@@ -166,6 +206,7 @@ export const apiEnvSchema = Type.Object({
   ...jobFields,
   ...importFields,
   ...storageFields,
+  ...videoFields,
   ...dbAppFields,
 });
 export type ApiEnv = Static<typeof apiEnvSchema>;
@@ -178,6 +219,7 @@ export const workerEnvSchema = Type.Object({
   ...jobFields,
   ...importFields,
   ...storageFields,
+  ...videoFields,
   ...dbAppFields,
 });
 export type WorkerEnv = Static<typeof workerEnvSchema>;
@@ -256,6 +298,7 @@ export function parseApiEnv(source: Record<string, string | undefined> = process
   assertSslPolicy(env, [env.DATABASE_APP_URL]);
   assertAuthPolicy(env, source);
   assertStoragePolicy(env);
+  assertVideoPolicy(env);
   return env;
 }
 
@@ -282,6 +325,29 @@ export function assertStoragePolicy(env: {
     }
   } else if (!env.STORAGE_GCS_BUCKET) {
     issues.push('STORAGE_GCS_BUCKET: required when STORAGE_DRIVER=gcs');
+  }
+  if (issues.length > 0) throw new EnvError(issues);
+}
+
+/**
+ * The local video provider needs ffmpeg and serves HLS from this API: development and CI only. Production uses a
+ * managed provider, so `local` is refused when NODE_ENV=production (ffmpeg, which is GPL-licensed with libx264, is
+ * never shipped in a production image). It also stores everything through the local storage driver.
+ */
+export function assertVideoPolicy(env: {
+  NODE_ENV: string;
+  VIDEO_PROVIDER: string;
+  STORAGE_DRIVER: string;
+}): void {
+  if (env.VIDEO_PROVIDER !== 'local') return;
+  const issues: string[] = [];
+  if (env.NODE_ENV === 'production') {
+    issues.push(
+      'VIDEO_PROVIDER: "local" (ffmpeg in the worker) is a development driver and is not allowed when NODE_ENV=production',
+    );
+  }
+  if (env.STORAGE_DRIVER !== 'local') {
+    issues.push('VIDEO_PROVIDER: "local" needs STORAGE_DRIVER=local');
   }
   if (issues.length > 0) throw new EnvError(issues);
 }
@@ -322,6 +388,7 @@ export function parseWorkerEnv(
   const env = parseEnv(workerEnvSchema, source);
   assertSslPolicy(env, [env.DATABASE_APP_URL]);
   assertStoragePolicy(env);
+  assertVideoPolicy(env);
   return env;
 }
 

@@ -129,6 +129,58 @@ if (!editorKey) {
   };
 }
 
+// ---- the video player (hls.js) is its OWN chunk, reachable only from the video item page and the builder's preview
+//   1. the only chunks that import it (lazily) are the "gates" below, and only the video item page and the
+//      builder (item dialog) may load a gate: sign-in, administrator and every other page never get hls.js,
+//      not even in the background;
+//   2. hls.js code appears in no other chunk, and in nothing the login page loads;
+//   3. the player chunk stays small (it is paid for on the first video of a visit).
+const PLAYER_BUDGET_KB = Number(process.env.PLAYER_BUDGET_KB ?? 125);
+const playerKey = Object.keys(manifest).find((k) => /VideoPlayer\.tsx$/.test(k));
+const PLAYER_USERS =
+  /ItemPage|BuilderPage|ItemDialog|VideoItemView|VideoField|video\.api|loadPlayer/;
+let playerReport = null;
+if (!playerKey) {
+  failures.push('the video player chunk (VideoPlayer.tsx) is not in the manifest');
+} else {
+  // the chunks that contain the lazy import of the player
+  const gates = Object.keys(manifest).filter((k) =>
+    (manifest[k].dynamicImports ?? []).includes(playerKey),
+  );
+  if (gates.length === 0) failures.push('nothing imports the video player chunk');
+  for (const k of Object.keys(manifest)) {
+    if (k === playerKey || gates.includes(k) || PLAYER_USERS.test(k)) continue;
+    // anything that statically loads a gate (or the player) gets hls.js on its first video
+    if (gates.some((g) => staticGraph(k).has(g)) || staticGraph(k).has(playerKey)) {
+      failures.push(`${k} loads the video player chunk (hls.js); only the video screens may`);
+    }
+  }
+  for (const g of gates) {
+    if (!PLAYER_USERS.test(g))
+      failures.push(`${g} imports the video player chunk; only the video screens may`);
+    if (staticGraph(entryKey).has(g)) failures.push(`the entry loads ${g}, which can load hls.js`);
+  }
+  const playerStatic = staticGraph(playerKey);
+  const playerFiles = new Set(filesOf(playerStatic));
+  for (const f of new Set(allJsFiles())) {
+    if (!readFileSync(join(DIST, f), 'utf8').includes('#EXTM3U')) continue; // hls.js parses playlists
+    if (!playerFiles.has(f))
+      failures.push(`hls.js code found in ${f}, which is not part of the player chunk`);
+    if (loginFiles.includes(f)) failures.push(`hls.js code is in the login page load: ${f}`);
+  }
+  const playerBytes = total(filesOf(playerStatic).filter((f) => !loginFiles.includes(f)));
+  if (kb(playerBytes) > PLAYER_BUDGET_KB) {
+    failures.push(`video player chunk ${kb(playerBytes).toFixed(1)} KB > ${PLAYER_BUDGET_KB} KB`);
+  }
+  playerReport = {
+    key: playerKey,
+    kb: Number(kb(playerBytes).toFixed(1)),
+    reachedBy: Object.keys(manifest)
+      .filter((k) => PLAYER_USERS.test(k) && k !== playerKey)
+      .map((k) => k.replace(/^src\//, '')),
+  };
+}
+
 function allJsFiles() {
   return Object.values(manifest)
     .map((m) => m.file)
@@ -159,6 +211,7 @@ const report = {
   loginChunks: loginFiles.map((f) => ({ file: f, kb: Number(kb(gz(f)).toFixed(1)) })),
   routes: results.map((r) => ({ name: r.name, kb: Number(kb(r.bytes).toFixed(1)) })),
   editor: editorReport,
+  player: playerReport,
   failures,
 };
 
@@ -176,6 +229,11 @@ if (json) {
     `Lazy chunks (extra JS a route loads on top of the login page), budget ${ROUTE_BUDGET_KB} KB:`,
   );
   for (const r of report.routes) console.log(`    ${r.name.padEnd(52)} ${r.kb} KB`);
+  if (report.player) {
+    console.log(
+      `Video player chunk (hls.js; own chunk, loaded by the video screens only): ${report.player.kb} KB gzip (budget ${PLAYER_BUDGET_KB}); reachable from: ${report.player.reachedBy.join(', ')}`,
+    );
+  }
   if (report.editor) {
     console.log(
       `Rich-text editor chunk (own chunk, loaded by the builder only): ${report.editor.kb} KB gzip; reachable from: ${report.editor.reachedBy.join(', ')}`,

@@ -23,6 +23,7 @@
     "bench:search": "tsx bench/search-explain.ts",
     "bench:members": "tsx bench/members-bench.ts",
     "bench:courses": "tsx bench/courses-bench.ts",
+    "bench:video": "tsx bench/video-bench.ts",
     "docs:permissions": "tsx src/cli/docs-permissions.ts",
     "admin:create": "tsx src/cli/create-platform-admin.ts",
     "db:dev:clean": "tsx src/cli/dev-clean.ts"

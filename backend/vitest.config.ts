@@ -25,6 +25,9 @@ export const SERIAL_FILES = [
   'test/worker.test.ts',
   // a 10,000-row import with lease heartbeats; its throughput is only meaningful on an idle machine
   'test/imports.scale.test.ts',
+  // real ffmpeg transcodes: every encoder thread the machine has, and multi-second wall-clock work
+  'test/video.test.ts',
+  'test/video.shutdown.test.ts',
 ];
 
 export default defineConfig({

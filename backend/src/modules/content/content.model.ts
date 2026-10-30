@@ -24,6 +24,7 @@ export const contentItems = lms.table('content_items', {
   position: text('position').notNull(),
   body: jsonb('body'),
   fileId: uuid('file_id'),
+  videoAssetId: uuid('video_asset_id'),
   url: text('url'),
   published: boolean('published').notNull().default(false),
   availableFrom: timestamp('available_from', { withTimezone: true }),

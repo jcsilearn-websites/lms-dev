@@ -80,6 +80,8 @@ describe('tenant isolation (RLS)', () => {
       'files',
       'content_modules',
       'content_items',
+      'video_assets',
+      'video_captions',
     ]) {
       const { rows } = await rawApp.query(`SELECT 1 FROM lms.${table}`);
       expect(rows, table).toHaveLength(0);
@@ -288,6 +290,8 @@ describe('lms_app privileges', () => {
         'terms',
         'user_credentials',
         'users',
+        'video_assets',
+        'video_captions',
       ].sort(),
     );
     for (const r of rows) expect({ ...r }, r.relname).toMatchObject({ on: true, forced: true });

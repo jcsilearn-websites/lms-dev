@@ -109,6 +109,19 @@ SPA fallback, `/api` proxy) on ports 3100 / 4173 and runs Playwright serially. E
 `pnpm --filter @lms/frontend exec playwright install chromium`. On a machine with little free memory close other
 heavy applications (a browser with many tabs) before running it.
 
+## Video lessons (development)
+
+Instructors upload videos in the course builder (**Add video**: resumable, chunked); the worker converts them with ffmpeg into
+HLS (360p / 480p / 720p) and learners play them in the item page. Needs **ffmpeg and ffprobe on the PATH** (development and CI
+only; never in production, see [ADR 0015](docs/adr/0015-video.md)):
+
+- Windows: download the pinned archive named in the ADR from the BtbN releases, check its SHA-256, copy `ffmpeg.exe` and
+  `ffprobe.exe` to a folder on your PATH.
+- Linux / CI: `bash .github/scripts/install-ffmpeg.sh` (checks the SHA-256 before unpacking).
+
+`ffmpeg -version` should say `n8.1.3-9-g29e619e767`. Measured sizes and speeds: [docs/video-cost-model.md](docs/video-cost-model.md);
+`pnpm --filter @lms/backend run bench:video` repeats them on your machine.
+
 ## Production routing (GCP TODOs)
 
 The SPA and the API share one origin per college; in production a gateway has to do what `frontend/scripts/serve.mjs` and
@@ -121,13 +134,19 @@ the Vite proxy do locally (route `/api/*` to the API, the rest to the SPA):
   resolved from `Host`, cookies are host-only, and `TRUST_PROXY` must match the proxy chain.
 - Serve `/assets/*` with `Cache-Control: public, max-age=31536000, immutable` (file names are content hashes) and
   `index.html` with `no-cache`; compress text assets (brotli/gzip); send the security headers `serve.mjs` sends (CSP,
-  `nosniff`, `frame-ancestors 'none'`).
+  `nosniff`, `frame-ancestors 'none'`). Video needs `media-src 'self' blob:` in that CSP (hls.js plays through a MediaSource),
+  and the pages that play video (`/offerings/*/items/*`, `/offerings/*/build`) must send `Referrer-Policy: no-referrer`.
 - Wildcard certificate and wildcard DNS for `*.<APP_BASE_DOMAIN>` (tenants) plus `admin.<APP_BASE_DOMAIN>`.
 - **File storage (course files)**: production uses `STORAGE_DRIVER=gcs` (a bucket per environment, uniform bucket-level
   access, no public objects; the app hands out V4 signed URLs). The `local` driver is refused when `NODE_ENV=production`.
   The GCS driver is NOT built yet (it answers 503): it must sign PUT URLs with a content-type and size condition and GET
   URLs with `response-content-disposition`, and read size / hash from object metadata instead of re-reading the bytes.
   Let the load balancer / Cloud Run request size limit stay above `STORAGE_MAX_FILE_BYTES` only where the local driver runs.
+- **Video lessons**: production uses a managed provider (`VIDEO_PROVIDER=gcp`, GCP Transcoder API + GCS + Cloud CDN signed
+  cookies, or a video service such as Bunny Stream / Cloudflare Stream / Mux). `VIDEO_PROVIDER=local` (ffmpeg in the worker) is
+  refused when `NODE_ENV=production`, and ffmpeg must never be added to a production image (codec licensing: see ADR 0015). Both
+  providers are stubs (503) until the GCP step. The CDN, not this API, must validate the playback URLs / cookies, and the
+  gateway must send the CSP and `Referrer-Policy` described above.
 - **Malware scanning of uploads (not built)**: before a file becomes `ready` it should pass a scan, e.g. a Cloud Storage
   event -> scanner -> verdict step in the GCS pipeline; `POST /files/:id/confirm` is where the verdict is checked.
 

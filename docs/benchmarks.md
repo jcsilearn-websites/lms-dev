@@ -411,3 +411,20 @@ but did not remove it) and from the database sharing the CPU with the benchmark.
 (7.6 s measured), about 10 s typically, 16 s worst; `concurrency` (batches applied in parallel, different members each) is
 implemented but left at 1 because it was not faster on 2 cores (17.7 s vs 13 s in a noisy pair of runs): measure it on Cloud SQL.
 A single student moving section is unaffected: 1 pending row, one batch of 1 member (9 ms; one run showed 2 s while autovacuum was running).
+
+## Step 7: video lessons — 2026-10-30
+
+Details, method and the size numbers per rendition: [video-cost-model.md](video-cost-model.md). Reproduce with
+`pnpm --filter @lms/backend run bench:video` (ffmpeg `n8.1.3-9-g29e619e767`; 4 x i3-1005G1 @ 1.20 GHz, Windows).
+
+| what                                                                                              | result                                                                                                                     |
+| ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| transcode, lecture-like 1280x720 (clean slides), 3 renditions, one ffmpeg run, `-preset veryfast` | 300 s of video in 77 s: **3.9x real time** (about 15 min of work per hour of video)                                        |
+| transcode, high-motion 1280x720 (noise, hits every bit-rate cap)                                  | 300 s in 203 s: **1.5x real time** (about 40 min per hour of video)                                                        |
+| size of a viewing hour, fMP4: 360p / 480p / 720p                                                  | lecture-like **0.033 / 0.048 / 0.049 GB**; high-motion **0.211 / 0.361 / 0.631 GB** (the caps: at most 0.21 / 0.36 / 0.63) |
+| MPEG-TS instead of fMP4 (same encode, lecture-like)                                               | 31-51 % larger                                                                                                             |
+| `POST /offerings/:id/items/:itemId/playback` (10 connections, 8 s)                                | 193-236 req/s, **p50 40-49 ms, p99 69-93 ms**, 4 round trips                                                               |
+| 20 consecutive playback file requests of one session                                              | **1** database statement (the other 19 hit the session cache)                                                              |
+| a hand-cut, test-sized upload (resumable, 32 KB chunks)                                           | each chunk 4 round trips; the video tests run end to end in about 25 s including real transcodes                           |
+| player chunk (hls.js light)                                                                       | 113 KB gzip, loaded on Play / hover only; login page unchanged                                                             |
+| Lighthouse (mobile, median of 3) video item page                                                  | performance 94, accessibility 100 (this machine; neighbouring pages 91-97 in the same run)                                 |

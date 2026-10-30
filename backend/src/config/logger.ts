@@ -1,4 +1,5 @@
 import pino, { type DestinationStream, type Logger } from 'pino';
+import { redactPlaybackUrl } from '../core/video';
 
 const SENSITIVE_KEYS = [
   'password',
@@ -35,7 +36,8 @@ export function createLogger(
       // never log headers, query strings (may carry tokens) or bodies
       req: (req: { method: string; url: string }) => ({
         method: req.method,
-        url: req.url.split('?')[0],
+        // a playback URL carries its credential in the path: it is logged as /video/play/[redacted]/...
+        url: redactPlaybackUrl(req.url.split('?')[0] ?? ''),
       }),
       res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
       err: pino.stdSerializers.err,

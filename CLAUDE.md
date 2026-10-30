@@ -4,8 +4,9 @@ Production multi-tenant SaaS LMS sold to multiple colleges. This is a commercial
 Steps 1 (foundation), 1b (module-based restructure), 2 (authentication + tenant resolution), 2b (round-trip
 budget + cleanup jobs), 4 (permission system + member and tenant management), 5 (academic structure, member
 profiles, bulk CSV import, Postgres job queue), 5b (the frontend for all of them) and 6 (courses, offerings,
-participation, course content, file storage; backend + frontend) are built. Do not build features
-beyond the current step without being asked.
+participation, course content, file storage; backend + frontend), 6b (soft removal, PostgreSQL 17 everywhere) and 7 (video
+lessons behind provider interfaces; backend + frontend) are built. Do not build features beyond the current step without
+being asked.
 
 ## Architecture (decided — do not change without asking the owner)
 
@@ -46,14 +47,15 @@ backend/
                     OpenAPI, pagination helpers, uuid, tenant log binding, job-handler types
     contracts/      shared TypeBox schemas + types exported to the frontend (leaf folder)
     core/storage/   StorageProvider (local signed-URL driver, GCS stub), file types + magic bytes
+    core/video/     VideoProvider (local = ffmpeg + HLS served by the API; gcp / bunny stubs), playback tokens, ffmpeg/ffprobe runner
     modules/<module>/   health, tenants (+tenant_settings), users, memberships, audit, sessions, auth,
-                        jobs (queue), academics, profiles, imports, courses, content, files
+                        jobs (queue), academics, profiles, imports, courses, content, files, video
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
 frontend/src/
   app/              app shell, root layout (branding, 404 college), providers, router (one route tree per host kind), theme
-  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses:
+  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses, video:
                        <feature>.api.ts (typed with backend contracts), pages, hooks
   shared/           ui/ (button, field, select, dialog, data-table, toast, states), api/ (client, errors), forms/, utils/
 frontend/e2e/       Playwright specs + helpers   frontend/scripts/  stack, e2e, serve, bundle check, lighthouse, screenshots
@@ -310,6 +312,34 @@ Full reasoning: `docs/adr/0013-courses-content-storage.md`. Numbers: `docs/bench
   separate chunk, prefetched in idle time after the builder loaded, and `pnpm bundle:check` fails if anything but the builder
   can reach it. Dependencies are pinned exactly; Tiptap is 3.31.4 because 3.32.1 was inside the minimum release age.
 
+## Video lessons (step 7)
+
+Full reasoning, versions and numbers: `docs/adr/0015-video.md`, `docs/video-cost-model.md`, `docs/benchmarks.md`.
+- **Provider interface** (`core/video`): `VIDEO_PROVIDER=local|gcp|bunny`. `local` (ffmpeg in the worker, HLS served by this
+  API with signed tokens) is for **development and CI only** and is **refused when `NODE_ENV=production`** (`assertVideoPolicy`):
+  ffmpeg is never shipped in a production image, production uses a managed provider that carries the codec licensing. `gcp` and
+  `bunny` are 503 stubs with TODOs. ffmpeg / ffprobe must be on the PATH (pinned build, `.github/scripts/install-ffmpeg.sh`;
+  the video tests fail loudly without them).
+- **Upload**: resumable and chunked through the API (`POST /offerings/:id/videos`, `PATCH .../upload` with `Upload-Offset`,
+  `GET .../upload` = the resume point, `POST .../complete`). The STORED BYTES are the truth about where the upload stands. Every
+  route is `scope: 'offering'`, `course.edit`, 4 round trips; the queue job is enqueued in the same statement as the state change.
+- **Transcoding** (`video` queue, `JOB_CONCURRENCY=video:1` default): one ffmpeg run, H.264 (CRF 23, veryfast, maxrate-capped) + AAC,
+  **fMP4** segments of 6 s (`init.mp4` per rendition), ladder 360/480/720 named for the short side, never upscaled, aligned key
+  frames. Untrusted input: `-protocol_whitelist file`, no shell, hard timeout, output only in the job's directory, probe limits.
+  Failures carry a readable reason and are not retried; shutdown kills ffmpeg (and waits for it to exit before removing files).
+- **Playback**: `POST /offerings/:id/items/:itemId/playback` (`content.view`, same visibility as the outline) -> a session whose
+  token is in the URL PATH (`/api/video/play/<token>/<assetId>/master.m3u8`, relative playlist URIs). The local provider also
+  requires the session cookie of the SAME user; the validated session is cached per (session, token) for
+  `VIDEO_SESSION_CACHE_TTL_SECONDS` (60, bounded): **a revoked session keeps playing for at most that long**; 20 segment requests
+  cost 1 statement. Responses carry `Referrer-Policy: no-referrer`; tokens are redacted from logs (tested). The SPA's CSP needs
+  `media-src 'self' blob:`. In production the CDN validates signed URLs / cookies and this API is NOT on the segment path.
+- **Copy shares the asset** (like files); unreferenced / abandoned videos are purged after `VIDEO_UPLOAD_GRACE_HOURS`, the
+  original is deleted `VIDEO_SOURCE_RETENTION_DAYS` after a successful transcode; scratch directories of crashed workers are swept.
+- **Frontend**: hls.js 1.7.3 (`hls.js/light`) in its own lazy chunk reachable only from the video item page and the builder
+  preview (`pnpm bundle:check` fails otherwise); the page opens with the poster and a Play button and loads the player on
+  hover / focus / Play. The player emits `playerEvents` (play, pause, seek, ended, heartbeat) for step 8; nothing is stored yet.
+  Captions: up to 5 WebVTT languages per video. The watermark (viewer's name and address) is a deterrent only.
+
 ## Tenant-isolation rules (most important rules in the repo)
 
 1. Tenant data is touched ONLY through `db.withTenant(tenantId, async (tx) => …)` (opened by services). It opens a
@@ -472,6 +502,8 @@ every extra statement also holds a pooled connection longer. So round trips are 
   Step 5b: public `GET /tenant/info` 3 (no session; one `withTenant` read), `PATCH /tenant/branding` 4 (one fused statement incl. audit).
   Step 6: every courses / offerings / participants / content endpoint 4 (the learner outline of 20 x 15 included: ONE statement);
   `POST /files/:id/confirm` 7 (two short transactions around the storage read: documented exception); the local storage PUT 1.
+  Step 7: every video endpoint 4 (create, read, offset, chunk, complete, delete, captions, the playback session; the outline with
+  a video item is still ONE statement); a playback FILE request costs 0 after the first of its session (cache), the first costs 1.
   Step 5: academics reads 4, every academic change 4 (one fused statement), profile read / upsert / section moves 4,
   `GET /members` with profile filters 4, `GET /imports*` 4 (`/rows` and `/errors.csv` 5: the import and its page share a
   transaction), confirm / cancel 4, `POST /imports` = 7 + 1 per 1,000 rows staged (10,000 rows: 16 statements). The worker
@@ -532,6 +564,7 @@ pnpm docs:permissions    regenerate docs/permissions.md (--check = fail if stale
 pnpm --filter @lms/backend run bench:members   GET /members incl. the section filter (throwaway tenant, self-cleaning)
 pnpm --filter @lms/backend run bench:courses   learner outline, my courses, one student moving section at 10,000 students / 200 offerings
 pnpm --filter @lms/backend run bench:search    EXPLAIN experiment for member search, throwaway schema, self-cleaning
+pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
 Per package: `pnpm --filter @lms/backend run <script>` / `pnpm --filter @lms/frontend run <script>`.
@@ -539,6 +572,11 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 `authenticated` roles before migrating, exactly like `pnpm db:local:setup`.
 
 ## TODO / known gaps
+
+- **Video (step 7)**: only the local provider works; the GCP Transcoder + Cloud CDN provider and the managed-service provider are
+  stubs (503). No DRM (a web page cannot prevent screen recording; the watermark is a deterrent). Progress tracking (step 8) will
+  consume the player events; nothing is stored. Renditions are fixed for lectures (360/480/720). A re-transcode after the original
+  expired needs a re-upload. The session cache is per API instance (revocation can take up to its TTL).
 
 - **Rate limiter is in-memory (per instance): needs a shared store (e.g. Redis/Memorystore) before production.**
 - Production TLS: `DB_SSL=verify-full` + `DB_SSL_CA` (Cloud SQL server CA); `off` is refused in production.
