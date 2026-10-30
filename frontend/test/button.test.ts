@@ -7,4 +7,9 @@ describe('Button hover styles', () => {
     expect(src).not.toMatch(/hover:opacity/);
     expect(src).toMatch(/hover:bg-\[color-mix\(/);
   });
+
+  it('does not animate opacity: axe sampled a button half-way between disabled and enabled (3.15:1) in CI', () => {
+    const src = readFileSync('src/shared/ui/button.tsx', 'utf8');
+    expect(src).not.toMatch(/transition-opacity|transition-all/);
+  });
 });
