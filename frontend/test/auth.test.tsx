@@ -167,10 +167,10 @@ describe('what the navigation shows', () => {
     }
   });
 
-  it('a member sees only Home and the "courses will appear" placeholder; admin URLs bounce home', async () => {
+  it('a member sees only Home and the "not in any course" message; admin URLs bounce home', async () => {
     mockSignedIn(memberMe);
     const { router } = renderApp('/members');
-    expect(await screen.findByText('Your courses will appear here')).toBeInTheDocument();
+    expect(await screen.findByText('You are not in any course yet')).toBeInTheDocument();
     expect(router.state.location.pathname).toBe('/');
     const nav = screen.getByRole('navigation', { name: 'Main' });
     expect(nav).toHaveTextContent('Home');

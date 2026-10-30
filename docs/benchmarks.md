@@ -2,9 +2,9 @@
 
 Run with `pnpm bench` (autocannon against the real app on an ephemeral port).
 
-## Local PostgreSQL 18 (dev machine) — 2026-10-29
+## Local PostgreSQL 17 (dev machine) — 2026-10-29
 
-Dev and tests moved to PostgreSQL 18 installed on the developer machine ([ADR 0011](adr/0011-local-postgres-for-dev-and-tests.md)).
+Dev and tests moved to PostgreSQL 17 installed on the developer machine ([ADR 0011](adr/0011-local-postgres-for-dev-and-tests.md)).
 Machine: Windows 10, Intel Core i3-1005G1 (2 cores / 4 threads), about 4 GB RAM free at best, Node 22.17.1, database on the same
 host, so the network is out of the picture and the numbers below are database + application CPU. This is a weak laptop: treat
 the absolute values as a floor. The remote numbers further down are kept for history only ("Supabase eu-west-1 (historical)").
@@ -105,7 +105,7 @@ it has no statistics for holds ~1 row, which is the state of every new college a
 
 ## Frontend (step 5b) — 2026-10-29
 
-Same laptop as above (2 cores, Node 22, PostgreSQL 18 on the same machine). The numbers come from `pnpm bundle:check`,
+Same laptop as above (2 cores, Node 22, PostgreSQL 17 on the same machine). The numbers come from `pnpm bundle:check`,
 `pnpm e2e`, `pnpm lighthouse` and `pnpm test`; the budgets are enforced in CI (`bundle-size`, `e2e`, `lighthouse` jobs).
 
 ### Bundle (gzip, `frontend/scripts/check-bundle-size.mjs`, follows the real import graph of the page)
@@ -357,3 +357,57 @@ never a query per row.
 Over HTTP against the remote DB: ~5 requests/s at c=10 for every variant (4 round trips x ~200 ms with a pool of 5),
 including the section filter. The filter indexes `(tenant_id, section_id, membership_id)` keep the page in id order, so the
 filtered page is as cheap as the unfiltered one.
+
+### Step 6: courses, content and the enrolment sync (`bench:courses`, local PostgreSQL 17, one laptop)
+
+`pnpm --filter @lms/backend run bench:courses` builds a throwaway college ("bench-…", deleted afterwards): 10,000
+students in 10 sections, 200 courses with an offering each, every offering enrolling one section (20 offerings per
+section), and a learner in 8 offerings, one of them with 20 modules x 15 items. HTTP through Fastify with 8 connections,
+8 seconds each. Every request costs 4 statements (budget tests in `query-budget.courses.test.ts`); against a remote
+database the milliseconds grow by ~200 per statement, the statement counts do not.
+
+| Request                                                          | req/s | p50   | p99    | Round trips                                                          |
+| ---------------------------------------------------------------- | ----- | ----- | ------ | -------------------------------------------------------------------- |
+| `GET /offerings/:id/outline`, learner, **20 modules x 15 items** | 129   | 57 ms | 136 ms | **4** (ONE statement for the whole outline, session lookup included) |
+| `GET /me/courses`, learner in **8 offerings**                    | 184   | 34 ms | 163 ms | 4                                                                    |
+
+#### One student moves section, 10,000 students, 200 offerings (the incremental sync)
+
+| Step                                                  | Result                                                                           |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------- |
+| The move itself (`POST /members/:id/profile/section`) | 75 ms, 4 round trips; the trigger records **1** pending row and queues one job   |
+| The sync that applies it (1 member, 1 batch)          | **8 ms**: that student's 20 enrolments removed and 20 added                      |
+| For comparison: the first sync of the whole college   | 10,000 members in 50 batches of 200 = 61.1 s, 200,000 enrolments (~3,300 rows/s) |
+
+The cost of a change follows the number of changes (1 member = 8 ms), not the size of the college (10,000 members =
+61 s). The first sync happens once, when sections are first enrolled; a batch is one short transaction that also deletes
+the pending rows it applied, so a crash or a retry never loses or repeats a change.
+
+#### Step 6b: the first full-college sync, profiled and fixed (10,000 students x 200 offerings, 200,000 enrolments)
+
+`SYNC_PROFILE=1 [SYNC_PROFILE_AFTER=20] pnpm --filter @lms/backend run bench:courses` prints the per-batch wall times of the
+first sync and writes `EXPLAIN (ANALYZE, BUFFERS)` of one batch (`SYNC_PROFILE_OUT`, default `sync-profile.txt`).
+
+| Where the time went (first sync, 50 batches of 200 members)              | Before                                                                                                                                                                                | After                                       |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
+| Whole first sync                                                         | **61 s** (39 s after fix 1)                                                                                                                                                           | **7.6 - 16.6 s**, median 10.4 s (see below) |
+| Batch time as the table fills                                            | 0.5 s growing to **3.1 s** (batch 28), then 0.27 s once autoanalyze ran                                                                                                               | flat, 0.22 - 0.31 s                         |
+| Planner choices without statistics (a college that was just bulk-loaded) | seq scan of course_participants per member (40,200 probes); `search_email` index chosen for a primary-key lookup (2,700 buffers per probe); every offering x every member nested loop | index probe per member everywhere           |
+
+What was wrong, found with EXPLAIN (ANALYZE, BUFFERS):
+1. **Planner estimates** (the rule in CLAUDE.md "Set-based SQL must not depend on the planner's estimates"): the Step 6b
+   statements that close and restore participations scanned `course_participants` once per member (5.9 s of a 6.3 s batch); the
+   membership lookup used a `(tenant_id, search_email)` index for a primary-key lookup. Fixed by looking each member up by its
+   unique key in a `LATERAL ... OFFSET 0` (materialized CTEs per step), comparing only `id` for the membership and offering
+   lookups, and `set_config('enable_seqscan', 'off', true)` for the sync transaction (every lookup has an index; the
+   batch time stopped growing with the table).
+2. **An unused index** (`course_participants_section_idx`) was maintained for every one of the 200,000 rows (migration 0024).
+3. **v7 ids matter**: with random v4 ids the same batch took 0.55 s instead of 0.22 s (random inserts into five b-trees).
+
+What is left is inherent: inserting 200,000 rows with 4 indexes, 3 foreign-key checks per row (~23 us each, 40% of the statement),
+a plpgsql `lms.uuid_v7()` (~9 us) and one commit per batch, ~50 us per row = 10 s. The 7.6 - 16.6 s spread between runs on this
+2-core laptop comes from autovacuum working on the previous run's deleted data (the benchmark now vacuums first, which narrowed
+but did not remove it) and from the database sharing the CPU with the benchmark. So: under 10 s on a quiet machine
+(7.6 s measured), about 10 s typically, 16 s worst; `concurrency` (batches applied in parallel, different members each) is
+implemented but left at 1 because it was not faster on 2 cores (17.7 s vs 13 s in a noisy pair of runs): measure it on Cloud SQL.
+A single student moving section is unaffected: 1 pending row, one batch of 1 member (9 ms; one run showed 2 s while autovacuum was running).

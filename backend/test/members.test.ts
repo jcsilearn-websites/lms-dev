@@ -319,7 +319,7 @@ describe('suspend / reactivate', () => {
 });
 
 describe('DELETE /members/:userId', () => {
-  it('removes the membership only: the global user and other colleges are untouched', async () => {
+  it('removal is SOFT: the membership stays as "removed", access is gone, the global user and other colleges are untouched', async () => {
     const email = `${uniq('rm')}@shared.test`;
     const inA = await addMember(owner, A.tenantId, email);
     // the same person is also a member of college B
@@ -332,18 +332,76 @@ describe('DELETE /members/:userId', () => {
 
     const res = await admin.delete(`/members/${inA.userId}`);
     expect(res.statusCode).toBe(200);
-    expect((await admin.get(`/members/${inA.userId}`)).statusCode).toBe(404);
+    // the row is still there, with the new status (history hangs off it)
+    const row = await owner.query(
+      'SELECT id, status FROM lms.tenant_memberships WHERE tenant_id = $1 AND user_id = $2',
+      [A.tenantId, inA.userId],
+    );
+    expect(row.rows).toEqual([{ id: inA.membershipId, status: 'removed' }]);
+    expect((await admin.get(`/members/${inA.userId}`)).json().status).toBe('removed');
 
     const user = await owner.query('SELECT id FROM lms.users WHERE id = $1', [inA.userId]);
     expect(user.rowCount).toBe(1); // the global user is still there
-    expect((await sessionA.get('/auth/me')).statusCode).toBe(401); // removed from A
+    expect((await sessionA.get('/auth/me')).statusCode).toBe(401); // sessions revoked, access gone
     expect((await sessionB.get('/auth/me')).statusCode).toBe(200); // still a member of B
-    expect((await admin.delete(`/members/${inA.userId}`)).statusCode).toBe(404);
+    expect((await new TestClient(t, A.host).login(email, TEST_PASSWORD)).statusCode).toBe(401); // cannot sign in again
+    expect((await admin.delete(`/members/${inA.userId}`)).statusCode).toBe(404); // already removed
+
+    // lists hide removed members unless asked
+    const ids = async (query: string) =>
+      (await admin.get('/members', { query: `${query}&limit=100` }))
+        .json()
+        .items.map((m: { userId: string }) => m.userId);
+    expect(await ids('role=member')).not.toContain(inA.userId);
+    expect(await ids('status=removed')).toContain(inA.userId);
+    // a removed member cannot be changed like a live one
+    expect(
+      (await admin.patch(`/members/${inA.userId}/role`, { role: 'institution_admin' })).statusCode,
+    ).toBe(404);
+    expect((await admin.post(`/members/${inA.userId}/suspend`)).statusCode).toBe(409);
 
     const log = (await admin.get('/audit', { query: 'action=member.removed&limit=100' })).json();
     expect(log.items[0].metadata).toEqual(
-      expect.objectContaining({ userId: inA.userId, before: { role: 'member', status: 'active' } }),
+      expect.objectContaining({
+        userId: inA.userId,
+        before: { role: 'member', status: 'active' },
+        after: { role: 'member', status: 'removed' },
+      }),
     );
+  });
+
+  it('inviting a removed member again brings back the SAME membership (pending, then active on accept)', async () => {
+    const email = `${uniq('back')}@mem-a.test`;
+    const m = await addMember(owner, A.tenantId, email);
+    expect((await admin.delete(`/members/${m.userId}`)).statusCode).toBe(200);
+    const invite = await admin.post('/auth/invites', { email, role: 'member' });
+    expect(invite.statusCode, invite.body).toBeLessThan(300);
+    const now = await owner.query(
+      'SELECT id, status FROM lms.tenant_memberships WHERE tenant_id = $1 AND user_id = $2',
+      [A.tenantId, m.userId],
+    );
+    expect(now.rows).toEqual([{ id: m.membershipId, status: 'pending' }]); // one row, the same id
+    const token = lastTokenFor(t, email);
+    const accepted = await new TestClient(t, A.host).post('/auth/invites/accept', {
+      token,
+      password: TEST_PASSWORD,
+    });
+    expect(accepted.statusCode, accepted.body).toBe(200);
+    const after = await owner.query(
+      'SELECT id, status FROM lms.tenant_memberships WHERE tenant_id = $1 AND user_id = $2',
+      [A.tenantId, m.userId],
+    );
+    expect(after.rows).toEqual([{ id: m.membershipId, status: 'active' }]);
+  });
+
+  it('the app role cannot hard-delete a membership at all', async () => {
+    const m = await addMember(owner, A.tenantId, `${uniq('nodel')}@mem-a.test`);
+    const err = await t.db
+      .withTenant(A.tenantId, (tx) =>
+        tx.execute(sql`DELETE FROM lms.tenant_memberships WHERE id = ${m.membershipId}::uuid`),
+      )
+      .catch((e: unknown) => e);
+    expect(pgErrorCode(err)).toBe('42501');
   });
 
   it('removing a pending member voids their invite token', async () => {
@@ -475,12 +533,12 @@ describe('last active institution admin (database invariant)', () => {
   const update = (tenantId: string, statement: ReturnType<typeof sql>) =>
     t.db.withTenant(tenantId, (tx) => tx.execute(statement));
 
-  it('lms_app is NOT exempt: demoting, suspending or deleting the last admin is refused by the database', async () => {
+  it('lms_app is NOT exempt: demoting, suspending or removing the last admin is refused by the database', async () => {
     const f = await lastAdmin('mem-last-1');
     for (const statement of [
       sql`UPDATE lms.tenant_memberships SET role = 'member' WHERE id = ${f.adminMembershipId}::uuid`,
       sql`UPDATE lms.tenant_memberships SET status = 'suspended' WHERE id = ${f.adminMembershipId}::uuid`,
-      sql`DELETE FROM lms.tenant_memberships WHERE id = ${f.adminMembershipId}::uuid`,
+      sql`UPDATE lms.tenant_memberships SET status = 'removed' WHERE id = ${f.adminMembershipId}::uuid`,
     ]) {
       const err = await update(f.tenantId, statement).catch((e: unknown) => e);
       expect(isLastAdminViolation(err), String(err)).toBe(true);

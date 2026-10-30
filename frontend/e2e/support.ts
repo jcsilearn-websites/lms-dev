@@ -106,3 +106,69 @@ export async function signOut(page: Page) {
   await page.locator('header details > summary').click();
   await page.getByRole('button', { name: 'Sign out' }).click();
 }
+
+// ------------------------------------------------------------------------------------------ people
+/** The token inside an invitation link. */
+const tokenOf = (link: string) => new URL(link).searchParams.get('token') ?? '';
+
+/**
+ * A new active member with a known password, created the way a real one is: the administrator invites them,
+ * the email link carries a token, the person accepts it (all through the API; the invite UI has its own test).
+ * Returns the user id. Idempotent for a person created by an earlier run of the same suite.
+ */
+export async function createMember(
+  slug: string,
+  email: string,
+  displayName: string,
+): Promise<string> {
+  const admin = await apiAs(slug, `admin@${slug}.test`);
+  try {
+    const existing = await (
+      await admin.get('members', { params: { q: email.split('@')[0] ?? email } })
+    ).json();
+    const found = (existing.items as { userId: string; email: string }[]).find(
+      (m) => m.email === email,
+    );
+    if (found) return found.userId;
+    const invite = await admin.post('auth/invites', {
+      data: { email, role: 'member', displayName },
+    });
+    if (!invite.ok()) throw new Error(`invite of ${email} failed: ${invite.status()}`);
+    const token = tokenOf(await mailLink(email));
+    const host = `${slug}.localhost:${WEB_PORT}`;
+    const anon = await request.newContext({
+      baseURL: `http://127.0.0.1:${WEB_PORT}/api/`,
+      extraHTTPHeaders: { host, origin: `http://${host}`, 'x-requested-with': 'lms' },
+    });
+    const accepted = await anon.post('auth/invites/accept', {
+      data: { token, password: PASSWORD },
+    });
+    if (!accepted.ok())
+      throw new Error(`accepting the invite of ${email} failed: ${accepted.status()}`);
+    await anon.dispose();
+    const list = await (
+      await admin.get('members', { params: { q: email.split('@')[0] ?? email } })
+    ).json();
+    const me = (list.items as { userId: string; email: string }[]).find((m) => m.email === email);
+    if (!me) throw new Error(`${email} not found after the invitation`);
+    return me.userId;
+  } finally {
+    await admin.dispose();
+  }
+}
+
+/** Polls `read` until `ok(value)`; the enrolment sync runs in the worker a moment after a change. */
+export async function eventually<T>(
+  read: () => Promise<T>,
+  ok: (v: T) => boolean,
+  what: string,
+  timeoutMs = 30_000,
+): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const v = await read();
+    if (ok(v)) return v;
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await new Promise((r) => setTimeout(r, 400));
+  }
+}

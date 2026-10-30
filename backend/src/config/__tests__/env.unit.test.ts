@@ -226,7 +226,8 @@ describe('helpers', () => {
 });
 
 describe('DB_SSL policy', () => {
-  const base = { DATABASE_APP_URL: devApp };
+  // storage: the API needs a driver (a signing key for the local one; the GCS driver is checked in files.test.ts)
+  const base = { DATABASE_APP_URL: devApp, STORAGE_SIGNING_SECRET: 'x'.repeat(40) };
   it('accepts no-verify in development and test, with a startup warning', () => {
     for (const NODE_ENV of ['development', 'test']) {
       const env = parseApiEnv({ ...base, NODE_ENV, DB_SSL: 'no-verify' });
@@ -248,6 +249,8 @@ describe('DB_SSL policy', () => {
       NODE_ENV: 'production',
       APP_BASE_DOMAIN: 'example.com',
       MAILER: 'none',
+      STORAGE_DRIVER: 'gcs',
+      STORAGE_GCS_BUCKET: 'prod-files',
       DB_SSL: 'verify-full',
       DB_SSL_CA: '/certs/prod-ca.crt',
     });
@@ -263,7 +266,14 @@ describe('DB_SSL policy', () => {
       for (const host of ['localhost', '127.0.0.1']) {
         const url = `postgresql://lms_app:pw@${host}:5432/lms_dev`;
         for (const NODE_ENV of ['development', 'test']) {
-          expect(parseApiEnv({ DATABASE_APP_URL: url, NODE_ENV, ...off }).DB_SSL).toBe('off');
+          expect(
+            parseApiEnv({
+              DATABASE_APP_URL: url,
+              NODE_ENV,
+              STORAGE_SIGNING_SECRET: 'x'.repeat(40),
+              ...off,
+            }).DB_SSL,
+          ).toBe('off');
         }
       }
     });
@@ -336,7 +346,8 @@ describe('DB_SSL policy', () => {
 });
 
 describe('auth configuration policy', () => {
-  const base = { DATABASE_APP_URL: local.devApp }; // a database on this machine: DB_SSL=off is fine
+  // a database on this machine: DB_SSL=off is fine
+  const base = { DATABASE_APP_URL: local.devApp, STORAGE_SIGNING_SECRET: 'x'.repeat(40) };
 
   it('has safe defaults for development', () => {
     const env = parseApiEnv({ ...base, NODE_ENV: 'development' });

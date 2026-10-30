@@ -17,13 +17,14 @@ import {
   MembershipAlreadyExistsError,
   MembershipNotFoundError,
 } from './memberships.errors';
-import type {
-  ChangeArgs,
-  MemberListFilter,
-  MemberRow,
-  MembershipRow,
-  MembershipStatus,
-  MembershipsRepository,
+import {
+  type ChangeArgs,
+  LIVE_STATUSES,
+  type MemberListFilter,
+  type MemberRow,
+  type MembershipRow,
+  type MembershipStatus,
+  type MembershipsRepository,
 } from './memberships.repository';
 
 export type Membership = MembershipRow;
@@ -41,7 +42,7 @@ export interface ListMembersInput {
   after?: string | undefined;
 }
 
-const STATUSES: readonly string[] = ['active', 'pending', 'suspended'];
+const STATUSES: readonly string[] = ['active', 'pending', 'suspended', 'removed'];
 
 export function createMembershipsService(deps: {
   db: Pick<Database, 'withTenant'>;
@@ -129,6 +130,10 @@ export function createMembershipsService(deps: {
       const role = input.role;
       return db.withTenant(tenantId, async (tx) => {
         const existing = await membershipsRepo.findByUserId(tx, input.userId);
+        if (existing && existing.status === 'removed') {
+          // the SAME membership comes back (as pending, until the invite is accepted): history stays attached
+          return (await membershipsRepo.reinstate(tx, existing.id, role)) ?? existing;
+        }
         if (existing && existing.status !== 'pending') throw new MembershipAlreadyExistsError();
         if (existing) {
           const updated = await membershipsRepo.updateRole(tx, existing.id, role);
@@ -205,10 +210,11 @@ export function createMembershipsService(deps: {
       if (userId === ctx.userId) throw new CannotModifySelfError();
       const r = await change(ctx, tenantId, userId, {
         set: { role },
+        requireStatus: LIVE_STATUSES,
         revokeSessions: true,
         action: 'member.role_changed',
       });
-      if (!r.found || !r.member) throw new MemberNotFoundError();
+      if (!r.found || !r.member || r.before?.status === 'removed') throw new MemberNotFoundError();
       return r.member; // changed === false: already had that role, nothing written
     },
 
@@ -241,20 +247,21 @@ export function createMembershipsService(deps: {
       return r.member;
     },
 
-    /** DELETE /members/:userId: removes the MEMBERSHIP only; the global user may belong elsewhere. */
+    /**
+     * DELETE /members/:userId: SOFT removal. The membership stays (status 'removed') because academic history
+     * hangs off it; sessions are revoked, the enrolment sync marks the member's course participations removed,
+     * and inviting the person again brings the same membership back. The global user is untouched.
+     */
     async remove(ctx: RequestContext, userId: string): Promise<void> {
       const tenantId = assertCan(ctx, 'member.remove');
       if (userId === ctx.userId) throw new CannotModifySelfError();
-      const r = await mutate(() =>
-        db.withTenant(tenantId, (tx) =>
-          membershipsRepo.remove(tx, {
-            tenantId,
-            userId,
-            audit: { id: newId(), actorUserId: ctx.userId, action: 'member.removed' },
-          }),
-        ),
-      );
-      if (!r.removed) throw new MemberNotFoundError();
+      const r = await change(ctx, tenantId, userId, {
+        set: { status: 'removed' },
+        requireStatus: LIVE_STATUSES,
+        revokeSessions: true,
+        action: 'member.removed',
+      });
+      if (!r.found || !r.member || !r.changed) throw new MemberNotFoundError();
     },
   };
 }

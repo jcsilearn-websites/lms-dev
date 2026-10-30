@@ -28,7 +28,8 @@ function authLabel(c: RouteDeclaration | undefined): string {
   if (c?.authenticated === true) return 'any signed-in user';
   const p = c?.permission;
   if (p === undefined) return 'UNDECLARED';
-  return (typeof p === 'string' ? [p] : [...p]).map((x) => `\`${x}\``).join(' or ');
+  const names = (typeof p === 'string' ? [p] : [...p]).map((x) => `\`${x}\``).join(' or ');
+  return c?.scope === 'offering' ? `${names} in the offering` : names;
 }
 
 /**
@@ -88,6 +89,11 @@ export function renderPermissionsDoc(routes: readonly DocRoute[]): string {
   out.push(
     '- An institution admin has read-only `content.view` on every course of the college but edits, publishes, ' +
       'creates assessments and grades only as a participant of that course.',
+  );
+  out.push(
+    '- "in the offering": the permission comes from the caller\'s participation in that offering (instructor, assistant or learner), ' +
+      'or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a ' +
+      'member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.',
   );
   out.push(
     '- A session belongs to one host: a platform admin cannot act on a tenant host, and tenant users cannot act on the admin host.',

@@ -3,7 +3,8 @@
 Production multi-tenant SaaS LMS sold to multiple colleges. This is a commercial product, not a demo.
 Steps 1 (foundation), 1b (module-based restructure), 2 (authentication + tenant resolution), 2b (round-trip
 budget + cleanup jobs), 4 (permission system + member and tenant management), 5 (academic structure, member
-profiles, bulk CSV import, Postgres job queue) and 5b (the frontend for all of them) are built. Do not build features
+profiles, bulk CSV import, Postgres job queue), 5b (the frontend for all of them) and 6 (courses, offerings,
+participation, course content, file storage; backend + frontend) are built. Do not build features
 beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -12,14 +13,16 @@ beyond the current step without being asked.
   `frontend/` (React SPA). No Turborepo. See `docs/adr/`.
 - Backend: Node 24 LTS + Fastify 5. Frontend: React + Vite + TanStack Query + TanStack Router + Tailwind (ADR 0012).
 - Database: PostgreSQL, **shared schema**, every tenant-owned table has `tenant_id`, enforced by
-  **Row-Level Security** (enabled AND forced). CI Postgres = newest major Cloud SQL supports (18).
+  **Row-Level Security** (enabled AND forced). **PostgreSQL 17 everywhere** (local, CI, Cloud SQL; ADR 0014): the code refuses any other major.
 - ORM: Drizzle (typed queries). **Migrations are hand-written SQL files** (`backend/migrations`); each module's
   `<module>.model.ts` mirrors its tables and `backend/test/schema-drift.test.ts` fails on drift.
 - Validation: TypeBox schemas on **every route, request AND response** (fast-json-stringify + OpenAPI).
-- IDs: UUIDv7 generated in the app (`newId()` in `core/uuid.ts`), not by the DB. Timestamps: `timestamptz`, UTC.
+- IDs: UUIDv7 generated in the app (`newId()` in `core/uuid.ts`), not by the DB. Rows created INSIDE a statement (sync, copy,
+  queued jobs, set-based audit rows) use `lms.uuid_v7()` (migration 0020, portable plpgsql RFC 9562; never native `uuidv7()` /
+  `gen_random_uuid()` for ids). Timestamps: `timestamptz`, UTC.
 - Deploy target later: Google Cloud Run + Cloud SQL (asia-south1). Stateless, 12-factor, config only
   from env vars, graceful shutdown on SIGTERM.
-- Dev and test DB: **PostgreSQL 18 installed natively on the developer machine (localhost:5432)**, no Docker (ADR 0011;
+- Dev and test DB: **PostgreSQL 17 installed natively on the developer machine (localhost:5432)**, no Docker (ADR 0011;
   Supabase is no longer used, ADR 0006 is superseded). Dev = database `lms_dev`; tests = one database per Vitest worker
   `lms_test_1 ... _N` derived from the `TEST_DATABASE_URL` base name (`lms_test`). The cluster needs the roles `anon` and
   `authenticated` (CI creates them too, so migrations behave the same everywhere): `pnpm db:local:setup`.
@@ -42,14 +45,15 @@ backend/
     core/           AppError classes + central error handler, request-id, security plugins,
                     OpenAPI, pagination helpers, uuid, tenant log binding, job-handler types
     contracts/      shared TypeBox schemas + types exported to the frontend (leaf folder)
+    core/storage/   StorageProvider (local signed-URL driver, GCS stub), file types + magic bytes
     modules/<module>/   health, tenants (+tenant_settings), users, memberships, audit, sessions, auth,
-                        jobs (queue), academics, profiles, imports
+                        jobs (queue), academics, profiles, imports, courses, content, files
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
 frontend/src/
   app/              app shell, root layout (branding, 404 college), providers, router (one route tree per host kind), theme
-  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform:
+  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses:
                        <feature>.api.ts (typed with backend contracts), pages, hooks
   shared/           ui/ (button, field, select, dialog, data-table, toast, states), api/ (client, errors), forms/, utils/
 frontend/e2e/       Playwright specs + helpers   frontend/scripts/  stack, e2e, serve, bundle check, lighthouse, screenshots
@@ -149,7 +153,14 @@ Exactly three account roles:
   type: `'instructor' | 'assistant' | 'learner'`.
 - **Authorization is always checked via permission names** (`'course.edit'`, `'submission.grade'`),
   **never by comparing role strings in route code or in services.** See "Authorization (step 4)".
-- Membership status is `active | pending | suspended`. Only `active` members can sign in or keep a session.
+- Membership status is `active | pending | suspended | removed`. Only `active` members can sign in or keep a session.
+- **Academic history is never deleted (step 6b).** A membership is NEVER hard-deleted by the app (`lms_app` has no DELETE on
+  `tenant_memberships`): `DELETE /members/:userId` is a SOFT removal (`status = 'removed'`, sessions revoked, the sync closes the
+  member's course participations with `removed_reason = 'membership'`). Inviting the same person again brings the SAME membership
+  back (pending, then active on accept) and the sync restores the participations. **Tables that hold academic history
+  (participation, submissions, attempts, grades, profiles) never cascade from memberships or users: their foreign keys are
+  `ON DELETE RESTRICT` and they use soft states** (`status`, `removed_reason`). Only ephemeral rows (sessions, invite tokens)
+  may cascade. Member lists hide removed members unless `status=removed` is asked for; an import never touches a removed member.
 - **Planned extension (NOT built):** `course.create` is institution-admin-only because faculty and students are both
   `member`. If a college needs faculty to create courses, add a per-membership capability flag (e.g.
   `can_create_courses`) rather than a fourth account role.
@@ -163,8 +174,8 @@ fail when the committed file is stale: regenerate and commit it whenever permiss
   typed permission union grouped by area, `roles.ts` the role -> permission maps, `policy.ts` is `can(subject, permission,
   resource?)`: **deny by default**, pure and synchronous, O(1) Set lookups, zero queries for account-level checks. A
   course-scoped permission is granted only by `resource.participation`, which the caller resolves through a
-  `CourseParticipationResolver` (interface in `core/authz/resolver.ts`; the courses module implements it later, a stub
-  returns "no participation" until then) and passes in. A resource of another tenant is never allowed.
+  `CourseParticipationResolver` (interface in `core/authz/resolver.ts`, per OFFERING; the courses module implements it:
+  one indexed query, cached per request via `forRequest()`) and passes in. A resource of another tenant is never allowed.
 - **Every route MUST declare exactly one** of `config: { permission: 'x' }` (or an array = any of them),
   `config: { authenticated: true }` or `config: { public: true }`. `registerRoutePolicy` (an `onRoute` hook) makes the
   app refuse to start otherwise and installs the check as the first route-level `onRequest` hook: it runs right after the
@@ -195,7 +206,7 @@ fail when the committed file is stale: regenerate and commit it whenever permiss
 ### Member and tenant management (step 4)
 
 - **Members** (`/members...`, tenant host): list (keyset on the membership id, filters role/status, `q` = email or name
-  prefix), get, change role, suspend / reactivate, remove the MEMBERSHIP (the global user is never deleted), resend invite.
+  prefix), get, change role, suspend / reactivate, SOFT-remove the MEMBERSHIP (status `removed`; the global user and the history are kept), resend invite.
   Role change and suspension revoke that user's sessions in the tenant; every change is audited with before/after.
   An admin cannot demote, suspend or remove themselves (409 `cannot_modify_self`).
 - **Last-admin invariant lives in the database** (trigger `guard_last_admin`, migration 0008): a transaction that would
@@ -268,6 +279,36 @@ its own schema (no RLS / hand-written migrations / tenant column) - see ADR 0010
   leading `+` / `-` only in numeric-kind columns (phone) when the rest is digits, spaces and hyphens (`+91 98765 43210`
   ok, `+SUM(A1)` rejected in a name). OUTPUT (error report) always prefixes `'` to any cell that starts with `= + - @ tab CR`.
   The rule and its tests live in `imports.csv.ts`.
+
+## Courses, content and files (step 6)
+
+Full reasoning: `docs/adr/0013-courses-content-storage.md`. Numbers: `docs/benchmarks.md`.
+- **Domain**: `courses` (department OPTIONAL) -> `course_offerings` (draft | published | archived) -> `offering_sections` +
+  `course_participants` (instructor | assistant | learner; `source` manual | section). Admin-managed participants for now:
+  instructors and assistants only READ the class list (`participant.read`).
+- **`scope: 'offering'` routes** (`config: { permission, scope: 'offering' }`): the hook only needs a session; the service
+  puts the access CTE (`courses/courses.access.ts`, exported from the courses index) into the SAME statement as the work:
+  non-participant -> 404 `offering_not_found`, participant lacking the permission -> 403. Administrators (`course.read`)
+  see every offering; `course.edit/publish` still need participation. A new such route needs the CTE, a matrix row and a
+  body in `test/offering-scope.test.ts` (that test fails otherwise).
+- **Enrolment sync**: triggers (migration 0016) record changed members in `course_sync_pending` and queue ONE `courses.sync`
+  job while none is QUEUED (a running one does not suppress the next); the job applies 200 members per transaction and
+  deletes them in the same transaction. Manual participants and administrator removals are never touched by it. The apply
+  statement probes every table per member by unique key and the batch transaction sets `enable_seqscan = off` (a freshly
+  loaded college has no statistics: measured 61 s -> ~10 s for 10,000 students x 200 offerings, docs/benchmarks.md).
+- **Content**: fractional `position` keys (`lms.position_between`, move = one row), rich text = validated JSON only
+  (`content.richtext.ts`, never HTML), learner outline = ONE statement, locked entries are sent as title + `availableFrom`
+  only, video items are refused until Step 7. Copy = one set-based statement (inline up to 500 items, else the
+  `content.copy` job); copied items SHARE file rows.
+- **Files**: `POST /offerings/:id/files` (signed upload URL) -> browser PUTs -> `POST /files/:id/confirm` (reads the bytes,
+  checks size, extension + magic bytes, records SHA-256; **7 round trips, the one documented exception**). Downloads go
+  through `GET .../items/:itemId/download` (signed URL; inline only PDF/PNG/JPEG). `STORAGE_DRIVER=local` is refused in
+  production; its `/api/storage/*` routes are rate limited and keep CSRF + a Content-Length precheck (413). The
+  `files.purge` job deletes a file only when unreferenced AND older than `FILE_PURGE_GRACE_HOURS` (24) counted from the later
+  of confirmation and the last removed reference.
+- **Frontend**: the builder is its own lazy route with dnd-kit AND button equivalents for every move; the Tiptap editor is a
+  separate chunk, prefetched in idle time after the builder loaded, and `pnpm bundle:check` fails if anything but the builder
+  can reach it. Dependencies are pinned exactly; Tiptap is 3.31.4 because 3.32.1 was inside the minimum release age.
 
 ## Tenant-isolation rules (most important rules in the repo)
 
@@ -429,6 +470,8 @@ every extra statement also holds a pooled connection longer. So round trips are 
   rename / suspend / reactivate 2 (lookup + one definer call); `POST /platform/tenants` and `admin-invite` 3;
   `GET /platform/tenants/:id/members` 6 (two audit writes + the read).
   Step 5b: public `GET /tenant/info` 3 (no session; one `withTenant` read), `PATCH /tenant/branding` 4 (one fused statement incl. audit).
+  Step 6: every courses / offerings / participants / content endpoint 4 (the learner outline of 20 x 15 included: ONE statement);
+  `POST /files/:id/confirm` 7 (two short transactions around the storage read: documented exception); the local storage PUT 1.
   Step 5: academics reads 4, every academic change 4 (one fused statement), profile read / upsert / section moves 4,
   `GET /members` with profile filters 4, `GET /imports*` 4 (`/rows` and `/errors.csv` 5: the import and its page share a
   transaction), confirm / cancel 4, `POST /imports` = 7 + 1 per 1,000 rows staged (10,000 rows: 16 statements). The worker
@@ -487,6 +530,7 @@ pnpm start               built API (sets UV_THREADPOOL_SIZE=8)    | pnpm dev:wor
 pnpm bench               autocannon on /health/live and /health/ready (docs/benchmarks.md)
 pnpm docs:permissions    regenerate docs/permissions.md (--check = fail if stale; CI runs it)
 pnpm --filter @lms/backend run bench:members   GET /members incl. the section filter (throwaway tenant, self-cleaning)
+pnpm --filter @lms/backend run bench:courses   learner outline, my courses, one student moving section at 10,000 students / 200 offerings
 pnpm --filter @lms/backend run bench:search    EXPLAIN experiment for member search, throwaway schema, self-cleaning
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
@@ -501,8 +545,13 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - Jobs enqueued by the API are picked up by the worker within `JOB_POLL_MAX_INTERVAL_MS` (no LISTEN/NOTIFY yet).
 - The invite email of an import uses the college's origin built from `APP_BASE_DOMAIN` (+ `APP_PUBLIC_PORT` in development).
 - A phone number is the only numeric-kind import column today; add new numeric columns in `imports.csv.ts` with `kind: 'numeric'`.
-- The courses module must implement `CourseParticipationResolver` (core/authz/resolver.ts); until then course-scoped
-  permissions are never granted (the stub resolves nobody).
+- **Malware / virus scanning of uploaded files before they become `ready` is NOT built** (GCS pipeline step: scan, then
+  verdict checked in `POST /files/:id/confirm`). Not needed for the local development driver.
+- The GCS storage driver is a stub (503); signed URLs, object metadata instead of re-reading bytes, lifecycle rule for abandoned
+  uploads are GCP-step work. Object deletion after the purge removed the row is best effort (a crash in between leaves an orphan
+  object; list-and-compare job later).
+- Course participants are managed by administrators only; per-membership capability flags (e.g. instructors managing their
+  own class list or creating courses) are planned, not built.
 - Per-membership capability flag (e.g. `can_create_courses`) if faculty must create courses: planned, not built.
 - The tenant slug cache (`TENANT_CACHE_TTL_MS`) is per instance: a newly created or suspended college is seen by other
   instances within the TTL (suspension is enforced immediately for sessions regardless).

@@ -10,12 +10,19 @@ import { can } from './policy';
 
 // Every route MUST declare exactly one of these in its `config`:
 //   config: { permission: 'member.read' }   a named permission (coarse check; services re-check)
+//   config: { permission: 'course.edit', scope: 'offering' }
+//                                           a permission that is granted by a PARTICIPATION in an offering
+//                                           (instructor, assistant, learner). The route hook can only require
+//                                           a session; the service resolves the participation and answers 404
+//                                           for a non-participant and 403 for a participant without the permission.
 //   config: { authenticated: true }         any signed-in user
 //   config: { public: true }                no sign-in needed (login, health probes, ...)
 declare module 'fastify' {
   interface FastifyContextConfig {
     /** One permission, or several of which ANY suffices (the service then decides which applies). */
     permission?: Permission | readonly Permission[];
+    /** 'offering': the permission is decided from the caller's participation by the service. */
+    scope?: 'offering';
     authenticated?: boolean;
     public?: boolean;
   }
@@ -23,6 +30,7 @@ declare module 'fastify' {
 
 export interface RouteDeclaration {
   permission?: Permission | readonly Permission[] | undefined;
+  scope?: 'offering' | undefined;
   authenticated?: boolean | undefined;
   public?: boolean | undefined;
 }
@@ -78,7 +86,15 @@ export function registerRoutePolicy(app: FastifyInstance): void {
       );
     }
     let guard: onRequestAsyncHookHandler | undefined;
-    if (config?.permission !== undefined) guard = requirePermission(config.permission);
+    if (config?.scope !== undefined && config.permission === undefined) {
+      throw new Error(
+        `route ${String(route.method)} ${route.url}: config.scope needs a permission`,
+      );
+    }
+    // an offering-scoped permission cannot be decided without the offering: the service does it
+    if (config?.permission !== undefined && config.scope === 'offering')
+      guard = requireAuthenticated;
+    else if (config?.permission !== undefined) guard = requirePermission(config.permission);
     else if (config?.authenticated === true) guard = requireAuthenticated;
     if (!guard) return;
     const existing = route.onRequest;

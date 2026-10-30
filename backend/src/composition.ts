@@ -11,6 +11,12 @@ import {
   type Mailer,
 } from './core/mailer';
 import { createPasswordHasher } from './core/password';
+import {
+  createGcsStorage,
+  createLocalStorage,
+  type LocalStorage,
+  type StorageProvider,
+} from './core/storage';
 import type { Database } from './db/client';
 import {
   createAcademicsController,
@@ -32,6 +38,26 @@ import {
   createAuthService,
   DEFAULT_AUTH_CONFIG,
 } from './modules/auth';
+import {
+  createContentController,
+  createContentHandlers,
+  createContentRepository,
+  createContentService,
+} from './modules/content';
+import {
+  createCourseParticipationResolver,
+  createCoursesController,
+  createCoursesHandlers,
+  createCoursesRepository,
+  createCoursesService,
+} from './modules/courses';
+import {
+  createFilesController,
+  createFilesHandlers,
+  createFilesRepository,
+  createFilesService,
+  createStorageController,
+} from './modules/files';
 import {
   createHealthController,
   createHealthHandlers,
@@ -99,10 +125,22 @@ export interface ModulesConfig {
   purge: PurgeConfig;
   jobs: JobsConfig;
   imports: ImportsConfig;
+  storage: StorageConfig;
   /** port of the web app for links in queued emails (development only) */
   publicPort: number | undefined;
   mailer: Mailer;
   onBackgroundError: (err: unknown) => void;
+}
+
+export interface StorageConfig {
+  driver: 'local' | 'gcs';
+  localDir: string;
+  signingSecret: string | undefined;
+  gcsBucket: string | undefined;
+  maxBytes: number;
+  urlTtlSeconds: number;
+  purgeGraceHours: number;
+  purgeEveryMs: number;
 }
 
 type Logging = {
@@ -159,6 +197,14 @@ export function modulesConfigFromEnv(
     | 'IMPORT_RETENTION_DAYS'
     | 'INVITE_RATE_PER_SECOND'
     | 'APP_PUBLIC_PORT'
+    | 'STORAGE_DRIVER'
+    | 'STORAGE_LOCAL_DIR'
+    | 'STORAGE_SIGNING_SECRET'
+    | 'STORAGE_MAX_FILE_BYTES'
+    | 'STORAGE_URL_TTL_SECONDS'
+    | 'STORAGE_GCS_BUCKET'
+    | 'FILE_PURGE_GRACE_HOURS'
+    | 'FILE_PURGE_INTERVAL_SECONDS'
   > & { READY_TIMEOUT_MS?: number },
   logger: Logging,
   mailer?: Mailer,
@@ -207,6 +253,16 @@ export function modulesConfigFromEnv(
       retentionDays: env.IMPORT_RETENTION_DAYS,
       inviteRatePerSecond: env.INVITE_RATE_PER_SECOND,
       purgeBatchSize: env.PURGE_BATCH_SIZE,
+    },
+    storage: {
+      driver: env.STORAGE_DRIVER,
+      localDir: env.STORAGE_LOCAL_DIR,
+      signingSecret: env.STORAGE_SIGNING_SECRET,
+      gcsBucket: env.STORAGE_GCS_BUCKET,
+      maxBytes: env.STORAGE_MAX_FILE_BYTES,
+      urlTtlSeconds: env.STORAGE_URL_TTL_SECONDS,
+      purgeGraceHours: env.FILE_PURGE_GRACE_HOURS,
+      purgeEveryMs: env.FILE_PURGE_INTERVAL_SECONDS * 1000,
     },
     publicPort: env.APP_PUBLIC_PORT,
     baseDomain: env.APP_BASE_DOMAIN,
@@ -303,6 +359,27 @@ export function createModules(db: Database, config: ModulesConfig) {
     config: config.imports,
   });
 
+  const storage: StorageProvider =
+    config.storage.driver === 'local'
+      ? createLocalStorage({
+          dir: config.storage.localDir,
+          secret: config.storage.signingSecret ?? '',
+          ttlSeconds: config.storage.urlTtlSeconds,
+        })
+      : createGcsStorage({ bucket: config.storage.gcsBucket ?? '' });
+  const filesService = createFilesService({
+    db,
+    filesRepo: createFilesRepository(),
+    storage,
+    config: { maxBytes: config.storage.maxBytes, purgeGraceHours: config.storage.purgeGraceHours },
+  });
+  const contentService = createContentService({
+    db,
+    contentRepo: createContentRepository(),
+    filesService,
+  });
+  const coursesService = createCoursesService({ db, coursesRepo: createCoursesRepository() });
+
   const handlers: HandlerMap = {
     ...createHealthHandlers({ healthService }),
     ...createTenantsHandlers({ tenantsService }),
@@ -315,6 +392,12 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createAcademicsHandlers({ academicsService }),
     ...createProfilesHandlers({ profilesService }),
     ...createImportsHandlers({ importsService, purge: config.purge }),
+    ...createContentHandlers({ contentService }),
+    ...createFilesHandlers({ filesService, purge: { everyMs: config.storage.purgeEveryMs } }),
+    ...createCoursesHandlers({
+      coursesService,
+      sync: { batchSize: 200, maxBatches: 500, concurrency: 1 },
+    }),
   };
 
   return {
@@ -325,6 +408,24 @@ export function createModules(db: Database, config: ModulesConfig) {
     imports: {
       service: importsService,
       controller: createImportsController({ importsService }),
+    },
+    content: {
+      service: contentService,
+      controller: createContentController({ contentService }),
+    },
+    files: {
+      service: filesService,
+      controller: createFilesController({ filesService, maxBytes: config.storage.maxBytes }),
+      /** only the local driver serves its own signed URLs */
+      storageController:
+        storage.driver === 'local'
+          ? createStorageController({ storage: storage as LocalStorage })
+          : null,
+    },
+    courses: {
+      service: coursesService,
+      participation: createCourseParticipationResolver({ db }),
+      controller: createCoursesController({ coursesService }),
     },
     profiles: {
       service: profilesService,

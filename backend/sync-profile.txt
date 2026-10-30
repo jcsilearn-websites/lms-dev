@@ -1,0 +1,202 @@
+apply statement, one batch of 200 members: 343 ms
+
+Result  (cost=5561.06..5561.07 rows=1 width=32) (actual time=184.716..184.746 rows=1 loops=1)
+  Buffers: shared hit=113585 read=29 dirtied=104
+  CTE batch
+    ->  Function Scan on unnest b  (cost=0.00..2.00 rows=200 width=16) (actual time=0.018..0.028 rows=200 loops=1)
+  CTE mem
+    ->  CTE Scan on batch b_1  (cost=0.00..1670.00 rows=200 width=48) (actual time=0.024..1.152 rows=200 loops=1)
+          Buffers: shared hit=600
+          SubPlan 3
+            ->  Index Scan using tenant_memberships_pkey on tenant_memberships m  (cost=0.31..8.33 rows=1 width=32) (actual time=0.004..0.004 rows=1 loops=200)
+                  Index Cond: (id = b_1.membership_id)
+                  Filter: (tenant_id = (InitPlan 2).col1)
+                  Buffers: shared hit=600
+                  InitPlan 2
+                    ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.004..0.005 rows=1 loops=1)
+  CTE stu
+    ->  Nested Loop  (cost=0.31..10.60 rows=1 width=32) (actual time=0.044..54.807 rows=200 loops=1)
+          Buffers: shared hit=15400
+          ->  CTE Scan on mem  (cost=0.00..4.50 rows=1 width=16) (actual time=0.026..1.362 rows=200 loops=1)
+                Filter: (status = 'active'::text)
+                Buffers: shared hit=600
+          ->  Subquery Scan on x  (cost=0.31..6.09 rows=1 width=32) (actual time=0.008..0.266 rows=1 loops=200)
+                Filter: ((x.section_id IS NOT NULL) AND (x.profile_type = 'student'::lms.profile_type))
+                Buffers: shared hit=14800
+                ->  Result  (cost=0.31..6.07 rows=1 width=36) (actual time=0.008..0.266 rows=1 loops=200)
+                      One-Time Filter: ((InitPlan 5).col1 = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                      Buffers: shared hit=14800
+                      InitPlan 5
+                        ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.003..0.003 rows=1 loops=1)
+                      ->  Index Scan using member_profiles_type_idx on member_profiles p  (cost=0.29..6.05 rows=1 width=20) (actual time=0.007..0.265 rows=1 loops=200)
+                            Index Cond: ((tenant_id = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid) AND (membership_id = mem.membership_id))
+                            Buffers: shared hit=14800
+  CTE wanted
+    ->  Nested Loop  (cost=0.29..12.66 rows=1 width=48) (actual time=0.084..68.311 rows=4000 loops=1)
+          Buffers: shared hit=28321
+          ->  CTE Scan on stu  (cost=0.00..0.02 rows=1 width=32) (actual time=0.044..54.938 rows=200 loops=1)
+                Buffers: shared hit=15400
+          ->  Subquery Scan on w  (cost=0.29..12.63 rows=1 width=16) (actual time=0.007..0.063 rows=20 loops=200)
+                Filter: ((SubPlan 8) <> 'archived'::lms.offering_status)
+                Buffers: shared hit=12921
+                ->  Result  (cost=0.29..4.31 rows=1 width=16) (actual time=0.004..0.015 rows=20 loops=200)
+                      One-Time Filter: ((InitPlan 9).col1 = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                      Buffers: shared hit=921
+                      InitPlan 9
+                        ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.003..0.003 rows=1 loops=1)
+                      ->  Index Only Scan using offering_sections_section_idx on offering_sections os  (cost=0.29..4.31 rows=1 width=16) (actual time=0.003..0.012 rows=20 loops=200)
+                            Index Cond: ((tenant_id = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid) AND (section_id = stu.section_id))
+                            Heap Fetches: 4000
+                            Buffers: shared hit=921
+                SubPlan 8
+                  ->  Index Scan using course_offerings_tenant_id_key on course_offerings o  (cost=0.29..8.31 rows=1 width=4) (actual time=0.002..0.002 rows=1 loops=4000)
+                        Index Cond: ((tenant_id = (InitPlan 7).col1) AND (id = w.offering_id))
+                        Buffers: shared hit=12000
+                        InitPlan 7
+                          ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.002..0.003 rows=1 loops=1)
+  CTE mine
+    ->  Nested Loop  (cost=0.44..2912.50 rows=200 width=52) (actual time=1.046..1.055 rows=0 loops=1)
+          Buffers: shared hit=1056
+          ->  CTE Scan on batch b_2  (cost=0.00..4.00 rows=200 width=16) (actual time=0.018..0.057 rows=200 loops=1)
+          ->  Subquery Scan on c  (cost=0.44..14.53 rows=1 width=52) (actual time=0.005..0.005 rows=0 loops=200)
+                Filter: ((SubPlan 12) <> 'archived'::lms.offering_status)
+                Buffers: shared hit=1056
+                ->  Result  (cost=0.44..6.21 rows=1 width=52) (actual time=0.005..0.005 rows=0 loops=200)
+                      One-Time Filter: ((InitPlan 13).col1 = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                      Buffers: shared hit=1056
+                      InitPlan 13
+                        ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.003..0.003 rows=1 loops=1)
+                      ->  Index Scan using course_participants_member_idx on course_participants cp  (cost=0.44..6.21 rows=1 width=52) (actual time=0.004..0.004 rows=0 loops=200)
+                            Index Cond: ((tenant_id = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid) AND (membership_id = b_2.membership_id))
+                            Buffers: shared hit=1056
+                SubPlan 12
+                  ->  Index Scan using course_offerings_tenant_id_key on course_offerings o_1  (cost=0.29..8.31 rows=1 width=4) (never executed)
+                        Index Cond: ((tenant_id = (InitPlan 11).col1) AND (id = c.offering_id))
+                        InitPlan 11
+                          ->  Result  (cost=0.00..0.02 rows=1 width=16) (never executed)
+  CTE back
+    ->  Nested Loop  (cost=0.14..18.75 rows=1 width=16) (actual time=0.227..0.230 rows=0 loops=1)
+          Buffers: shared hit=200
+          ->  CTE Scan on mem mem_1  (cost=0.00..4.50 rows=1 width=16) (actual time=0.001..0.048 rows=200 loops=1)
+                Filter: (status = 'active'::text)
+          ->  Subquery Scan on c_1  (cost=0.14..14.24 rows=1 width=16) (actual time=0.001..0.001 rows=0 loops=200)
+                Filter: ((c_1.source = 'manual'::lms.participant_source) AND (c_1.removed_reason = 'membership'::text) AND ((SubPlan 16) <> 'archived'::lms.offering_status))
+                Buffers: shared hit=200
+                ->  Result  (cost=0.14..5.91 rows=1 width=68) (actual time=0.001..0.001 rows=0 loops=200)
+                      One-Time Filter: ((InitPlan 17).col1 = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                      Buffers: shared hit=200
+                      InitPlan 17
+                        ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.003..0.003 rows=1 loops=1)
+                      ->  Index Scan using course_participants_closed_idx on course_participants cp_1  (cost=0.14..5.91 rows=1 width=68) (actual time=0.000..0.000 rows=0 loops=200)
+                            Index Cond: ((tenant_id = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid) AND (membership_id = mem_1.membership_id))
+                            Buffers: shared hit=200
+                SubPlan 16
+                  ->  Index Scan using course_offerings_tenant_id_key on course_offerings o_2  (cost=0.29..8.31 rows=1 width=4) (never executed)
+                        Index Cond: ((tenant_id = (InitPlan 15).col1) AND (id = c_1.offering_id))
+                        InitPlan 15
+                          ->  Result  (cost=0.00..0.02 rows=1 width=16) (never executed)
+  CTE by_membership
+    ->  Update on course_participants cp_2  (cost=6.24..15.28 rows=1 width=146) (actual time=0.009..0.012 rows=0 loops=1)
+          InitPlan 19
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (never executed)
+          InitPlan 20
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.006..0.006 rows=1 loops=1)
+          ->  Result  (cost=6.20..15.24 rows=1 width=146) (actual time=0.009..0.011 rows=0 loops=1)
+                One-Time Filter: ((InitPlan 20).col1 = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                ->  Nested Loop  (cost=6.20..15.24 rows=1 width=102) (actual time=0.001..0.003 rows=0 loops=1)
+                      Join Filter: (mine.membership_id = mem_2.membership_id)
+                      ->  Hash Join  (cost=6.20..10.73 rows=1 width=78) (actual time=0.001..0.002 rows=0 loops=1)
+                            Hash Cond: (mine.id = cp_2.id)
+                            ->  CTE Scan on mine  (cost=0.00..4.00 rows=200 width=88) (actual time=0.000..0.000 rows=0 loops=1)
+                            ->  Hash  (cost=6.19..6.19 rows=1 width=22) (never executed)
+                                  ->  Index Scan using course_participants_list_idx on course_participants cp_2  (cost=0.42..6.19 rows=1 width=22) (never executed)
+                                        Index Cond: (tenant_id = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                      ->  CTE Scan on mem mem_2  (cost=0.00..4.50 rows=1 width=56) (never executed)
+                            Filter: (status = 'removed'::text)
+  CTE restored
+    ->  Update on course_participants cp_3  (cost=0.46..6.27 rows=1 width=90) (actual time=1.283..1.285 rows=0 loops=1)
+          Buffers: shared hit=4256
+          InitPlan 22
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (never executed)
+          InitPlan 23
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.003..0.003 rows=1 loops=1)
+          ->  Result  (cost=0.42..6.23 rows=1 width=90) (actual time=1.282..1.283 rows=0 loops=1)
+                One-Time Filter: ((InitPlan 23).col1 = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                Buffers: shared hit=4256
+                ->  Nested Loop  (cost=0.42..6.22 rows=1 width=46) (actual time=1.279..1.279 rows=0 loops=1)
+                      Join Filter: (back.id = cp_3.id)
+                      Buffers: shared hit=4256
+                      ->  Index Scan using course_participants_list_idx on course_participants cp_3  (cost=0.42..6.19 rows=1 width=22) (actual time=0.007..1.048 rows=8 loops=1)
+                            Index Cond: (tenant_id = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                            Buffers: shared hit=4056
+                      ->  CTE Scan on back  (cost=0.00..0.02 rows=1 width=56) (actual time=0.028..0.028 rows=0 loops=8)
+                            Buffers: shared hit=200
+  CTE gone
+    ->  Update on course_participants cp_4  (cost=0.46..912.52 rows=1 width=178) (actual time=1.985..1.988 rows=0 loops=1)
+          Buffers: shared hit=5158
+          InitPlan 25
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (never executed)
+          InitPlan 27
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.009..0.010 rows=1 loops=1)
+          ->  Result  (cost=0.42..912.48 rows=1 width=178) (actual time=1.983..1.985 rows=0 loops=1)
+                One-Time Filter: ((InitPlan 27).col1 = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                Buffers: shared hit=5158
+                ->  Nested Loop Anti Join  (cost=0.42..912.48 rows=1 width=134) (actual time=1.971..1.973 rows=0 loops=1)
+                      Join Filter: ((w_1.membership_id = mine_1.membership_id) AND (w_1.offering_id = mine_1.offering_id))
+                      Buffers: shared hit=5158
+                      ->  Nested Loop  (cost=0.42..912.44 rows=1 width=110) (actual time=1.971..1.972 rows=0 loops=1)
+                            Join Filter: (mine_1.id = cp_4.id)
+                            Buffers: shared hit=5158
+                            ->  Index Scan using course_participants_list_idx on course_participants cp_4  (cost=0.42..6.19 rows=1 width=22) (actual time=0.016..0.922 rows=8 loops=1)
+                                  Index Cond: (tenant_id = '01a18c04-6873-77e6-b4fe-f05b4104b6a7'::uuid)
+                                  Buffers: shared hit=4102
+                            ->  CTE Scan on mine mine_1  (cost=0.00..905.00 rows=100 width=120) (actual time=0.131..0.131 rows=0 loops=8)
+                                  Filter: ((source = 'section'::lms.participant_source) AND ((SubPlan 26) <> 'removed'::text))
+                                  Buffers: shared hit=1056
+                                  SubPlan 26
+                                    ->  CTE Scan on mem mem_3  (cost=0.00..4.50 rows=1 width=32) (never executed)
+                                          Filter: (membership_id = mine_1.membership_id)
+                      ->  CTE Scan on wanted w_1  (cost=0.00..0.02 rows=1 width=88) (never executed)
+  CTE added
+    ->  Insert on course_participants  (cost=0.06..0.35 rows=1 width=140) (actual time=0.279..179.333 rows=4000 loops=1)
+          Conflict Resolution: UPDATE
+          Conflict Arbiter Indexes: course_participants_one_key
+          Conflict Filter: ((course_participants.source = 'section'::lms.participant_source) AND (course_participants.removed_reason IS DISTINCT FROM 'manual'::text) AND ((course_participants.status = 'removed'::lms.participant_status) OR (course_participants.source_section_id IS DISTINCT FROM excluded.source_section_id)))
+          Tuples Inserted: 4000
+          Conflicting Tuples: 0
+          Buffers: shared hit=104171 read=29 dirtied=104
+          InitPlan 29
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (actual time=0.003..0.003 rows=1 loops=1)
+          InitPlan 30
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (never executed)
+          InitPlan 31
+            ->  Result  (cost=0.00..0.02 rows=1 width=16) (never executed)
+          ->  Subquery Scan on "*SELECT*"  (cost=0.00..0.29 rows=1 width=140) (actual time=0.172..113.284 rows=4000 loops=1)
+                Buffers: shared hit=28321
+                ->  CTE Scan on wanted w_2  (cost=0.00..0.27 rows=1 width=144) (actual time=0.171..112.397 rows=4000 loops=1)
+                      Buffers: shared hit=28321
+  InitPlan 33
+    ->  Aggregate  (cost=0.02..0.03 rows=1 width=8) (actual time=1.988..1.988 rows=1 loops=1)
+          Buffers: shared hit=5158
+          ->  CTE Scan on gone  (cost=0.00..0.02 rows=1 width=0) (actual time=1.986..1.986 rows=0 loops=1)
+                Buffers: shared hit=5158
+  InitPlan 34
+    ->  Aggregate  (cost=0.02..0.03 rows=1 width=8) (actual time=181.425..181.425 rows=1 loops=1)
+          Buffers: shared hit=104171 read=29 dirtied=104
+          ->  CTE Scan on added  (cost=0.00..0.02 rows=1 width=0) (actual time=0.280..180.644 rows=4000 loops=1)
+                Buffers: shared hit=104171 read=29 dirtied=104
+  InitPlan 35
+    ->  Aggregate  (cost=0.02..0.03 rows=1 width=8) (actual time=0.012..0.012 rows=1 loops=1)
+          ->  CTE Scan on by_membership  (cost=0.00..0.02 rows=1 width=0) (actual time=0.010..0.010 rows=0 loops=1)
+  InitPlan 36
+    ->  Aggregate  (cost=0.02..0.03 rows=1 width=8) (actual time=1.285..1.285 rows=1 loops=1)
+          Buffers: shared hit=4256
+          ->  CTE Scan on restored  (cost=0.00..0.02 rows=1 width=0) (actual time=1.283..1.284 rows=0 loops=1)
+                Buffers: shared hit=4256
+Planning:
+  Buffers: shared hit=786 read=114 dirtied=114
+Planning Time: 8.433 ms
+Trigger for constraint course_participants_membership_fk on course_participants: time=30.893 calls=4000
+Trigger for constraint course_participants_tenant_id_fkey on course_participants: time=27.047 calls=4000
+Trigger for constraint course_participants_offering_fk on course_participants: time=31.260 calls=4000
+Execution Time: 275.836 ms

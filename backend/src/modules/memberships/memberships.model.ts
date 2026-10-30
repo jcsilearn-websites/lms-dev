@@ -4,7 +4,12 @@ import { createdAt, lms, updatedAt } from '../../db/lms-schema';
 
 export const membershipRole = lms.enum('membership_role', MEMBERSHIP_ROLES);
 
-export const membershipStatus = lms.enum('membership_status', ['active', 'pending', 'suspended']);
+export const membershipStatus = lms.enum('membership_status', [
+  'active',
+  'pending',
+  'suspended',
+  'removed',
+]);
 
 export const tenantMemberships = lms.table('tenant_memberships', {
   id: uuid('id').primaryKey(),

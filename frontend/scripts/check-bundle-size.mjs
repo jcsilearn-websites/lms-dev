@@ -71,6 +71,70 @@ const validation = results.find((r) => /auth\.validators/.test(r.key));
 const loginAfterInteraction = loginBytes + (validation?.bytes ?? 0);
 
 const failures = [];
+
+// ---- the rich-text editor (Tiptap / ProseMirror) is its OWN chunk, reachable only from the course builder
+//   1. no chunk except the builder (and its item dialog) may reach the editor chunk, statically OR lazily:
+//      the sign-in, learner and administrator screens never load it, not even in the background;
+//   2. the editor's libraries appear in no other chunk, and in nothing the login page loads;
+//   3. the editor chunk fits the route budget on top of what the builder and the login page already loaded.
+const editorKey = Object.keys(manifest).find((k) => /RichTextEditor\.tsx$/.test(k));
+const EDITOR_ALLOWED = /BuilderPage|ItemDialog|RichTextEditor|loadEditor/;
+let editorReport = null;
+if (!editorKey) {
+  failures.push('the rich-text editor chunk (RichTextEditor.tsx) is not in the manifest');
+} else {
+  /**
+   * Every chunk reachable from `key` through static AND dynamic imports, WITHOUT entering the builder: the
+   * entry lazily imports every route (the builder included), so reachability must stop at the builder's door.
+   * If any chunk can still reach the editor, something outside the builder imports it.
+   */
+  const BUILDER = /BuilderPage|ItemDialog/;
+  const reachWithoutBuilder = (key, seen = new Set()) => {
+    if (seen.has(key) || BUILDER.test(key)) return seen;
+    seen.add(key);
+    for (const d of [...(manifest[key]?.imports ?? []), ...(manifest[key]?.dynamicImports ?? [])]) {
+      reachWithoutBuilder(d, seen);
+    }
+    return seen;
+  };
+  const offenders = Object.keys(manifest).filter(
+    (k) => k !== editorKey && !EDITOR_ALLOWED.test(k) && reachWithoutBuilder(k).has(editorKey),
+  );
+  for (const k of offenders)
+    failures.push(`${k} can load the rich-text editor chunk (only the builder may)`);
+  const reachers = Object.keys(manifest).filter((k) => EDITOR_ALLOWED.test(k) && k !== editorKey);
+
+  const editorStatic = staticGraph(editorKey);
+  const markers = /prosemirror|@tiptap|tiptap/i;
+  const editorFiles = new Set(filesOf(editorStatic));
+  for (const f of new Set(allJsFiles())) {
+    if (!markers.test(readFileSync(join(DIST, f), 'utf8').slice(0, 2_000_000))) continue;
+    const shared = [...Object.entries(manifest)].filter(([, m]) => m.file === f).map(([k]) => k);
+    const onlyEditor = editorFiles.has(f);
+    if (!onlyEditor)
+      failures.push(`editor library code found in ${f}, which is not part of the editor chunk`);
+    if (loginFiles.includes(f))
+      failures.push(`editor library code is in the login page load: ${f}`);
+    void shared;
+  }
+  const editorOnly = filesOf(editorStatic).filter((f) => !loginFiles.includes(f));
+  const editorBytes = total(editorOnly);
+  if (kb(editorBytes) > ROUTE_BUDGET_KB) {
+    failures.push(`editor chunk ${kb(editorBytes).toFixed(1)} KB > ${ROUTE_BUDGET_KB} KB`);
+  }
+  editorReport = {
+    key: editorKey,
+    kb: Number(kb(editorBytes).toFixed(1)),
+    reachedBy: reachers.map((k) => k.replace(/^src\//, '')),
+  };
+}
+
+function allJsFiles() {
+  return Object.values(manifest)
+    .map((m) => m.file)
+    .filter((f) => f.endsWith('.js'));
+}
+
 if (kb(loginBytes) > LOGIN_BUDGET_KB) {
   failures.push(`login page initial load ${kb(loginBytes).toFixed(1)} KB > ${LOGIN_BUDGET_KB} KB`);
 }
@@ -94,6 +158,7 @@ const report = {
   routeBudgetKb: ROUTE_BUDGET_KB,
   loginChunks: loginFiles.map((f) => ({ file: f, kb: Number(kb(gz(f)).toFixed(1)) })),
   routes: results.map((r) => ({ name: r.name, kb: Number(kb(r.bytes).toFixed(1)) })),
+  editor: editorReport,
   failures,
 };
 
@@ -111,6 +176,11 @@ if (json) {
     `Lazy chunks (extra JS a route loads on top of the login page), budget ${ROUTE_BUDGET_KB} KB:`,
   );
   for (const r of report.routes) console.log(`    ${r.name.padEnd(52)} ${r.kb} KB`);
+  if (report.editor) {
+    console.log(
+      `Rich-text editor chunk (own chunk, loaded by the builder only): ${report.editor.kb} KB gzip; reachable from: ${report.editor.reachedBy.join(', ')}`,
+    );
+  }
 }
 if (failures.length > 0) {
   console.error(`\nBUNDLE BUDGET EXCEEDED:\n  - ${failures.join('\n  - ')}`);

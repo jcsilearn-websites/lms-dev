@@ -8,6 +8,7 @@ import { createLogger } from './config/logger';
 import { sslWarning } from './config/ssl';
 import { startScheduler } from './core/scheduler';
 import { createDb } from './db/client';
+import { assertDatabaseVersion } from './db/pg-version';
 import { createJobRunner } from './modules/jobs';
 
 export interface Worker {
@@ -37,6 +38,7 @@ export async function startWorker(env: WorkerEnv, logger: Logger): Promise<Worke
   });
   try {
     await db.ping(10_000);
+    await assertDatabaseVersion(db);
   } catch (err) {
     await db.close().catch(() => {});
     throw err;

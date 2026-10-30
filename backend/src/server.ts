@@ -3,6 +3,7 @@ import { loadDotEnv, parseApiEnv, resolvePoolMax } from './config/env';
 import { createLogger } from './config/logger';
 import { sslWarning } from './config/ssl';
 import { createDb } from './db/client';
+import { assertDatabaseVersion } from './db/pg-version';
 
 async function main(): Promise<void> {
   loadDotEnv();
@@ -24,6 +25,11 @@ async function main(): Promise<void> {
   // Warm the pool before taking traffic so the first readiness probe doesn't pay for the
   // TCP+TLS handshake. Failure is not fatal: /health/ready reports it.
   await db.ping(15_000).catch((err: unknown) => logger.warn({ err }, 'database warm-up failed'));
+  // a wrong PostgreSQL major is fatal (an unreachable database is not: /health/ready reports it)
+  await assertDatabaseVersion(db).catch((err: unknown) => {
+    if (err instanceof Error && /PostgreSQL \d+ is required/.test(err.message)) throw err;
+    logger.warn({ err }, 'database version check skipped');
+  });
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {

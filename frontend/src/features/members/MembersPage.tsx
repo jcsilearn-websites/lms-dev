@@ -17,7 +17,12 @@ const InviteMemberDialog = lazy(() =>
   import('./InviteMemberDialog').then((m) => ({ default: m.InviteMemberDialog })),
 );
 
-export const STATUS_TONE = { active: 'success', pending: 'warning', suspended: 'danger' } as const;
+export const STATUS_TONE = {
+  active: 'success',
+  pending: 'warning',
+  suspended: 'danger',
+  removed: 'neutral',
+} as const;
 
 const FILTER_KEYS = [
   'q',
@@ -159,6 +164,7 @@ export function MembersPage() {
             <option value="active">Active</option>
             <option value="pending">Pending</option>
             <option value="suspended">Suspended</option>
+            <option value="removed">Removed</option>
           </>,
         )}
         {sel(

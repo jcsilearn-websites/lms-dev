@@ -15,7 +15,11 @@ export const PERMISSION_GROUPS = {
   profile: ['profile.read_own', 'profile.manage'],
   import: ['import.run'],
   course: [
+    'course.read',
     'course.create',
+    'course.manage',
+    'offering.manage',
+    'participant.read',
     'course.edit',
     'course.publish',
     'content.view',
@@ -38,7 +42,7 @@ export type Permission = (typeof PERMISSION_GROUPS)[PermissionGroup][number];
 
 export const ALL_PERMISSIONS: readonly Permission[] = Object.values(PERMISSION_GROUPS).flat();
 
-/** What a course participation grants; `instructor | assistant | learner` (a later step uses them). */
+/** What a participation in an OFFERING (one run of a course in a term) grants. */
 export const PARTICIPATION_TYPES = ['instructor', 'assistant', 'learner'] as const;
 export type ParticipationType = (typeof PARTICIPATION_TYPES)[number];
 
@@ -63,10 +67,15 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
   'profile.read_own': 'View your own member profile',
   'profile.manage': 'View and change member profiles; move students between sections',
   'import.run': 'Upload, validate, confirm and monitor bulk CSV imports',
+  'course.read': 'View the course catalog of the college',
   'course.create': 'Create courses',
-  'course.edit': 'Edit course content',
-  'course.publish': 'Publish course content',
-  'content.view': 'View course content',
+  'course.manage': 'Change and archive courses',
+  'offering.manage':
+    'Create and change offerings (a course in a term), assign instructors and assistants, enrol sections and learners',
+  'participant.read': 'See the class list of an offering',
+  'course.edit': 'Edit the content of an offering (modules, items, files)',
+  'course.publish': 'Publish and unpublish an offering; copy content from another offering',
+  'content.view': 'View the content of an offering',
   'assessment.create': 'Create assessments',
   'submission.create': 'Submit work',
   'submission.grade': 'Grade submissions',

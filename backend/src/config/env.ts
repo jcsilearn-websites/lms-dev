@@ -134,6 +134,22 @@ const importFields = {
   APP_PUBLIC_PORT: Type.Optional(Type.Integer({ minimum: 1, maximum: 65535 })),
 };
 
+/** File storage (course files). `local` is a development driver: it is refused when NODE_ENV=production. */
+const storageFields = {
+  STORAGE_DRIVER: Type.Union([Type.Literal('local'), Type.Literal('gcs')], { default: 'local' }),
+  // local driver: where the bytes go (git-ignored by convention: .storage)
+  STORAGE_LOCAL_DIR: Type.String({ minLength: 1, default: '.storage' }),
+  // local driver: HMAC key of the signed upload / download URLs (>= 32 characters, never committed)
+  STORAGE_SIGNING_SECRET: Type.Optional(Type.String({ minLength: 32 })),
+  STORAGE_MAX_FILE_BYTES: Type.Integer({ minimum: 1024, default: 50 * 1024 * 1024 }),
+  STORAGE_URL_TTL_SECONDS: Type.Integer({ minimum: 10, maximum: 3600, default: 300 }),
+  // gcs driver (a later step): the bucket
+  STORAGE_GCS_BUCKET: Type.Optional(Type.String({ minLength: 3 })),
+  // an unreferenced file is deleted this long after upload confirmation / its last reference was removed
+  FILE_PURGE_GRACE_HOURS: Type.Integer({ minimum: 0, default: 24 }),
+  FILE_PURGE_INTERVAL_SECONDS: Type.Integer({ minimum: 1, default: 3600 }),
+};
+
 export const apiEnvSchema = Type.Object({
   NODE_ENV: nodeEnv,
   LOG_LEVEL: logLevel,
@@ -149,6 +165,7 @@ export const apiEnvSchema = Type.Object({
   ...authFields,
   ...jobFields,
   ...importFields,
+  ...storageFields,
   ...dbAppFields,
 });
 export type ApiEnv = Static<typeof apiEnvSchema>;
@@ -160,6 +177,7 @@ export const workerEnvSchema = Type.Object({
   ...authFields,
   ...jobFields,
   ...importFields,
+  ...storageFields,
   ...dbAppFields,
 });
 export type WorkerEnv = Static<typeof workerEnvSchema>;
@@ -237,7 +255,35 @@ export function parseApiEnv(source: Record<string, string | undefined> = process
   const env = parseEnv(apiEnvSchema, source);
   assertSslPolicy(env, [env.DATABASE_APP_URL]);
   assertAuthPolicy(env, source);
+  assertStoragePolicy(env);
   return env;
+}
+
+/**
+ * The local storage driver keeps files on the server's disk and serves them through signed URLs of this API: a
+ * development convenience. Production must use object storage, so `local` is refused there; a local driver
+ * also needs its signing secret.
+ */
+export function assertStoragePolicy(env: {
+  NODE_ENV: string;
+  STORAGE_DRIVER: string;
+  STORAGE_SIGNING_SECRET?: string | undefined;
+  STORAGE_GCS_BUCKET?: string | undefined;
+}): void {
+  const issues: string[] = [];
+  if (env.STORAGE_DRIVER === 'local') {
+    if (env.NODE_ENV === 'production') {
+      issues.push(
+        'STORAGE_DRIVER: "local" is a development driver and is not allowed when NODE_ENV=production',
+      );
+    }
+    if (!env.STORAGE_SIGNING_SECRET) {
+      issues.push('STORAGE_SIGNING_SECRET: required (32+ characters) when STORAGE_DRIVER=local');
+    }
+  } else if (!env.STORAGE_GCS_BUCKET) {
+    issues.push('STORAGE_GCS_BUCKET: required when STORAGE_DRIVER=gcs');
+  }
+  if (issues.length > 0) throw new EnvError(issues);
 }
 
 /** Production must configure the base domain explicitly and may not use the console mailer. */
@@ -275,6 +321,7 @@ export function parseWorkerEnv(
 ): WorkerEnv {
   const env = parseEnv(workerEnvSchema, source);
   assertSslPolicy(env, [env.DATABASE_APP_URL]);
+  assertStoragePolicy(env);
   return env;
 }
 

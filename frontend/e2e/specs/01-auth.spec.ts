@@ -12,7 +12,7 @@ test.describe('sign in and out', () => {
 
     await signIn(page, 'e2e-one', 'admin@e2e-one.test');
     await expect(page.getByRole('heading', { name: 'Welcome, Ada Admin' })).toBeVisible();
-    await expect(page.getByText('Your courses will appear here')).toBeVisible();
+    await expect(page.getByText('You are not in any course yet')).toBeVisible();
 
     await signOut(page);
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();

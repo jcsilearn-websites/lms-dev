@@ -1,15 +1,17 @@
 import type { ParticipationType } from './catalog';
 
 /**
- * Resolves a user's participation in a course. The courses module implements this in a later step;
- * services call it ONLY for course-scoped checks and pass the result to `can()` as
- * `resource.participation`. Until then the stub says nobody participates anywhere.
+ * Resolves a user's participation in an OFFERING (one run of a course in a term). The courses module
+ * implements it (one indexed query, cached per request); services call it ONLY for offering-scoped
+ * checks and pass the result to `can()` as `resource.participation`. Hot read paths (the course outline,
+ * "my courses") fold the same condition into their own single statement instead, to stay inside the
+ * round-trip budget.
  */
 export interface CourseParticipationResolver {
   resolve(input: {
     tenantId: string;
     userId: string;
-    courseId: string;
+    offeringId: string;
   }): Promise<ParticipationType | null>;
 }
 

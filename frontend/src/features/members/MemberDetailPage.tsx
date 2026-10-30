@@ -86,7 +86,7 @@ export function MemberDetailPage() {
       setConfirm(null);
       void navigate({ to: '/members' as '/' });
     },
-    `${name} was removed from the college.`,
+    `${name} was removed from the college. Their academic history is kept.`,
   );
   const unlock = useAction(
     () => unlockMember(userId),
@@ -132,53 +132,68 @@ export function MemberDetailPage() {
             This is you. You cannot change your own role, suspend or remove yourself.
           </p>
         )}
-        <div className="flex flex-wrap items-end gap-3">
-          {has('member.update_role') && (
-            <div className="flex items-end gap-2">
-              <p className="text-sm">
-                Role:{' '}
-                <strong>{m.role === 'institution_admin' ? 'Institution admin' : 'Member'}</strong>
-              </p>
+        {m.status === 'removed' ? (
+          <p className="text-sm">
+            {name} was removed from the college. Their account and academic history are kept. Invite
+            them again with the same email to bring them back.
+          </p>
+        ) : (
+          <div className="flex flex-wrap items-end gap-3">
+            {has('member.update_role') && (
+              <div className="flex items-end gap-2">
+                <p className="text-sm">
+                  Role:{' '}
+                  <strong>{m.role === 'institution_admin' ? 'Institution admin' : 'Member'}</strong>
+                </p>
+                <Button
+                  variant="secondary"
+                  disabled={isSelf || m.status === 'pending'}
+                  loading={role.isPending}
+                  onClick={() => role.mutate()}
+                >
+                  {m.role === 'member' ? 'Make institution admin' : 'Make member'}
+                </Button>
+              </div>
+            )}
+            {has('member.suspend') &&
+              (m.status === 'suspended' ? (
+                <Button
+                  variant="secondary"
+                  loading={reactivate.isPending}
+                  onClick={() => reactivate.mutate()}
+                >
+                  Reactivate
+                </Button>
+              ) : (
+                <Button variant="secondary" disabled={isSelf} onClick={() => setConfirm('suspend')}>
+                  Suspend
+                </Button>
+              ))}
+            {has('member.unlock') && (
               <Button
                 variant="secondary"
-                disabled={isSelf || m.status === 'pending'}
-                loading={role.isPending}
-                onClick={() => role.mutate()}
+                loading={unlock.isPending}
+                onClick={() => unlock.mutate()}
               >
-                {m.role === 'member' ? 'Make institution admin' : 'Make member'}
+                Unlock sign-in
               </Button>
-            </div>
-          )}
-          {has('member.suspend') &&
-            (m.status === 'suspended' ? (
+            )}
+            {has('member.invite') && m.status === 'pending' && (
               <Button
                 variant="secondary"
-                loading={reactivate.isPending}
-                onClick={() => reactivate.mutate()}
+                loading={resend.isPending}
+                onClick={() => resend.mutate()}
               >
-                Reactivate
+                Resend invitation
               </Button>
-            ) : (
-              <Button variant="secondary" disabled={isSelf} onClick={() => setConfirm('suspend')}>
-                Suspend
+            )}
+            {has('member.remove') && (
+              <Button variant="danger" disabled={isSelf} onClick={() => setConfirm('remove')}>
+                Remove from college
               </Button>
-            ))}
-          {has('member.unlock') && (
-            <Button variant="secondary" loading={unlock.isPending} onClick={() => unlock.mutate()}>
-              Unlock sign-in
-            </Button>
-          )}
-          {has('member.invite') && m.status === 'pending' && (
-            <Button variant="secondary" loading={resend.isPending} onClick={() => resend.mutate()}>
-              Resend invitation
-            </Button>
-          )}
-          {has('member.remove') && (
-            <Button variant="danger" disabled={isSelf} onClick={() => setConfirm('remove')}>
-              Remove from college
-            </Button>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </Card>
 
       {has('profile.manage') && <ProfileCard userId={userId} member={m} profile={profile} />}

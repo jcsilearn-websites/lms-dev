@@ -30,6 +30,12 @@ export const ADMIN_PERMISSIONS = [
   'profile.read_own',
   'profile.manage',
   'import.run',
+  'course.read',
+  'course.create',
+  'course.manage',
+  'offering.manage',
+  'participant.read',
+  'content.view',
 ];
 
 export const adminMe: MeResponse = {
@@ -153,6 +159,8 @@ export function mockSignedIn(me: MeResponse = adminMe) {
   server.use(
     http.get(`${API}/auth/me`, () => HttpResponse.json(me)),
     http.get(`${API}/tenant/info`, () => HttpResponse.json(tenantInfo)),
+    // the home page lists "my courses": none unless a test says otherwise
+    http.get(`${API}/me/courses`, () => HttpResponse.json({ items: [], nextCursor: null })),
   );
 }
 

@@ -15,6 +15,9 @@ import type { Database } from './db/client';
 import { createAcademicsRoutes } from './modules/academics';
 import { createAuditRoutes } from './modules/audit';
 import { createAuthRoutes } from './modules/auth';
+import { createContentRoutes } from './modules/content';
+import { createCoursesRoutes } from './modules/courses';
+import { createFilesRoutes, createStorageRoutes } from './modules/files';
 import { createHealthRoutes } from './modules/health';
 import { createImportsRoutes } from './modules/imports';
 import { createMembershipsRoutes } from './modules/memberships';
@@ -47,6 +50,8 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
     bodyLimit: env.BODY_LIMIT_BYTES,
     trustProxy: env.TRUST_PROXY,
     forceCloseConnections: 'idle',
+    // the signed storage URLs carry a token of ~250 characters in the path
+    routerOptions: { maxParamLength: 2048 },
   }).withTypeProvider<TypeBoxTypeProvider>();
 
   const modules = createModules(db, modulesConfigFromEnv(env, logger, mailer));
@@ -89,6 +94,17 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
       );
       void api.register(createImportsRoutes({ importsController: modules.imports.controller }));
       void api.register(createProfilesRoutes({ profilesController: modules.profiles.controller }));
+      void api.register(createCoursesRoutes({ coursesController: modules.courses.controller }));
+      void api.register(createContentRoutes({ contentController: modules.content.controller }));
+      void api.register(createFilesRoutes({ filesController: modules.files.controller }));
+      if (modules.files.storageController) {
+        void api.register(
+          createStorageRoutes({
+            storageController: modules.files.storageController,
+            maxBytes: modules.config.storage.maxBytes,
+          }),
+        );
+      }
       void api.register(createAuditRoutes({ auditController: modules.audit.controller }));
       void api.register(createSessionsRoutes({ sessionsController: modules.sessions.controller }));
       void api.register(

@@ -20,6 +20,9 @@ export function testEnv(overrides: Record<string, string> = {}): ApiEnv {
     RATE_LIMIT_LOGIN_PER_IP: '1000',
     RATE_LIMIT_LOGIN_PER_EMAIL: '1000',
     RATE_LIMIT_MAX: '100000',
+    // a fake key for the local storage driver (the tests write to a throwaway directory)
+    STORAGE_SIGNING_SECRET: 'test-only-signing-secret-0123456789abcdef',
+    STORAGE_LOCAL_DIR: process.env.TEST_STORAGE_DIR ?? '.storage-test',
     ...overrides,
   });
 }

@@ -40,8 +40,8 @@ jobs:
 
     services:
       postgres:
-        # Newest PostgreSQL major supported by Google Cloud SQL (see docs/migrating-to-cloud-sql.md).
-        image: postgres:18
+        # PostgreSQL 17 everywhere: local, CI and Cloud SQL (docs/adr/0014-postgresql-17.md). The code refuses other majors.
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -121,7 +121,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:18
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -167,7 +167,7 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
-        image: postgres:18
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -213,7 +213,7 @@ jobs:
     timeout-minutes: 60
     services:
       postgres:
-        image: postgres:18
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres

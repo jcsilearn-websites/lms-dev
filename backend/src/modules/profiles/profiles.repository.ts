@@ -165,7 +165,7 @@ export function createProfilesRepository() {
       const ids = `{${userIds.join(',')}}`;
       const audit = auditInsertFrom(
         {
-          id: sql`gen_random_uuid()`,
+          id: sql`lms.uuid_v7()`,
           tenantId,
           actorUserId,
           action: 'profile.section_moved',

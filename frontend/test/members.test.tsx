@@ -2,7 +2,16 @@ import { screen, waitFor, within } from '@testing-library/react';
 import { delay, HttpResponse, http } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { renderApp } from './render';
-import { API, errorBody, member, memberMe, mockSignedIn, server, studentProfile } from './server';
+import {
+  API,
+  adminMe,
+  errorBody,
+  member,
+  memberMe,
+  mockSignedIn,
+  server,
+  studentProfile,
+} from './server';
 
 const DEPT = { id: 'd0000000-0000-7000-8000-000000000001', code: 'CSE', name: 'Computer Science' };
 const PROGRAM = { id: 'e0000000-0000-7000-8000-000000000001', code: 'BE', departmentId: DEPT.id };
@@ -338,10 +347,30 @@ describe('member detail', () => {
     expect(await screen.findByText('This member has no profile yet.')).toBeInTheDocument();
   });
 
+  it('a removed member shows what removal means and offers no actions; the list can show them', async () => {
+    mockSignedIn(adminMe);
+    const gone = member(9, { displayName: 'Rita Removed', status: 'removed' });
+    server.use(
+      http.get(`${API}/members/${gone.userId}`, () => HttpResponse.json(gone)),
+      http.get(`${API}/members/${gone.userId}/profile`, () =>
+        HttpResponse.json(errorBody('profile_not_found', 'This member has no profile yet'), {
+          status: 404,
+        }),
+      ),
+      http.get(`${API}/departments`, () => page([])),
+    );
+    renderApp(`/members/${gone.userId}`);
+    await screen.findByRole('heading', { name: 'Rita Removed' });
+    expect(screen.getByText('removed')).toBeInTheDocument();
+    expect(screen.getByText(/academic history are kept/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Remove from college' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Suspend' })).toBeNull();
+  });
+
   it('hides the admin actions from someone without the permissions', async () => {
     mockSignedIn(memberMe);
     renderApp('/members');
     // a member is sent home: there is no members screen for them at all
-    expect(await screen.findByText('Your courses will appear here')).toBeInTheDocument();
+    expect(await screen.findByText('You are not in any course yet')).toBeInTheDocument();
   });
 });

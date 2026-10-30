@@ -12,7 +12,7 @@ hosted Postgres.
 Use two Supabase projects (`lms-dev`, `lms-test`) **only** as hosted Postgres over the Session pooler (port 5432):
 no Supabase Auth, `auth.*`, anon/authenticated roles in our policies, Storage, Realtime, supabase-js or Data API.
 Everything stays portable Postgres. Migrations run as the owner (`postgres`); the app runs as `lms_app`.
-CI uses a `postgres:18` service container and creates the `anon`/`authenticated` roles first so migrations behave
+CI uses a `postgres:17` service container and creates the `anon`/`authenticated` roles first so migrations behave
 identically.
 
 ## Findings recorded on 2026-10-28 (verified by query)

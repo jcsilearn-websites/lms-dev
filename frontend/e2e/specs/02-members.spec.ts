@@ -41,7 +41,7 @@ test.describe('invite, accept, sign in', () => {
       p.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Members' }),
     ).toHaveCount(0);
     await p.goto(`${originOf(COLLEGE)}/members`);
-    await expect(p.getByText('Your courses will appear here')).toBeVisible(); // bounced home
+    await expect(p.getByText('You are not in any course yet')).toBeVisible(); // bounced home
     await person.close();
 
     // back in the admin's list the person is there (pending until the first sign-in is recorded, or active)

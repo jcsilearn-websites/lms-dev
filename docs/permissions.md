@@ -32,10 +32,14 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | **import** | | | | | | | |
 | `import.run` |  | yes |  |  |  |  | Upload, validate, confirm and monitor bulk CSV imports |
 | **course** | | | | | | | |
+| `course.read` |  | yes |  |  |  |  | View the course catalog of the college |
 | `course.create` |  | yes |  |  |  |  | Create courses |
-| `course.edit` |  |  |  | yes |  |  | Edit course content |
-| `course.publish` |  |  |  | yes |  |  | Publish course content |
-| `content.view` |  | yes |  | yes | yes | yes | View course content |
+| `course.manage` |  | yes |  |  |  |  | Change and archive courses |
+| `offering.manage` |  | yes |  |  |  |  | Create and change offerings (a course in a term), assign instructors and assistants, enrol sections and learners |
+| `participant.read` |  | yes |  | yes | yes |  | See the class list of an offering |
+| `course.edit` |  |  |  | yes |  |  | Edit the content of an offering (modules, items, files) |
+| `course.publish` |  |  |  | yes |  |  | Publish and unpublish an offering; copy content from another offering |
+| `content.view` |  | yes |  | yes | yes | yes | View the content of an offering |
 | `assessment.create` |  |  |  | yes |  |  | Create assessments |
 | `submission.create` |  |  |  |  |  | yes | Submit work |
 | `submission.grade` |  |  |  | yes | yes |  | Grade submissions |
@@ -47,9 +51,10 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `platform.audit.read` | yes |  |  |  |  |  | Read the platform audit log |
 | `platform.user.unlock` | yes |  |  |  |  |  | Clear a login lockout (admin host) |
 
-27 permissions. Notes:
+31 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
+- "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
 - A session belongs to one host: a platform admin cannot act on a tenant host, and tenant users cannot act on the admin host.
 
 ## Routes
@@ -85,6 +90,10 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | PATCH | `/api/batches/:id` | `academic.manage` |
 | POST | `/api/batches/:id/archive` | `academic.manage` |
 | POST | `/api/batches/:id/unarchive` | `academic.manage` |
+| GET | `/api/courses` | `course.read` |
+| POST | `/api/courses` | `course.create` |
+| GET | `/api/courses/:id` | `course.read` |
+| PATCH | `/api/courses/:id` | `course.manage` |
 | GET | `/api/departments` | `academic.read` |
 | POST | `/api/departments` | `academic.manage` |
 | DELETE | `/api/departments/:id` | `academic.manage` |
@@ -92,6 +101,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | PATCH | `/api/departments/:id` | `academic.manage` |
 | POST | `/api/departments/:id/archive` | `academic.manage` |
 | POST | `/api/departments/:id/unarchive` | `academic.manage` |
+| POST | `/api/files/:id/confirm` | any signed-in user |
 | GET | `/api/health/live` | public |
 | GET | `/api/health/ready` | public |
 | GET | `/api/imports` | `import.run` |
@@ -103,6 +113,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/imports/:id/rows` | `import.run` |
 | GET | `/api/imports/templates/faculty.csv` | `import.run` |
 | GET | `/api/imports/templates/students.csv` | `import.run` |
+| GET | `/api/me/courses` | any signed-in user |
 | GET | `/api/me/profile` | `profile.read_own` |
 | GET | `/api/members` | `member.read` |
 | DELETE | `/api/members/:userId` | `member.remove` |
@@ -114,6 +125,33 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/members/:userId/resend-invite` | `member.invite` |
 | PATCH | `/api/members/:userId/role` | `member.update_role` |
 | POST | `/api/members/:userId/suspend` | `member.suspend` |
+| GET | `/api/offerings` | `course.read` |
+| POST | `/api/offerings` | `offering.manage` |
+| GET | `/api/offerings/:id` | `content.view` in the offering |
+| PATCH | `/api/offerings/:id` | `offering.manage` in the offering |
+| POST | `/api/offerings/:id/archive` | `offering.manage` in the offering |
+| POST | `/api/offerings/:id/copy` | `course.publish` in the offering |
+| POST | `/api/offerings/:id/files` | `course.edit` in the offering |
+| DELETE | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
+| GET | `/api/offerings/:id/items/:itemId` | `content.view` in the offering |
+| PATCH | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/download` | `content.view` in the offering |
+| POST | `/api/offerings/:id/items/:itemId/move` | `course.edit` in the offering |
+| POST | `/api/offerings/:id/modules` | `course.edit` in the offering |
+| DELETE | `/api/offerings/:id/modules/:moduleId` | `course.edit` in the offering |
+| PATCH | `/api/offerings/:id/modules/:moduleId` | `course.edit` in the offering |
+| POST | `/api/offerings/:id/modules/:moduleId/items` | `course.edit` in the offering |
+| POST | `/api/offerings/:id/modules/:moduleId/move` | `course.edit` in the offering |
+| GET | `/api/offerings/:id/outline` | `content.view` in the offering |
+| GET | `/api/offerings/:id/participants` | `participant.read` in the offering |
+| POST | `/api/offerings/:id/participants` | `offering.manage` in the offering |
+| DELETE | `/api/offerings/:id/participants/:participantId` | `offering.manage` in the offering |
+| PATCH | `/api/offerings/:id/participants/:participantId` | `offering.manage` in the offering |
+| POST | `/api/offerings/:id/publish` | `course.publish` in the offering |
+| GET | `/api/offerings/:id/sections` | `offering.manage` in the offering |
+| POST | `/api/offerings/:id/sections` | `offering.manage` in the offering |
+| DELETE | `/api/offerings/:id/sections/:sectionId` | `offering.manage` in the offering |
+| POST | `/api/offerings/:id/unpublish` | `course.publish` in the offering |
 | GET | `/api/platform/audit` | `platform.audit.read` |
 | GET | `/api/platform/tenants` | `platform.tenant.read` |
 | POST | `/api/platform/tenants` | `platform.tenant.manage` |
@@ -138,6 +176,8 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/sections/:id/archive` | `academic.manage` |
 | POST | `/api/sections/:id/unarchive` | `academic.manage` |
 | POST | `/api/sections/move` | `profile.manage` |
+| GET | `/api/storage/download/:token` | public |
+| PUT | `/api/storage/upload/:token` | public |
 | PATCH | `/api/tenant/branding` | `tenant.manage` |
 | GET | `/api/tenant/info` | public |
 | GET | `/api/terms` | `academic.read` |

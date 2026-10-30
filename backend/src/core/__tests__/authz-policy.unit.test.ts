@@ -160,14 +160,15 @@ describe('can(): course participation', () => {
   it('works with a fake resolver supplied by the caller', async () => {
     const participations = new Map<string, ParticipationType>([['c1:u-member', 'assistant']]);
     const resolver: CourseParticipationResolver = {
-      resolve: async ({ courseId, userId }) => participations.get(`${courseId}:${userId}`) ?? null,
+      resolve: async ({ offeringId, userId }) =>
+        participations.get(`${offeringId}:${userId}`) ?? null,
     };
-    const p1 = await resolver.resolve({ tenantId: T1, userId: member.userId, courseId: 'c1' });
+    const p1 = await resolver.resolve({ tenantId: T1, userId: member.userId, offeringId: 'c1' });
     expect(can(member, 'submission.grade', { participation: p1, tenantId: T1 })).toBe(true);
-    const p2 = await resolver.resolve({ tenantId: T1, userId: member.userId, courseId: 'c2' });
+    const p2 = await resolver.resolve({ tenantId: T1, userId: member.userId, offeringId: 'c2' });
     expect(can(member, 'submission.grade', { participation: p2, tenantId: T1 })).toBe(false);
     expect(
-      await noCourseParticipation.resolve({ tenantId: T1, userId: 'x', courseId: 'c' }),
+      await noCourseParticipation.resolve({ tenantId: T1, userId: 'x', offeringId: 'c' }),
     ).toBeNull();
   });
 });

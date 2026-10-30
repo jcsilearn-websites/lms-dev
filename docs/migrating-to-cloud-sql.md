@@ -1,8 +1,9 @@
 # Migrating from local PostgreSQL (dev) to Google Cloud SQL
 
-The code is portable PostgreSQL: no vendor-specific objects are used. Dev and tests run on a local PostgreSQL 18
-([ADR 0011](adr/0011-local-postgres-for-dev-and-tests.md)). Target: Cloud SQL for PostgreSQL 18
-(newest major Cloud SQL supports), region asia-south1.
+The code is portable PostgreSQL: no vendor-specific objects are used. Dev and tests run on a local PostgreSQL 17
+([ADR 0011](adr/0011-local-postgres-for-dev-and-tests.md)). Target: Cloud SQL for **PostgreSQL 17** (the instance MUST be
+created as version 17, [ADR 0014](adr/0014-postgresql-17.md): the API, the worker and the migration runner refuse any other
+major), region asia-south1.
 
 ## 1. Provision
 

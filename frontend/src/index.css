@@ -131,3 +131,48 @@
 dialog::backdrop {
   background: rgb(2 6 23 / 0.6);
 }
+
+/* The rich-text editor (its own chunk) draws the same tree the learner's renderer does: Tailwind resets lists,
+   headings and quotes, so the editing area restores them. Colours only through the tokens. */
+.rich-editor .ProseMirror {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.rich-editor .ProseMirror p {
+  margin: 0.75rem 0;
+}
+.rich-editor .ProseMirror h2 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.rich-editor .ProseMirror h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+.rich-editor .ProseMirror ul {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+  list-style: disc;
+}
+.rich-editor .ProseMirror ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+  list-style: decimal;
+}
+.rich-editor .ProseMirror blockquote {
+  margin: 0.75rem 0;
+  border-left: 4px solid var(--border);
+  padding-left: 1rem;
+  color: var(--muted-foreground);
+}
+.rich-editor .ProseMirror code {
+  border-radius: 0.25rem;
+  background: var(--muted);
+  padding: 0.1rem 0.3rem;
+}
+.rich-editor .ProseMirror a {
+  color: var(--primary);
+  text-decoration: underline;
+}

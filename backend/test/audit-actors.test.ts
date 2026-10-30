@@ -77,7 +77,7 @@ describe('GET /audit: who did it', () => {
     expect(reads[0]).toMatch(/LEFT JOIN lms\.users/i);
   });
 
-  it('shows "Unknown user" for an actor who was removed from the college, and keeps the id', async () => {
+  it('keeps naming an actor who was (soft) removed from the college: their history is kept', async () => {
     const other = await addMember(owner, A.tenantId, 'leaver@aud-a.test', {
       role: 'institution_admin',
       displayName: 'Leaver',
@@ -96,7 +96,8 @@ describe('GET /audit: who did it', () => {
     const after = (await tenantLog('action=member.suspended&limit=5')).find(
       (e) => e.actorUserId === other.userId,
     );
-    expect(after).toMatchObject({ actorName: 'Unknown user', actorEmail: null });
+    // removal is soft: the membership (and so the visibility of the user) stays, the log keeps its names
+    expect(after).toMatchObject({ actorName: 'Leaver', actorEmail: other.email });
   });
 
   it('a system action has no actor at all (null), not "Unknown user"', async () => {

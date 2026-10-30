@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-// Lighthouse (mobile preset: emulated phone, simulated slow 4G and 4x CPU slowdown) on the login page
-// and on the members list (signed in, 200 members), against the real stack served by scripts/serve.mjs
+// Lighthouse (mobile preset: emulated phone, simulated slow 4G and 4x CPU slowdown) on the login page,
+// the members list (signed in, 200 members) and a learner's course page (6 modules, 35 items), against the real stack served by scripts/serve.mjs
 // (compression, long caching). Each page is measured 3 times; the MEDIAN scores are reported.
 //
 //   node scripts/lighthouse.mjs            prints the table
 //   node scripts/lighthouse.mjs --assert   also exits 1 when a budget is missed (CI)
 //
-// Budgets: Performance >= 90, Accessibility >= 95 on both pages.
+// Budgets: Performance >= 90, Accessibility >= 95 on every page.
 // The browser is Playwright's Chromium (pnpm exec playwright install chromium).
 
 import { writeFileSync } from 'node:fs';
@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { chromium } from '@playwright/test';
 import * as chromeLauncher from 'chrome-launcher';
 import lighthouse from 'lighthouse';
+import { seedCourseDemo } from './demo-courses.mjs';
 import { FRONTEND, withStack } from './stack.mjs';
 
 const RUNS = Number(process.env.LH_RUNS ?? 3);
@@ -26,9 +27,9 @@ const assertBudgets = process.argv.includes('--assert');
 const median = (xs) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 
 /** Signs in through the web server (the Host header names the college) and returns the session cookie. */
-function signIn(webPort, password) {
+function signIn(webPort, password, email = 'admin@e2e-one.test') {
   const host = `e2e-one.localhost:${webPort}`;
-  const body = JSON.stringify({ email: 'admin@e2e-one.test', password });
+  const body = JSON.stringify({ email, password });
   return new Promise((resolve, reject) => {
     const req = httpRequest(
       {
@@ -119,9 +120,17 @@ async function measure(url, cookie) {
 const rows = await withStack(
   async ({ webPort, password }) => {
     const cookie = await signIn(webPort, password);
+    // a course with 6 modules x 5-7 items, and a learner who can see it
+    const demo = await seedCourseDemo({ webPort, password });
+    const learnerCookie = await signIn(webPort, password, demo.learnerEmail);
     const pages = [
       { name: 'Login page', url: `http://e2e-one.localhost:${webPort}/login`, cookie: undefined },
       { name: 'Members list', url: `http://e2e-one.localhost:${webPort}/members`, cookie },
+      {
+        name: 'Course (learner)',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}`,
+        cookie: learnerCookie,
+      },
     ];
     const out = [];
     for (const p of pages) {

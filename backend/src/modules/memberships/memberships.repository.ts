@@ -8,7 +8,10 @@ import { tenantMemberships } from './memberships.model';
 // (data-modifying CTEs): read-and-lock the row, update it, revoke sessions, write the audit entry.
 // The last-admin rule is a DB trigger (migration 0008): it surfaces here as a check_violation.
 
-export type MembershipStatus = 'active' | 'pending' | 'suspended';
+export type MembershipStatus = 'active' | 'pending' | 'suspended' | 'removed';
+
+/** Every status except `removed`: a removed member is history, not a member (lists hide them unless asked). */
+export const LIVE_STATUSES: MembershipStatus[] = ['active', 'pending', 'suspended'];
 
 export interface MembershipRow {
   id: string;
@@ -134,7 +137,12 @@ export function createMembershipsRepository() {
     async list(tx: Executor, tenantId: string, f: MemberListFilter): Promise<MemberRow[]> {
       const where: SQL[] = [sql`m.tenant_id = ${tenantId}::uuid`];
       if (f.role !== undefined) where.push(sql`m.role = ${f.role}::lms.membership_role`);
-      if (f.status !== undefined) where.push(sql`m.status = ${f.status}::lms.membership_status`);
+      // removed members are hidden unless the filter asks for them
+      where.push(
+        f.status === undefined
+          ? sql`m.status <> 'removed'`
+          : sql`m.status = ${f.status}::lms.membership_status`,
+      );
       if (f.after !== undefined) where.push(sql`m.id > ${f.after}::uuid`);
       if (f.profileType !== undefined)
         where.push(sql`p.profile_type = ${f.profileType}::lms.profile_type`);
@@ -167,6 +175,16 @@ export function createMembershipsRepository() {
 
     async insert(tx: Executor, input: MembershipInput): Promise<MembershipRow | undefined> {
       const [row] = await tx.insert(tenantMemberships).values(input).returning(drizzleColumns);
+      return row;
+    },
+
+    /** A REMOVED member invited again: the same membership comes back as pending (history stays attached). */
+    async reinstate(tx: Executor, id: string, role: MembershipRole) {
+      const [row] = await tx
+        .update(tenantMemberships)
+        .set({ role, status: 'pending', updatedAt: new Date() })
+        .where(sql`${tenantMemberships.id} = ${id}`)
+        .returning(drizzleColumns);
       return row;
     },
 
@@ -235,37 +253,6 @@ export function createMembershipsRepository() {
         member: toMember(r),
         before: { role: r.old_role as MembershipRole, status: r.old_status as MembershipStatus },
       };
-    },
-
-    /** Removes the MEMBERSHIP only (the global user stays). Sessions and invite tokens cascade. */
-    async remove(
-      tx: Executor,
-      a: { tenantId: string; userId: string; audit: AuditStamp },
-    ): Promise<{ removed: boolean }> {
-      const audit = auditInsertFrom(
-        {
-          id: a.audit.id,
-          tenantId: a.tenantId,
-          actorUserId: a.audit.actorUserId,
-          action: a.audit.action,
-          targetType: 'membership',
-        },
-        {
-          from: sql`old JOIN del ON del.id = old.id`,
-          targetId: sql`old.id::text`,
-          metadata: sql`jsonb_build_object('userId', old.user_id,
-            'before', jsonb_build_object('role', old.role, 'status', old.status), 'after', NULL)`,
-        },
-      );
-      const res = await tx.execute(sql`
-        WITH old AS (
-          SELECT m.id, m.user_id, m.role, m.status FROM lms.tenant_memberships m
-           WHERE m.tenant_id = ${a.tenantId}::uuid AND m.user_id = ${a.userId}::uuid FOR UPDATE
-        ), del AS (
-          DELETE FROM lms.tenant_memberships m USING old WHERE m.id = old.id RETURNING m.id
-        ), aud AS (${audit})
-        SELECT (SELECT count(*) FROM del) AS removed`);
-      return { removed: Number(res.rows[0]?.removed ?? 0) > 0 };
     },
   };
 }

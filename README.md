@@ -12,11 +12,11 @@ docs/       ADRs, benchmarks, Cloud SQL migration guide
 ## Prerequisites
 
 - Node.js 24 LTS (`.nvmrc`), pnpm 11 (`corepack enable` or `npm i -g pnpm`)
-- PostgreSQL 18 installed locally (no Docker needed): [ADR 0011](docs/adr/0011-local-postgres-for-dev-and-tests.md)
+- PostgreSQL 17 installed locally (no Docker needed): [ADR 0011](docs/adr/0011-local-postgres-for-dev-and-tests.md)
 
 ## Local PostgreSQL setup (Windows)
 
-1. Install PostgreSQL 18 with the EnterpriseDB Windows installer (pgAdmin is included). Keep port **5432** and remember
+1. Install PostgreSQL 17 with the EnterpriseDB Windows installer (pgAdmin is included). Keep port **5432** and remember
    the password you give the `postgres` superuser.
 2. Copy the env file and fill it in (`.env` and `.env.*` are git-ignored):
 
@@ -61,7 +61,7 @@ pnpm bench
 ## Notes
 
 - Schema changes go through migrations only — never edit tables by hand in pgAdmin or psql.
-- CI (GitHub Actions) runs lint, typecheck, build and tests against a `postgres:18` service container.
+- CI (GitHub Actions) runs lint, typecheck, build and tests against a `postgres:17` service container.
 - Moving to Google Cloud SQL (production TLS: `DB_SSL=verify-full`): [docs/migrating-to-cloud-sql.md](docs/migrating-to-cloud-sql.md).
 
 ## Frontend
@@ -123,6 +123,13 @@ the Vite proxy do locally (route `/api/*` to the API, the rest to the SPA):
   `index.html` with `no-cache`; compress text assets (brotli/gzip); send the security headers `serve.mjs` sends (CSP,
   `nosniff`, `frame-ancestors 'none'`).
 - Wildcard certificate and wildcard DNS for `*.<APP_BASE_DOMAIN>` (tenants) plus `admin.<APP_BASE_DOMAIN>`.
+- **File storage (course files)**: production uses `STORAGE_DRIVER=gcs` (a bucket per environment, uniform bucket-level
+  access, no public objects; the app hands out V4 signed URLs). The `local` driver is refused when `NODE_ENV=production`.
+  The GCS driver is NOT built yet (it answers 503): it must sign PUT URLs with a content-type and size condition and GET
+  URLs with `response-content-disposition`, and read size / hash from object metadata instead of re-reading the bytes.
+  Let the load balancer / Cloud Run request size limit stay above `STORAGE_MAX_FILE_BYTES` only where the local driver runs.
+- **Malware scanning of uploads (not built)**: before a file becomes `ready` it should pass a scan, e.g. a Cloud Storage
+  event -> scanner -> verdict step in the GCS pipeline; `POST /files/:id/confirm` is where the verdict is checked.
 
 ## Signing in locally
 

@@ -18,3 +18,9 @@ frontend/e2e-results/
 frontend/e2e-report/
 frontend/lighthouse-summary.json
 frontend/.e2e-tmp/
+
+# local file storage (development) and the throwaway directory of the tests
+.storage/
+backend/.storage/
+backend/.storage-test/
+.storage-test/

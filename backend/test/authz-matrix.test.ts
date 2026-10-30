@@ -92,6 +92,35 @@ const publicTenantOnly = (method: string, url: string): Row => ({
   adminHost: [404, 404, 404, 404],
 });
 
+/**
+ * A route declared `scope: 'offering'`: the hook only needs a session, then the service decides in the same
+ * statement as the work. With an offering that does not exist every signed-in tenant caller gets `ok` (404, or
+ * 400 when the body is invalid: validation runs before the handler); on the admin host a platform admin has no
+ * college, so the service answers 403. (`offering-scope.test.ts` covers the same routes against a REAL offering.)
+ */
+const offeringScoped = (method: string, url: string, ok: number, body?: unknown): Row => ({
+  endpoint: `${method} ${url}`,
+  method,
+  url,
+  body,
+  tenantHost: [401, ok, ok, 401, 401],
+  adminHost: [401, 401, 401, ok === 400 ? 400 : 403],
+});
+
+/** Any signed-in user of a college (a platform admin has none: 403). */
+const memberOnly = (method: string, url: string, ok: number, body?: unknown): Row => ({
+  ...offeringScoped(method, url, ok, body),
+});
+
+/** Public storage URLs: the signed token is the credential, so a made-up one is 403 for everybody. */
+const signedLink = (method: string, url: string): Row => ({
+  endpoint: `${method} ${url}`,
+  method,
+  url,
+  tenantHost: [403, 403, 403, 403, 403],
+  adminHost: [403, 403, 403, 403],
+});
+
 const ROWS: Row[] = [
   // ---- college branding: public read (sign-in page), institution admin writes
   publicTenantOnly('GET', '/tenant/info'),
@@ -131,6 +160,44 @@ const ROWS: Row[] = [
   tenantPerm('POST', `/members/${U}/profile/section`, 400, {}),
   tenantPerm('POST', '/sections/move', 400, {}),
   tenantRead('GET', '/me/profile', 404),
+  // ---- courses and offerings (step 6): the catalog is for administrators
+  tenantPerm('GET', '/courses', 200),
+  tenantPerm('POST', '/courses', 400, {}),
+  tenantPerm('GET', `/courses/${U}`, 404),
+  tenantPerm('PATCH', `/courses/${U}`, 400, {}),
+  tenantPerm('GET', '/offerings', 200),
+  tenantPerm('POST', '/offerings', 400, {}),
+  memberOnly('GET', '/me/courses', 200),
+  // ---- offering-scoped routes: any member may ask, the offering decides (404 non-participant, 403 lacking)
+  offeringScoped('GET', `/offerings/${U}`, 404),
+  offeringScoped('PATCH', `/offerings/${U}`, 400, {}),
+  offeringScoped('POST', `/offerings/${U}/publish`, 404),
+  offeringScoped('POST', `/offerings/${U}/unpublish`, 404),
+  offeringScoped('POST', `/offerings/${U}/archive`, 404),
+  offeringScoped('GET', `/offerings/${U}/sections`, 404),
+  offeringScoped('POST', `/offerings/${U}/sections`, 400, {}),
+  offeringScoped('DELETE', `/offerings/${U}/sections/${U}`, 404),
+  offeringScoped('GET', `/offerings/${U}/participants`, 404),
+  offeringScoped('POST', `/offerings/${U}/participants`, 400, {}),
+  offeringScoped('PATCH', `/offerings/${U}/participants/${U}`, 400, {}),
+  offeringScoped('DELETE', `/offerings/${U}/participants/${U}`, 404),
+  offeringScoped('GET', `/offerings/${U}/outline`, 404),
+  offeringScoped('GET', `/offerings/${U}/items/${U}`, 404),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/download`, 404),
+  offeringScoped('POST', `/offerings/${U}/modules`, 400, {}),
+  offeringScoped('PATCH', `/offerings/${U}/modules/${U}`, 404, { title: 'x' }),
+  offeringScoped('POST', `/offerings/${U}/modules/${U}/move`, 400, {}),
+  offeringScoped('DELETE', `/offerings/${U}/modules/${U}`, 404),
+  offeringScoped('POST', `/offerings/${U}/modules/${U}/items`, 400, {}),
+  offeringScoped('PATCH', `/offerings/${U}/items/${U}`, 404, { title: 'x' }),
+  offeringScoped('POST', `/offerings/${U}/items/${U}/move`, 400, {}),
+  offeringScoped('DELETE', `/offerings/${U}/items/${U}`, 404),
+  offeringScoped('POST', `/offerings/${U}/copy`, 400, {}),
+  offeringScoped('POST', `/offerings/${U}/files`, 400, {}),
+  memberOnly('POST', `/files/${U}/confirm`, 404),
+  // ---- the local storage driver's signed URLs (development driver; the token is the credential)
+  signedLink('PUT', `/storage/upload/${U}`),
+  signedLink('GET', `/storage/download/${U}`),
   // ---- bulk import: institution admin only (import.run)
   tenantPerm('GET', '/imports/templates/students.csv', 200),
   tenantPerm('GET', '/imports/templates/faculty.csv', 200),

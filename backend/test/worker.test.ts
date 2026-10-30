@@ -20,9 +20,12 @@ describe('worker lifecycle', () => {
   it('boots, connects to the database and shuts down gracefully (idempotent stop)', async () => {
     const worker = await startWorker(env(), silent);
     // the purges are scheduled: a system job per time slot on the queue
-    expect(worker.scheduled).toBe(5);
+    expect(worker.scheduled).toBe(6);
     expect(Object.keys(worker.handlers).sort()).toEqual([
       'auth.purge_tokens',
+      'content.copy', // enqueued by a large copy: not scheduled
+      'courses.sync', // queued by database triggers: not scheduled
+      'files.purge',
       'imports.process', // enqueued by confirm: not scheduled
       'imports.purge',
       'imports.reap',

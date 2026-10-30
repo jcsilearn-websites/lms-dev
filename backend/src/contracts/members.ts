@@ -4,12 +4,13 @@ import { MembershipRoleSchema } from './roles';
 const Uuid = Type.String({ format: 'uuid' });
 const DateTime = Type.String({ format: 'date-time' });
 
-export const MEMBER_STATUSES = ['active', 'pending', 'suspended'] as const;
+export const MEMBER_STATUSES = ['active', 'pending', 'suspended', 'removed'] as const;
 export type MemberStatus = (typeof MEMBER_STATUSES)[number];
 export const MemberStatusSchema = Type.Union([
   Type.Literal('active'),
   Type.Literal('pending'),
   Type.Literal('suspended'),
+  Type.Literal('removed'),
 ]);
 
 const NullableId = Type.Union([Type.String({ format: 'uuid' }), Type.Null()]);

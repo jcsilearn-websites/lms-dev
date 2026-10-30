@@ -20,4 +20,9 @@ regexes = [
   '''postgresql://lms_app:ci0lms0app0password0000@localhost:5432/lms_test''',
   # A deliberately unreachable URL (127.0.0.1:1) with a made-up password in the health route test
   '''postgresql://lms_app:secretpw@127\.0\.0\.1:1/postgres''',
+  # Made-up HMAC keys of the LOCAL storage driver in tests and the E2E stack (the driver is refused in production,
+  # and these values only sign URLs of throwaway test directories)
+  '''(?:test|e2e)-only-signing-secret-0123456789abcdef''',
+  '''unit-test-secret-0123456789abcdef-0123''',
+  '''another-secret-0123456789abcdef-0123456''',
 ]

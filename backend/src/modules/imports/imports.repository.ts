@@ -474,6 +474,8 @@ export function createImportsRepository() {
                    WHEN NOT ref_ok THEN 'failed_reference'
                    WHEN conflict THEN 'failed_conflict'
                    WHEN m_status = 'suspended' THEN 'skipped_suspended'
+                   -- a REMOVED member is brought back by inviting them again, never by an import
+                   WHEN m_status = 'removed' THEN 'skipped_existing'
                    WHEN m_id IS NOT NULL AND NOT ${o.updateExisting}::boolean THEN 'skipped_existing'
                    WHEN m_id IS NOT NULL THEN 'updated'
                    ELSE 'created'
@@ -512,7 +514,7 @@ export function createImportsRepository() {
           RETURNING x.id
         ), inv AS (
           INSERT INTO lms.jobs (id, queue, tenant_id, payload, run_at, max_attempts, singleton_key)
-          SELECT gen_random_uuid(), 'invites.send', ${t},
+          SELECT lms.uuid_v7(), 'invites.send', ${t},
                  jsonb_build_object('userId', act.user_id, 'membershipId', im.id, 'email', act.email,
                                     'importId', ${o.importId}::text),
                  job.started_at + make_interval(secs => act.row_number::float8 / ${o.ratePerSecond}::float8),

@@ -281,6 +281,26 @@ describe('POST /platform/tenants/:id/admin-invite', () => {
     expect(again.json().error.code).toBe('already_institution_admin');
   });
 
+  it('a REMOVED member invited as admin comes back on the SAME membership, as a pending admin', async () => {
+    const f = await createAuthFixture(owner, uniq('pt-back'));
+    await owner.query("UPDATE lms.tenant_memberships SET status = 'removed' WHERE id = $1", [
+      f.memberMembershipId,
+    ]);
+    const res = await root.post(`/platform/tenants/${f.tenantId}/admin-invite`, {
+      email: f.memberEmail,
+      displayName: 'Member',
+    });
+    expect(res.statusCode, res.body).toBe(201);
+    expect(res.json().outcome).toBe('invited');
+    const rows = await owner.query(
+      'SELECT id, role, status FROM lms.tenant_memberships WHERE tenant_id = $1 AND user_id = $2',
+      [f.tenantId, f.memberUserId],
+    );
+    expect(rows.rows).toEqual([
+      { id: f.memberMembershipId, role: 'institution_admin', status: 'pending' },
+    ]);
+  });
+
   it('promotes an existing ACTIVE member (and signs them out); refuses a suspended one; unknown college is 404', async () => {
     const f = await createAuthFixture(owner, uniq('pt-pro'));
     const member = new TestClient(t, f.host);

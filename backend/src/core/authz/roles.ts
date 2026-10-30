@@ -23,7 +23,11 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'member.unlock',
     'audit.read',
     'report.view',
+    'course.read',
     'course.create',
+    'course.manage',
+    'offering.manage',
+    'participant.read',
     'content.view',
     'academic.read',
     'academic.manage',
@@ -36,19 +40,27 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
   member: new Set<Permission>(['academic.read', 'profile.read_own']),
 };
 
-/** Course-scoped permissions, granted by the caller-supplied participation in THAT course. */
+/** Offering-scoped permissions, granted by the caller's participation in THAT offering. */
 export const PARTICIPATION_PERMISSIONS: Readonly<
   Record<ParticipationType, ReadonlySet<Permission>>
 > = {
   instructor: new Set<Permission>([
     'content.view',
+    'participant.read',
     'course.edit',
     'course.publish',
     'assessment.create',
     'submission.grade',
     'grade.finalize',
   ]),
-  assistant: new Set<Permission>(['content.view', 'submission.grade']),
+  assistant: new Set<Permission>(['content.view', 'participant.read', 'submission.grade']),
   // grade.view_own additionally requires resource.ownerUserId === the caller (see policy.ts)
   learner: new Set<Permission>(['content.view', 'submission.create', 'grade.view_own']),
 };
+
+/** The participation types that grant `permission` (for the SQL that decides access in one statement). */
+export function participationsGranting(permission: Permission): ParticipationType[] {
+  return (Object.keys(PARTICIPATION_PERMISSIONS) as ParticipationType[]).filter((p) =>
+    PARTICIPATION_PERMISSIONS[p].has(permission),
+  );
+}

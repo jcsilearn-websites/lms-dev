@@ -5,6 +5,7 @@ import pg from 'pg';
 import { passwordFromUrl, redactSecrets } from '../config/secrets';
 import type { DbSsl } from '../config/ssl';
 import { connectionConfig } from './connection';
+import { assertSupportedPostgres } from './pg-version';
 
 export const MIGRATIONS_DIR = fileURLToPath(new URL('../../migrations', import.meta.url));
 
@@ -43,6 +44,9 @@ export async function runMigrations(opts: MigrateOptions): Promise<MigrateResult
   });
   try {
     await client.connect();
+    assertSupportedPostgres(
+      (await client.query('SHOW server_version_num')).rows[0].server_version_num,
+    );
     await client.query('SELECT pg_advisory_lock($1)', [ADVISORY_LOCK_KEY]);
     try {
       return await migrateLocked(client, opts, log);

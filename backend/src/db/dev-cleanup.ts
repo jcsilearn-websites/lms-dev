@@ -11,6 +11,14 @@ import type pg from 'pg';
 export async function deleteTenantCascade(client: pg.Client, tenantId: string): Promise<void> {
   // children before parents: nothing that history depends on is cascade-deleted (ON DELETE RESTRICT)
   for (const table of [
+    'content_items',
+    'content_modules',
+    'course_participants',
+    'course_sync_pending',
+    'offering_sections',
+    'course_offerings',
+    'courses',
+    'files',
     'import_rows',
     'import_jobs',
     'jobs',

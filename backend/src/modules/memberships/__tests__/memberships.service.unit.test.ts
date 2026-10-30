@@ -220,7 +220,6 @@ describe('member management (permissions re-checked in the service)', () => {
       membershipsRepo: fakeRepo({
         change: vi.fn().mockResolvedValue(none),
         findMember: vi.fn().mockResolvedValue(null),
-        remove: vi.fn().mockResolvedValue({ removed: false }),
       }),
     });
     const u = newId();
@@ -229,6 +228,25 @@ describe('member management (permissions re-checked in the service)', () => {
     await expect(s.suspend(ctx(), u)).rejects.toBeInstanceOf(MemberNotFoundError);
     await expect(s.reactivate(ctx(), u)).rejects.toBeInstanceOf(MemberNotFoundError);
     await expect(s.remove(ctx(), u)).rejects.toBeInstanceOf(MemberNotFoundError);
+  });
+
+  it('removal is a SOFT removal: status removed, sessions revoked, only for members that are not removed yet', async () => {
+    const change = vi
+      .fn()
+      .mockResolvedValue({ found: true, changed: true, member: member(), before: null });
+    const s = createMembershipsService({ db: fakeDb(), membershipsRepo: fakeRepo({ change }) });
+    await s.remove(ctx(), newId());
+    expect(change).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        set: { status: 'removed' },
+        requireStatus: ['active', 'pending', 'suspended'],
+        revokeSessions: true,
+      }),
+    );
+    // already removed: nothing changed -> 404
+    change.mockResolvedValue({ found: true, changed: false, member: member(), before: null });
+    await expect(s.remove(ctx(), newId())).rejects.toBeInstanceOf(MemberNotFoundError);
   });
 
   it('maps the last-admin trigger violation to 409 last_admin', async () => {
@@ -240,7 +258,6 @@ describe('member management (permissions re-checked in the service)', () => {
       db: fakeDb(),
       membershipsRepo: fakeRepo({
         change: vi.fn().mockRejectedValue(violation),
-        remove: vi.fn().mockRejectedValue({ cause: violation }),
       }),
     });
     const err = await s.changeRole(ctx(), newId(), 'member').catch((e: unknown) => e);

@@ -187,6 +187,34 @@ const memberRoute = child(
   lazyPage(() => import('../features/members/MemberDetailPage'), 'MemberDetailPage'),
   'member.read',
 );
+const coursesRoute = child(
+  '/courses',
+  lazyPage(() => import('../features/courses/CoursesPage'), 'CoursesPage'),
+  'course.read',
+);
+const offeringsRoute = child(
+  '/offerings',
+  lazyPage(() => import('../features/courses/OfferingsPage'), 'OfferingsPage'),
+  'course.read',
+);
+// offering routes are open to any member: the API answers 404 for an offering they do not take part in
+const offeringRoute = child(
+  '/offerings/$id',
+  lazyPage(() => import('../features/courses/OfferingPage'), 'OfferingPage'),
+);
+// the builder: its own lazy chunk (dnd-kit); the rich-text editor is a further chunk loaded by it
+const builderRoute = child(
+  '/offerings/$id/build',
+  lazyPage(() => import('../features/courses/BuilderPage'), 'BuilderPage'),
+);
+const peopleRoute = child(
+  '/offerings/$id/people',
+  lazyPage(() => import('../features/courses/PeoplePage'), 'PeoplePage'),
+);
+const itemRoute = child(
+  '/offerings/$id/items/$itemId',
+  lazyPage(() => import('../features/courses/ItemPage'), 'ItemPage'),
+);
 const academicsRoute = child(
   '/academics',
   lazyPage(() => import('../features/academics/AcademicsPage'), 'AcademicsPage'),
@@ -244,6 +272,12 @@ function buildRouteTree() {
           meRoute,
           membersRoute,
           memberRoute,
+          coursesRoute,
+          offeringsRoute,
+          offeringRoute,
+          builderRoute,
+          peopleRoute,
+          itemRoute,
           academicsRoute,
           importsRoute,
           importRoute,

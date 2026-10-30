@@ -1,7 +1,7 @@
 import { type SQL, sql } from 'drizzle-orm';
 
 export interface AuditCteEntry {
-  /** one id, or an SQL expression (e.g. gen_random_uuid()) when the entry produces one row per source row */
+  /** one id, or an SQL expression (e.g. lms.uuid_v7()) when the entry produces one row per source row */
   id: string | SQL;
   tenantId: string;
   actorUserId: string | null;

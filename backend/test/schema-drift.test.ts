@@ -11,6 +11,19 @@ import {
 } from '../src/modules/academics/academics.model';
 import { auditLog, platformAuditLog } from '../src/modules/audit/audit.model';
 import { authTokenPurpose, authTokens, userCredentials } from '../src/modules/auth/auth.model';
+import { contentItems, contentModules } from '../src/modules/content/content.model';
+import {
+  courseOfferings,
+  courseParticipants,
+  courseSyncPending,
+  courses,
+  offeringSections,
+  offeringStatus,
+  participantSource,
+  participantStatus,
+  participationType,
+} from '../src/modules/courses/courses.model';
+import { files } from '../src/modules/files/files.model';
 import {
   importJobs,
   importKind,
@@ -58,6 +71,18 @@ const schema = {
   importKind,
   importStatus,
   importRowStatus,
+  courses,
+  courseOfferings,
+  offeringSections,
+  courseParticipants,
+  courseSyncPending,
+  offeringStatus,
+  participationType,
+  participantSource,
+  participantStatus,
+  files,
+  contentModules,
+  contentItems,
 };
 
 import { testOwnerPool } from './support';
@@ -70,7 +95,11 @@ afterAll(async () => {
   await owner.end();
 });
 
-const norm = (t: string) => t.replaceAll('"', '').replace(/^lms\./, '');
+const norm = (t: string) =>
+  t
+    .replaceAll('"', '')
+    .replace(/^lms\./, '')
+    .replaceAll(', ', ',');
 
 interface Col {
   type: string;

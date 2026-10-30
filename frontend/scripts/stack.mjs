@@ -76,6 +76,10 @@ export async function withStack(fn, { extraMembers = 0 } = {}) {
     JOB_POLL_INTERVAL_MS: '200',
     JOB_POLL_MAX_INTERVAL_MS: '500',
     INVITE_RATE_PER_SECOND: '50',
+    // course files: a throwaway directory next to the mail outbox, a fake signing key (the API and the worker share both)
+    STORAGE_DRIVER: 'local',
+    STORAGE_LOCAL_DIR: join(FRONTEND, '.e2e-tmp', 'storage'),
+    STORAGE_SIGNING_SECRET: 'e2e-only-signing-secret-0123456789abcdef',
   };
   const children = [];
   function start(name, cmd, args, shell = isWindows) {

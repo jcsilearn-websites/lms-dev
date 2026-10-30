@@ -11,8 +11,8 @@ could not make the test run fast, and they hid database-side problems behind lat
 
 ## Decision
 
-- **PostgreSQL 18 installed natively on the developer machine** (Windows installer, `localhost:5432`), no Docker.
-  Same major version as CI and the Cloud SQL target.
+- **PostgreSQL 17 installed natively on the developer machine** (Windows installer, `localhost:5432`), no Docker.
+  Same major version as CI and the Cloud SQL target ([ADR 0014](0014-postgresql-17.md); this ADR first said 18).
 - **Dev database** `lms_dev`; **test databases** one per Vitest worker, `lms_test_1 ... lms_test_N`, derived from the
   base name in `TEST_DATABASE_URL` (`lms_test`). They are created and migrated once per run by
   `backend/test/global-setup.ts` and reused; every test file still starts with a TRUNCATE of its worker's database.

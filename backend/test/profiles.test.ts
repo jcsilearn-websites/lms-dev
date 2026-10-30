@@ -337,14 +337,19 @@ describe('uniqueness and references', () => {
     ok(await admin.post(`/sections/${s.a.id}/archive`));
   });
 
-  it('removing a member removes their profile; the membership id is what the profile hangs on', async () => {
+  it('removing a member KEEPS their profile (soft removal): the membership id is what the profile hangs on', async () => {
     const s = await structure();
     const st = await student(s);
     ok(await admin.delete(`/members/${st.userId}`));
-    const left = await owner.query('SELECT 1 FROM lms.member_profiles WHERE membership_id = $1', [
+    const kept = await owner.query('SELECT 1 FROM lms.member_profiles WHERE membership_id = $1', [
       st.membershipId,
     ]);
-    expect(left.rowCount).toBe(0);
+    expect(kept.rowCount).toBe(1);
+    // and the profile cannot be deleted with the membership: the foreign key restricts
+    const err = await owner
+      .query('DELETE FROM lms.tenant_memberships WHERE id = $1', [st.membershipId])
+      .catch((e: unknown) => e);
+    expect((err as { code?: string }).code).toBe('23503');
   });
 });
 

@@ -8,6 +8,7 @@
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { chromium, request } from '@playwright/test';
+import { COURSE_TITLE, seedCourseDemo } from './demo-courses.mjs';
 import { ROOT, withStack } from './stack.mjs';
 
 const OUT = join(ROOT, 'docs', 'screenshots');
@@ -54,6 +55,8 @@ await withStack(
     );
     await must(await api.post('sections', { data: { batchId: batch.id, code: 'A' } }));
     await api.dispose();
+    // a course with content, an instructor and a learner (the course screens)
+    const demo = await seedCourseDemo({ webPort, password });
 
     const csv = [
       'email,full_name,register_number,department_code,program_code,batch,section',
@@ -131,6 +134,68 @@ await withStack(
           await page.getByLabel('Display name').waitFor();
           await shot('settings');
           await ctx.close();
+
+          // ---- the course screens: administrator, instructor, learner
+          const signedIn = async (email) => {
+            const c = await browser.newContext({
+              viewport,
+              colorScheme: scheme,
+              deviceScaleFactor: 1,
+            });
+            const pg = await c.newPage();
+            await pg.goto(`${origin('e2e-one')}/login`);
+            await pg.getByLabel('Email').fill(email);
+            await pg.getByLabel('Password').fill(password);
+            await pg.getByRole('button', { name: 'Sign in' }).click();
+            await pg.getByRole('heading', { name: /^Welcome/ }).waitFor();
+            const snap = async (name) => {
+              await pg.waitForTimeout(400);
+              await pg.screenshot({ path: join(OUT, `${name}-${scheme}-${vpName}.png`) });
+              console.log(`  ${name}-${scheme}-${vpName}.png`);
+            };
+            return { c, pg, snap };
+          };
+          {
+            const a = await signedIn('admin@e2e-one.test');
+            await a.pg.goto(`${origin('e2e-one')}/courses`);
+            await a.pg.getByText('Photography (elective)').waitFor();
+            await a.snap('courses');
+            await a.pg.goto(`${origin('e2e-one')}/offerings`);
+            await a.pg
+              .getByRole('link', { name: new RegExp(COURSE_TITLE) })
+              .first()
+              .waitFor();
+            await a.snap('offerings');
+            await a.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/people`);
+            await a.pg.getByText('Lena Learner').first().waitFor();
+            await a.snap('course-people');
+            await a.c.close();
+
+            const t = await signedIn(demo.instructorEmail);
+            await t.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/build`);
+            await t.pg.getByRole('heading', { name: /Week 1/ }).waitFor();
+            await t.snap('course-builder');
+            await t.pg.getByRole('button', { name: 'Add text' }).first().click();
+            await t.pg.getByRole('textbox', { name: 'Text of this item' }).waitFor();
+            await t.pg.getByRole('textbox', { name: 'Text of this item' }).click();
+            await t.pg.keyboard.type('Welcome to the course. Read the syllabus first.');
+            await t.snap('course-editor');
+            await t.c.close();
+
+            const l = await signedIn(demo.learnerEmail);
+            await l.pg.getByRole('link', { name: new RegExp(COURSE_TITLE) }).waitFor();
+            await l.snap('my-courses');
+            await l.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}`);
+            await l.pg.getByText(/Available from/).waitFor();
+            await l.snap('course-learner');
+            await l.pg
+              .getByRole('link', { name: /reading 1/ })
+              .first()
+              .click();
+            await l.pg.getByText('Read this carefully before the lab.').waitFor();
+            await l.snap('course-item');
+            await l.c.close();
+          }
 
           // platform area (admin host)
           const pctx = await browser.newContext({ viewport, colorScheme: scheme });
