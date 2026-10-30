@@ -1,4 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { Editor } from '@tiptap/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -58,5 +58,12 @@ describe('RichTextEditor', () => {
       (seen.editor as Editor).chain().focus().insertContent('x').run();
     });
     expect(undo).toBeEnabled();
+  });
+
+  it('a mouse press on a toolbar button does not take the focus from the editing area', async () => {
+    render(<RichTextEditor value={null} onChange={() => {}} label="Text of this item" />);
+    const bold = await screen.findByRole('button', { name: 'Bold' });
+    // fireEvent returns false when the event was default-prevented (which is what keeps the focus in place)
+    expect(fireEvent.mouseDown(bold)).toBe(false);
   });
 });

@@ -136,6 +136,9 @@ function EditorToolbar({ editor }: { editor: Editor }) {
       <div
         role="toolbar"
         aria-label="Text formatting"
+        // a mouse click on a button must not take the focus (and the caret) away from the editing area; the
+        // keyboard still reaches the buttons by Tab, and every command refocuses the editor itself
+        onMouseDown={(e) => e.preventDefault()}
         className="flex flex-wrap gap-1 rounded-t-md border border-b-0 border-input bg-muted p-1"
       >
         <button
