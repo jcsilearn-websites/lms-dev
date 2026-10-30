@@ -3,7 +3,10 @@ export function pgErrorCode(err: unknown): string | undefined {
   let cur: unknown = err;
   for (let i = 0; i < 5 && cur; i++) {
     const code = (cur as { code?: unknown }).code;
-    if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code;
+    // restrict_violation (23001) is what PostgreSQL 18 raises where 17 raises foreign_key_violation (23503) for
+    // an ON DELETE RESTRICT reference; callers treat them as the same thing.
+    if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code))
+      return code === '23001' ? '23503' : code;
     cur = (cur as { cause?: unknown }).cause;
   }
   return undefined;

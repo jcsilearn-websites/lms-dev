@@ -11,7 +11,7 @@ import ListItem from '@tiptap/extension-list-item';
 import OrderedList from '@tiptap/extension-ordered-list';
 import Paragraph from '@tiptap/extension-paragraph';
 import Text from '@tiptap/extension-text';
-import { EditorContent, useEditor } from '@tiptap/react';
+import { type Editor, EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import { useState } from 'react';
 import { cn } from '../../../shared/utils/cn';
 
@@ -55,8 +55,6 @@ export interface RichTextEditorProps {
 }
 
 export default function RichTextEditor({ value, onChange, label }: RichTextEditorProps) {
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [href, setHref] = useState('https://');
   const editor = useEditor({
     extensions: EXTENSIONS,
     content: (value as object | null) ?? { type: 'doc', content: [{ type: 'paragraph' }] },
@@ -71,10 +69,60 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
     },
     onUpdate: ({ editor: e }) => onChange(e.getJSON()),
     immediatelyRender: false,
+    // This component does not re-render per transaction (typing): only the toolbar follows the editor state
+    // (useEditorState in EditorToolbar), so the editing area is not rebuilt on every keystroke.
+    shouldRerenderOnTransaction: false,
   });
   if (!editor)
     return <div className="min-h-40 rounded-md border border-input" aria-hidden="true" />;
 
+  return (
+    <div className="rich-editor">
+      <EditorToolbar editor={editor} />
+      <EditorContent editor={editor} />
+    </div>
+  );
+}
+
+interface ToolbarState {
+  bold: boolean;
+  italic: boolean;
+  code: boolean;
+  h2: boolean;
+  h3: boolean;
+  bulletList: boolean;
+  orderedList: boolean;
+  blockquote: boolean;
+  link: boolean;
+  canUndo: boolean;
+  canRedo: boolean;
+}
+
+const sameToolbarState = (a: ToolbarState, b: ToolbarState | null) =>
+  b !== null && (Object.keys(a) as (keyof ToolbarState)[]).every((k) => a[k] === b[k]);
+
+// The toolbar subscribes to just the flags it shows: it re-renders when one of them changes (aria-pressed and
+// disabled stay correct), the editing area does not re-render at all.
+function EditorToolbar({ editor }: { editor: Editor }) {
+  const [linkOpen, setLinkOpen] = useState(false);
+  const [href, setHref] = useState('https://');
+  const st = useEditorState({
+    editor,
+    selector: ({ editor: e }): ToolbarState => ({
+      bold: e.isActive('bold'),
+      italic: e.isActive('italic'),
+      code: e.isActive('code'),
+      h2: e.isActive('heading', { level: 2 }),
+      h3: e.isActive('heading', { level: 3 }),
+      bulletList: e.isActive('bulletList'),
+      orderedList: e.isActive('orderedList'),
+      blockquote: e.isActive('blockquote'),
+      link: e.isActive('link'),
+      canUndo: e.can().undo(),
+      canRedo: e.can().redo(),
+    }),
+    equalityFn: sameToolbarState,
+  });
   const run = (fn: () => boolean) => () => {
     fn();
   };
@@ -84,7 +132,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
     setLinkOpen(false);
   };
   return (
-    <div className="rich-editor">
+    <>
       <div
         role="toolbar"
         aria-label="Text formatting"
@@ -93,7 +141,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('bold')}
+          aria-pressed={st.bold}
           onClick={run(() => editor.chain().focus().toggleBold().run())}
         >
           <strong>Bold</strong>
@@ -101,7 +149,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('italic')}
+          aria-pressed={st.italic}
           onClick={run(() => editor.chain().focus().toggleItalic().run())}
         >
           <em>Italic</em>
@@ -109,7 +157,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('code')}
+          aria-pressed={st.code}
           onClick={run(() => editor.chain().focus().toggleCode().run())}
         >
           Code
@@ -117,7 +165,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('heading', { level: 2 })}
+          aria-pressed={st.h2}
           onClick={run(() => editor.chain().focus().toggleHeading({ level: 2 }).run())}
         >
           Heading 2
@@ -125,7 +173,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('heading', { level: 3 })}
+          aria-pressed={st.h3}
           onClick={run(() => editor.chain().focus().toggleHeading({ level: 3 }).run())}
         >
           Heading 3
@@ -133,7 +181,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('bulletList')}
+          aria-pressed={st.bulletList}
           onClick={run(() => editor.chain().focus().toggleBulletList().run())}
         >
           Bulleted list
@@ -141,7 +189,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('orderedList')}
+          aria-pressed={st.orderedList}
           onClick={run(() => editor.chain().focus().toggleOrderedList().run())}
         >
           Numbered list
@@ -149,7 +197,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('blockquote')}
+          aria-pressed={st.blockquote}
           onClick={run(() => editor.chain().focus().toggleBlockquote().run())}
         >
           Quote
@@ -157,7 +205,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          aria-pressed={editor.isActive('link')}
+          aria-pressed={st.link}
           onClick={() => setLinkOpen((o) => !o)}
         >
           Link
@@ -165,7 +213,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          disabled={!editor.can().undo()}
+          disabled={!st.canUndo}
           onClick={run(() => editor.chain().focus().undo().run())}
         >
           Undo
@@ -173,7 +221,7 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
         <button
           type="button"
           className={btn}
-          disabled={!editor.can().redo()}
+          disabled={!st.canRedo}
           onClick={run(() => editor.chain().focus().redo().run())}
         >
           Redo
@@ -211,7 +259,6 @@ export default function RichTextEditor({ value, onChange, label }: RichTextEdito
           </button>
         </div>
       )}
-      <EditorContent editor={editor} />
-    </div>
+    </>
   );
 }

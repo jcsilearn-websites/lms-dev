@@ -228,8 +228,11 @@ test('the instructor builds a module with text, a file, a link and hidden / lock
   const editor = td.getByRole('textbox', { name: 'Text of this item' });
   await editor.click();
   await page.keyboard.type('Welcome to the course. ');
-  await td.getByRole('button', { name: 'Bold' }).click();
+  const bold = td.getByRole('button', { name: 'Bold' });
+  await bold.click();
+  await expect(bold).toHaveAttribute('aria-pressed', 'true'); // the mark is on before typing (slow CI)
   await page.keyboard.type('Read carefully');
+  await expect(editor.locator('strong', { hasText: 'Read carefully' })).toBeVisible();
   await expectAccessible(page, 'add text dialog (rich text editor)');
   await td.getByLabel('Visible to learners').check();
   await td.getByRole('button', { name: 'Add text' }).click();

@@ -7,7 +7,7 @@ export default defineConfig({
   outputDir: './e2e-results',
   fullyParallel: false,
   workers: 1,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0, // the specs are a serial story on one database: a retry would re-run a step against changed data
   timeout: 45_000,
   expect: { timeout: 10_000 },
   reporter: process.env.CI

@@ -19,6 +19,8 @@ describe.skipIf(process.platform === 'win32')('graceful shutdown', () => {
         PORT: String(port),
         DATABASE_APP_URL: dbs.appUrl,
         DB_SSL: dbs.ssl,
+        // required by parseApiEnv when STORAGE_DRIVER=local (the default); throwaway value
+        STORAGE_SIGNING_SECRET: 'test-only-signing-secret-0123456789abcdef',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     });

@@ -60,7 +60,15 @@ function signIn(webPort, password, email = 'admin@e2e-one.test') {
 async function measure(url, cookie) {
   const chrome = await chromeLauncher.launch({
     chromePath: chromium.executablePath(),
-    chromeFlags: ['--headless=new', '--disable-gpu', '--no-first-run'],
+    // --no-sandbox / --disable-dev-shm-usage: the GitHub runner's container-like environment
+    // (user namespaces restricted, small /dev/shm) makes Chromium exit at start-up without them.
+    chromeFlags: [
+      '--headless=new',
+      '--disable-gpu',
+      '--no-first-run',
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+    ],
   });
   try {
     const result = await lighthouse(
