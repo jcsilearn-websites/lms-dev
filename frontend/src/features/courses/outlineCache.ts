@@ -39,7 +39,8 @@ function insertAfter<T extends { id: string }>(
   return i < 0 ? [...list, entry] : [...list.slice(0, i + 1), entry, ...list.slice(i + 1)];
 }
 
-const toOutlineItem = (i: ItemDto): OutlineItem => ({
+/** `hasProgress` is not part of an item answer: a new item has none, a changed one keeps what the outline knew. */
+const toOutlineItem = (i: ItemDto, hasProgress = false): OutlineItem => ({
   id: i.id,
   moduleId: i.moduleId,
   kind: i.kind,
@@ -50,6 +51,9 @@ const toOutlineItem = (i: ItemDto): OutlineItem => ({
   url: i.url,
   file: i.file,
   video: i.video,
+  required: i.required,
+  completion: i.completion,
+  hasProgress,
   hasBody: i.body !== null,
 });
 
@@ -58,7 +62,7 @@ export function withModule(
   m: ModuleDto,
   after: string | null | undefined,
 ): OutlineDto {
-  const entry: OutlineModule = { ...m, items: [] };
+  const entry: OutlineModule = { ...m, hasProgress: false, items: [] };
   return { ...o, modules: insertAfter(o.modules, entry, after) };
 }
 
@@ -103,7 +107,7 @@ export function withItemChanged(o: OutlineDto, item: ItemDto): OutlineDto {
     ...o,
     modules: o.modules.map((m) => ({
       ...m,
-      items: m.items.map((x) => (x.id === item.id ? toOutlineItem(item) : x)),
+      items: m.items.map((x) => (x.id === item.id ? toOutlineItem(item, x.hasProgress) : x)),
     })),
   };
 }

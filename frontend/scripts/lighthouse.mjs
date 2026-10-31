@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 // Lighthouse (mobile preset: emulated phone, simulated slow 4G and 4x CPU slowdown) on the login page,
-// the members list (signed in, 200 members), a learner's course page (6 modules, 35 items) and a video item page,
+// the members list (signed in, 200 members), a learner's course page (6 modules, 35 items), My courses (with progress),
+// the instructor's class progress page and a video item page,
 // against the real stack served by scripts/serve.mjs
 // (compression, long caching). Each page is measured 3 times; the MEDIAN scores are reported.
 //
@@ -132,9 +133,22 @@ const rows = await withStack(
     // a course with 6 modules x 5-7 items, and a learner who can see it
     const demo = await seedCourseDemo({ webPort, password });
     const learnerCookie = await signIn(webPort, password, demo.learnerEmail);
+    const teacherCookie = await signIn(webPort, password, demo.instructorEmail);
     const pages = [
       { name: 'Login page', url: `http://e2e-one.localhost:${webPort}/login`, cookie: undefined },
       { name: 'Members list', url: `http://e2e-one.localhost:${webPort}/members`, cookie },
+      {
+        // My courses: a progress bar per course and "Continue where you left off"
+        name: 'My courses',
+        url: `http://e2e-one.localhost:${webPort}/`,
+        cookie: learnerCookie,
+      },
+      {
+        // the class view of an instructor: learners x modules (lazy route)
+        name: 'Class progress',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/progress`,
+        cookie: teacherCookie,
+      },
       {
         name: 'Course (learner)',
         url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}`,

@@ -113,7 +113,7 @@ export function BuilderPage() {
     onSuccess: (m) => {
       patchOutline(qc, id, (o) => withModule(o, m, undefined));
       toast.success(`Added “${m.title}”. Rename it from its menu.`);
-      setDialog({ type: 'rename', module: { ...m, items: [] } });
+      setDialog({ type: 'rename', module: { ...m, hasProgress: false, items: [] } });
     },
     onError: (err) => toast.error(describeError(err)),
   });
@@ -641,18 +641,26 @@ function DeleteDialogs({
   const qc = useQueryClient();
   const delModule = useMutation({
     mutationFn: (m: OutlineModule) => deleteModule(offeringId, m.id),
-    onSuccess: (_r, m) => {
+    onSuccess: (r, m) => {
       patchOutline(qc, offeringId, (o) => withoutModule(o, m.id));
-      toast.success(`Deleted module “${m.title}”.`);
+      toast.success(
+        r.status === 'archived'
+          ? `Archived module “${m.title}”. Its learner progress is kept.`
+          : `Deleted module “${m.title}”.`,
+      );
       onClose();
     },
     onError: (err) => toast.error(describeError(err)),
   });
   const delItem = useMutation({
     mutationFn: (i: OutlineItem) => deleteItem(offeringId, i.id),
-    onSuccess: (_r, i) => {
+    onSuccess: (r, i) => {
       patchOutline(qc, offeringId, (o) => withoutItem(o, i.id));
-      toast.success(`Deleted “${i.title}”.`);
+      toast.success(
+        r.status === 'archived'
+          ? `Archived “${i.title}”. Its learner progress is kept.`
+          : `Deleted “${i.title}”.`,
+      );
       onClose();
     },
     onError: (err) => toast.error(describeError(err)),
@@ -664,16 +672,20 @@ function DeleteDialogs({
         onClose={onClose}
         title={
           dialog?.type === 'delete-module'
-            ? `Delete module “${dialog.module.title}”?`
+            ? `${dialog.module.hasProgress ? 'Archive' : 'Delete'} module “${dialog.module.title}”?`
             : 'Delete module'
         }
         description={
           dialog?.type === 'delete-module'
-            ? `This also deletes its ${dialog.module.items.length} item${dialog.module.items.length === 1 ? '' : 's'}. This cannot be undone.`
+            ? dialog.module.hasProgress
+              ? `Learners have progress in this module, so it will be archived: it and its ${dialog.module.items.length} item${dialog.module.items.length === 1 ? '' : 's'} disappear from the course, the builder and the percentages, and the learners' history is kept.`
+              : `This also deletes its ${dialog.module.items.length} item${dialog.module.items.length === 1 ? '' : 's'}. This cannot be undone.`
             : ''
         }
         confirmLabel={
-          dialog?.type === 'delete-module' ? `Delete “${dialog.module.title}”` : 'Delete'
+          dialog?.type === 'delete-module'
+            ? `${dialog.module.hasProgress ? 'Archive' : 'Delete'} “${dialog.module.title}”`
+            : 'Delete'
         }
         pending={delModule.isPending}
         onConfirm={() => dialog?.type === 'delete-module' && delModule.mutate(dialog.module)}
@@ -681,9 +693,21 @@ function DeleteDialogs({
       <ConfirmDialog
         open={dialog?.type === 'delete-item'}
         onClose={onClose}
-        title={dialog?.type === 'delete-item' ? `Delete “${dialog.item.title}”?` : 'Delete item'}
-        description="Learners will no longer see it. This cannot be undone."
-        confirmLabel={dialog?.type === 'delete-item' ? `Delete “${dialog.item.title}”` : 'Delete'}
+        title={
+          dialog?.type === 'delete-item'
+            ? `${dialog.item.hasProgress ? 'Archive' : 'Delete'} “${dialog.item.title}”?`
+            : 'Delete item'
+        }
+        description={
+          dialog?.type === 'delete-item' && dialog.item.hasProgress
+            ? "This item has learner progress, so it will be archived: it disappears from the course, the builder and the percentages, and the learners' history is kept."
+            : 'Learners will no longer see it. This cannot be undone.'
+        }
+        confirmLabel={
+          dialog?.type === 'delete-item'
+            ? `${dialog.item.hasProgress ? 'Archive' : 'Delete'} “${dialog.item.title}”`
+            : 'Delete'
+        }
         pending={delItem.isPending}
         onConfirm={() => dialog?.type === 'delete-item' && delItem.mutate(dialog.item)}
       />

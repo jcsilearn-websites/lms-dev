@@ -227,10 +227,20 @@ export function createCoursesService(deps: {
       );
     },
 
+    /**
+     * Label and title need `offering.manage` (administrators); the two PROGRESS settings (the share of a video that
+     * completes it, and after how many days an open item makes a learner "behind") are the instructors' too:
+     * `course.edit`.
+     */
     async updateOffering(
       ctx: RequestContext,
       id: string,
-      change: { label?: string | undefined; titleOverride?: string | null | undefined },
+      change: {
+        label?: string | undefined;
+        titleOverride?: string | null | undefined;
+        completionThreshold?: number | undefined;
+        behindAfterDays?: number | undefined;
+      },
     ): Promise<Row> {
       const change2: Parameters<CoursesRepository['changeOffering']>[2] = {
         fromStatuses: ['draft', 'published'],
@@ -239,9 +249,21 @@ export function createCoursesService(deps: {
       if (change.titleOverride !== undefined) {
         change2.titleOverride = change.titleOverride === null ? null : clean(change.titleOverride);
       }
-      if (change2.label === undefined && change2.titleOverride === undefined)
-        throw new NothingToChangeError();
-      return runChange(ctx, id, 'offering.manage', change2, 'offering.updated', undefined);
+      const names = change2.label !== undefined || change2.titleOverride !== undefined;
+      if (change.completionThreshold !== undefined)
+        change2.completionThreshold = change.completionThreshold;
+      if (change.behindAfterDays !== undefined) change2.behindAfterDays = change.behindAfterDays;
+      const settings =
+        change2.completionThreshold !== undefined || change2.behindAfterDays !== undefined;
+      if (!names && !settings) throw new NothingToChangeError();
+      return runChange(
+        ctx,
+        id,
+        names ? 'offering.manage' : 'course.edit',
+        change2,
+        'offering.updated',
+        undefined,
+      );
     },
 
     publish: (ctx: RequestContext, id: string) =>

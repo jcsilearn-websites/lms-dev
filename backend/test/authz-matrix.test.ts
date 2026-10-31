@@ -205,6 +205,23 @@ const ROWS: Row[] = [
   offeringScoped('POST', `/offerings/${U}/videos/${U}/captions`, 400, {}),
   offeringScoped('DELETE', `/offerings/${U}/videos/${U}/captions/${U}`, 404),
   offeringScoped('POST', `/offerings/${U}/items/${U}/playback`, 404),
+  // ---- learning progress (step 8): learners record, instructors / assistants / administrators read the class
+  offeringScoped('POST', `/offerings/${U}/items/${U}/progress/heartbeat`, 404, {
+    videoId: U,
+    streamId: U,
+    seq: 1,
+    ranges: [],
+    position: 0,
+    rate: 1,
+  }),
+  offeringScoped('POST', `/offerings/${U}/items/${U}/progress/viewed`, 404),
+  offeringScoped('POST', `/offerings/${U}/items/${U}/progress/complete`, 404),
+  offeringScoped('DELETE', `/offerings/${U}/items/${U}/progress/complete`, 404),
+  offeringScoped('GET', `/offerings/${U}/progress`, 404),
+  memberOnly('GET', '/me/progress', 200),
+  offeringScoped('GET', `/offerings/${U}/progress/class`, 404),
+  offeringScoped('GET', `/offerings/${U}/progress/class.csv`, 404),
+  offeringScoped('GET', `/offerings/${U}/progress/learners/${U}`, 404),
   // the local video provider's playback files: the token in the path is the credential, the session says who
   // asks; a made-up token is 403 for every signed-in caller (on the admin host a platform admin has no college)
   {

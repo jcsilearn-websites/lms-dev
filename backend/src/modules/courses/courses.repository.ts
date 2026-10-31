@@ -25,7 +25,8 @@ const courseRow = (src: SQL) => sql`
 const offeringRow = (src: SQL, participation: SQL) => sql`
   SELECT o.id, o.course_id, c.code AS course_code, c.title AS course_title,
          coalesce(o.title_override, c.title) AS title, o.label, o.term_id, t.name AS term_name,
-         o.status::text AS status, o.copy_status, ${participation} AS my_participation,
+         o.status::text AS status, o.copy_status, o.completion_threshold, o.behind_after_days,
+         ${participation} AS my_participation,
          (SELECT count(*) FROM lms.offering_sections s
            WHERE s.tenant_id = o.tenant_id AND s.offering_id = o.id)::int AS section_count,
          o.created_at, o.updated_at
@@ -297,6 +298,8 @@ export function createCoursesRepository() {
       change: {
         label?: string;
         titleOverride?: string | null;
+        completionThreshold?: number;
+        behindAfterDays?: number;
         status?: string;
         fromStatuses: string[];
       },
@@ -306,6 +309,10 @@ export function createCoursesRepository() {
       if (change.label !== undefined) parts.push(sql`label = ${change.label}`);
       if (change.titleOverride !== undefined)
         parts.push(sql`title_override = ${change.titleOverride}`);
+      if (change.completionThreshold !== undefined)
+        parts.push(sql`completion_threshold = ${change.completionThreshold}::smallint`);
+      if (change.behindAfterDays !== undefined)
+        parts.push(sql`behind_after_days = ${change.behindAfterDays}::smallint`);
       if (change.status !== undefined)
         parts.push(sql`status = ${change.status}::lms.offering_status`);
       const aud = auditInsertFrom(

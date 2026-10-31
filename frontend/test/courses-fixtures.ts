@@ -25,6 +25,8 @@ export const offering = (over: Partial<OfferingDto> = {}): OfferingDto => ({
   copyStatus: 'none',
   myParticipation: 'learner',
   sectionCount: 1,
+  completionThreshold: 90,
+  behindAfterDays: 7,
   createdAt: STAMP,
   updatedAt: STAMP,
   ...over,
@@ -56,6 +58,9 @@ export const item = (n: number, over: Partial<OutlineItem> = {}): OutlineItem =>
   url: null,
   file: null,
   video: null,
+  required: true,
+  completion: 'manual',
+  hasProgress: false,
   hasBody: true,
   ...over,
 });
@@ -69,6 +74,7 @@ export const moduleOf = (
   title: `Module ${n}`,
   published: true,
   availableFrom: null,
+  hasProgress: false,
   items: items.map((i) => ({ ...i, moduleId: `b${n}000000-0000-7000-8000-000000000001` })),
   ...over,
 });

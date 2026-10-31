@@ -383,6 +383,7 @@ export function createVideoService(deps: {
       v: {
         assetId: string;
         durationMs: number;
+        resumeSeconds: number | null;
         renditions: { name: string; height: number }[];
         captions: { language: string; label: string }[];
       },
@@ -406,6 +407,7 @@ export function createVideoService(deps: {
         posterUrl: s.posterUrl,
         expiresAt: s.expiresAt.toISOString(),
         durationMs: v.durationMs,
+        resumeSeconds: v.resumeSeconds,
         captions: v.captions.map((c) => ({
           language: c.language,
           label: c.label,

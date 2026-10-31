@@ -161,6 +161,19 @@ export function mockSignedIn(me: MeResponse = adminMe) {
     http.get(`${API}/tenant/info`, () => HttpResponse.json(tenantInfo)),
     // the home page lists "my courses": none unless a test says otherwise
     http.get(`${API}/me/courses`, () => HttpResponse.json({ items: [], nextCursor: null })),
+    // learning progress (step 8): none unless a test says otherwise
+    http.get(`${API}/me/progress`, () => HttpResponse.json({ offerings: [], resume: null })),
+    http.get(`${API}/offerings/:id/progress`, () =>
+      HttpResponse.json({
+        participant: false,
+        completedRequired: 0,
+        totalRequired: 0,
+        percent: null,
+        modules: [],
+        items: [],
+        resume: null,
+      }),
+    ),
   );
 }
 

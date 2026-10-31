@@ -22,6 +22,7 @@ import { createHealthRoutes } from './modules/health';
 import { createImportsRoutes } from './modules/imports';
 import { createMembershipsRoutes } from './modules/memberships';
 import { createProfilesRoutes } from './modules/profiles';
+import { createProgressRoutes } from './modules/progress';
 import { createSessionsRoutes } from './modules/sessions';
 import { createTenantsRoutes } from './modules/tenants';
 import { createUsersRoutes } from './modules/users';
@@ -99,6 +100,7 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
       void api.register(createCoursesRoutes({ coursesController: modules.courses.controller }));
       void api.register(createContentRoutes({ contentController: modules.content.controller }));
       void api.register(createFilesRoutes({ filesController: modules.files.controller }));
+      void api.register(createProgressRoutes({ progressController: modules.progress.controller }));
       void api.register(createVideoRoutes({ videoController: modules.video.controller }));
       void api.register(
         createVideoUploadRoutes({

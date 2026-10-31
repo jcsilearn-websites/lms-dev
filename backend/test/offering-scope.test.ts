@@ -50,6 +50,16 @@ const BODIES: Record<string, unknown> = {
     content: 'WEBVTT\n\n00:00.000 --> 00:01.000\nHi\n',
   },
   'POST /offerings/:id/items/:itemId/playback': {},
+  'POST /offerings/:id/items/:itemId/progress/heartbeat': {
+    videoId: U,
+    streamId: U,
+    seq: 1,
+    ranges: [],
+    position: 0,
+    rate: 1,
+  },
+  'POST /offerings/:id/items/:itemId/progress/viewed': {},
+  'POST /offerings/:id/items/:itemId/progress/complete': {},
 };
 
 interface Probe {

@@ -1,11 +1,21 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
+import { useEffect, useRef } from 'react';
 import { describeError } from '../../shared/api/errors';
 import { RichTextView } from '../../shared/richtext/RichTextView';
 import { Button } from '../../shared/ui/button';
 import { Badge, Card, PageHeader } from '../../shared/ui/layout';
 import { ErrorState, ListSkeleton } from '../../shared/ui/states';
 import { toast } from '../../shared/ui/toast';
+import { ItemStatusBadge } from '../progress/ProgressBar';
+import {
+  getMyProgress,
+  markComplete,
+  markIncomplete,
+  markViewed,
+  progressKeys,
+} from '../progress/progress.api';
+import { patchItemStatus, refreshPercentages } from '../progress/progressCache';
 import { VideoItemView } from '../video/VideoItemView';
 import { courseKeys, getItem, itemDownload } from './courses.api';
 
@@ -24,6 +34,41 @@ export function ItemPage() {
     // a video that is still being prepared: look again until it is ready
     refetchInterval: (q) => (q.state.data?.video?.status === 'processing' ? 3000 : false),
   });
+  // the learner's own progress (a course the viewer only teaches has none: `participant` is false)
+  const mine = useQuery({
+    queryKey: progressKeys.offering(id),
+    queryFn: ({ signal }) => getMyProgress(id, signal),
+    staleTime: 30_000,
+  });
+  const qc = useQueryClient();
+  const learner = mine.data?.participant === true;
+  const status = mine.data?.items.find((i) => i.itemId === itemId)?.status;
+  const done = useMutation({
+    mutationFn: (complete: boolean) =>
+      complete ? markComplete(id, itemId) : markIncomplete(id, itemId),
+    onSuccess: (r) => {
+      patchItemStatus(qc, id, itemId, { status: r.status });
+      refreshPercentages(qc, id);
+      toast.success(r.status === 'completed' ? 'Marked as done' : 'Marked as not done');
+    },
+    onError: (err) => toast.error(describeError(err)),
+  });
+  // "on view": opening the item completes it (the server checks that the learner may see it)
+  const viewed = useRef<string | null>(null);
+  const onView = item.data?.completion === 'on_view' && !item.data.locked;
+  useEffect(() => {
+    if (!learner || !onView || status === undefined || status === 'completed') return;
+    if (viewed.current === itemId) return;
+    viewed.current = itemId;
+    markViewed(id, itemId)
+      .then((r) => {
+        patchItemStatus(qc, id, itemId, { status: r.status });
+        refreshPercentages(qc, id);
+      })
+      .catch(() => {
+        viewed.current = null; // try again at the next visit; a learner is never shown an error for this
+      });
+  }, [learner, onView, status, id, itemId, qc]);
   const download = useMutation({
     mutationFn: () => itemDownload(id, itemId),
     onSuccess: (t) => {
@@ -57,6 +102,12 @@ export function ItemPage() {
       {back}
       <PageHeader title={it.title} />
       {!it.published && <Badge tone="warning">Hidden from learners</Badge>}
+      {learner && status && (
+        <p className="flex flex-wrap items-center gap-2 text-sm">
+          <ItemStatusBadge status={status} />
+          {!it.required && <Badge>Optional</Badge>}
+        </p>
+      )}
       {it.locked ? (
         <Card>
           <p>
@@ -89,7 +140,30 @@ export function ItemPage() {
               </p>
             </Card>
           )}
-          {it.kind === 'video' && <VideoItemView offeringId={id} item={it} />}
+          {it.kind === 'video' && <VideoItemView offeringId={id} item={it} learner={learner} />}
+          {learner && it.completion === 'manual' && status && (
+            <Card>
+              {status === 'completed' ? (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p className="font-medium">You marked this as done.</p>
+                  <Button
+                    variant="secondary"
+                    loading={done.isPending}
+                    onClick={() => done.mutate(false)}
+                  >
+                    Mark as not done
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p>Finished reading? Mark it as done to count it towards your progress.</p>
+                  <Button loading={done.isPending} onClick={() => done.mutate(true)}>
+                    Mark as done
+                  </Button>
+                </div>
+              )}
+            </Card>
+          )}
           {it.kind === 'file' && it.file && (
             <Card>
               <p className="font-medium">{it.file.name}</p>

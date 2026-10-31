@@ -207,6 +207,10 @@ const builderRoute = child(
   '/offerings/$id/build',
   lazyPage(() => import('../features/courses/BuilderPage'), 'BuilderPage'),
 );
+const classProgressRoute = child(
+  '/offerings/$id/progress',
+  lazyPage(() => import('../features/progress/ClassProgressPage'), 'ClassProgressPage'),
+);
 const peopleRoute = child(
   '/offerings/$id/people',
   lazyPage(() => import('../features/courses/PeoplePage'), 'PeoplePage'),
@@ -275,6 +279,7 @@ function buildRouteTree() {
           coursesRoute,
           offeringsRoute,
           offeringRoute,
+          classProgressRoute,
           builderRoute,
           peopleRoute,
           itemRoute,

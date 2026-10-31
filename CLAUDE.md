@@ -4,8 +4,8 @@ Production multi-tenant SaaS LMS sold to multiple colleges. This is a commercial
 Steps 1 (foundation), 1b (module-based restructure), 2 (authentication + tenant resolution), 2b (round-trip
 budget + cleanup jobs), 4 (permission system + member and tenant management), 5 (academic structure, member
 profiles, bulk CSV import, Postgres job queue), 5b (the frontend for all of them) and 6 (courses, offerings,
-participation, course content, file storage; backend + frontend), 6b (soft removal, PostgreSQL 17 everywhere) and 7 (video
-lessons behind provider interfaces; backend + frontend) are built. Do not build features beyond the current step without
+participation, course content, file storage; backend + frontend), 6b (soft removal, PostgreSQL 17 everywhere), 7 (video
+lessons behind provider interfaces; backend + frontend) and 8 (learning progress tracking; backend + frontend) are built. Do not build features beyond the current step without
 being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -49,13 +49,13 @@ backend/
     core/storage/   StorageProvider (local signed-URL driver, GCS stub), file types + magic bytes
     core/video/     VideoProvider (local = ffmpeg + HLS served by the API; gcp / bunny stubs), playback tokens, ffmpeg/ffprobe runner
     modules/<module>/   health, tenants (+tenant_settings), users, memberships, audit, sessions, auth,
-                        jobs (queue), academics, profiles, imports, courses, content, files, video
+                        jobs (queue), academics, profiles, imports, courses, content, files, video, progress
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
 frontend/src/
   app/              app shell, root layout (branding, 404 college), providers, router (one route tree per host kind), theme
-  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses, video:
+  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses, video, progress:
                        <feature>.api.ts (typed with backend contracts), pages, hooks
   shared/           ui/ (button, field, select, dialog, data-table, toast, states), api/ (client, errors), forms/, utils/
 frontend/e2e/       Playwright specs + helpers   frontend/scripts/  stack, e2e, serve, bundle check, lighthouse, screenshots
@@ -337,8 +337,41 @@ Full reasoning, versions and numbers: `docs/adr/0015-video.md`, `docs/video-cost
   original is deleted `VIDEO_SOURCE_RETENTION_DAYS` after a successful transcode; scratch directories of crashed workers are swept.
 - **Frontend**: hls.js 1.7.3 (`hls.js/light`) in its own lazy chunk reachable only from the video item page and the builder
   preview (`pnpm bundle:check` fails otherwise); the page opens with the poster and a Play button and loads the player on
-  hover / focus / Play. The player emits `playerEvents` (play, pause, seek, ended, heartbeat) for step 8; nothing is stored yet.
+  hover / focus / Play. The player emits `playerEvents` (play, pause, seek, ended, heartbeat); step 8's tracker reports from the player directly (see "Learning progress").
   Captions: up to 5 WebVTT languages per video. The watermark (viewer's name and address) is a deterrent only.
+
+## Learning progress (step 8)
+
+Full reasoning, the integrity story and the numbers: `docs/adr/0016-learning-progress.md`, `docs/benchmarks.md` (Step 8).
+- **Storage**: `item_progress` (one row per participant and item; composite FKs `ON DELETE RESTRICT`, so history never cascades).
+  `lms_app` has SELECT only; every write is a hardened SECURITY DEFINER function (`progress_heartbeat`, `progress_mark`), called on
+  an autocommit connection (`db.withoutTenant`): a heartbeat is **2 round trips** (the session lookup + one call). The rule "an
+  active learner of a published offering who can see this item" exists ONCE (`lms.learner_item_access`, migrations 0026 / 0027)
+  and a parity test compares it with the outline; instructors and assistants get 403 (a preview creates no progress).
+- **Video = unique seconds played**, a PostgreSQL 17 `int4multirange` merged by the database; seeking adds nothing; completion at
+  `course_offerings.completion_threshold` (default 90, 50-100) and **sticky**. Other items: `manual` (Mark as done / undo),
+  `on_view` (a validated client call), `required` or optional. Course/module percent = completed required / visible required.
+- **Integrity**: a token bucket per learner and item (2x real time, cap 10 min, starts at 45 s) cuts impossible claims and counts
+  them in `suspicious` (shown to instructors as flagged heartbeats, never an error to the learner); `seq` per player instance makes
+  duplicates harmless; the position is last-writer across devices. A forged client can claim up to the bucket: bounded, not provable.
+- **Client** (`frontend/src/features/progress/heartbeatTracker.ts`, plain TypeScript, unit tested with fake timers): 30 s heartbeat
+  while playing + pause / seek / end / page hide; page hide uses `fetch` with `keepalive: true` (NOT `sendBeacon`: CSRF needs
+  `X-Requested-With`); in-memory queue, one request at a time, retry with growing delay, a long backlog merges (never the request
+  in flight), 401 / 403 / 404 stop quietly, 409 `video_changed` tells the page. Only a learner's player gets `tracking`.
+- **Class view** (`/offerings/:id/progress/class`, `.csv`, `.../learners/:participantId`; instructors, assistants by participation
+  and administrators by `progress.view_class`, read only): learners x modules, filters section / status (not started, in progress,
+  **behind**, completed) / removed learners (hidden by default), sort, keyset. "Behind" = a required visible item open longer than
+  `behind_after_days` (1-60, default 7, per offering) and not done. Percentages are aggregated from the rows, not kept in counters
+  (measured; the ADR says why).
+- **Archive, not delete**: an item or module with progress is soft-deleted (`deleted_at`); outlines, percentages and the builder
+  skip it, history stays, its video cannot be deleted (409). The builder says so from the editors-only `hasProgress` outline flag.
+- **Planner rule, again** (the benchmark found two cases): the class statement is one row per learner before any join, the page
+  before its module shares, `MATERIALIZED` for steps that must run once; the access rule is a chain of unique-key `LATERAL ... OFFSET 0`
+  lookups. `pnpm --filter @lms/backend run bench:progress` (a throwaway college WITHOUT statistics) is the regression check; a new
+  progress statement gets the same treatment and the same measurement.
+- **Frontend**: My courses (progress bar per course + "Continue where you left off"), course page (overall, per module and per item
+  status), item page (Mark as done / not done, `on_view` completes on open), class progress page (lazy route, table, filters, learner
+  drilldown dialog, CSV export, the two settings), builder (required + completion rule per item, archive explanation).
 
 ## Tenant-isolation rules (most important rules in the repo)
 
@@ -416,6 +449,15 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
   (`PASSWORD_HASH_CONCURRENCY=2`, bounded queue -> 503 `busy`) and the start scripts set `UV_THREADPOOL_SIZE=8` via
   `cross-env` (it must be set before the process starts). **The future Cloud Run Dockerfile must set
   `ENV UV_THREADPOOL_SIZE=8`** (or run the start script).
+
+## CI runner
+
+Every CI job is pinned to `runs-on: ubuntu-24.04`, never `ubuntu-latest`: the OS must change only when we decide. **Moving to
+Ubuntu 26 is a deliberate upgrade, done in one change**: re-check the pinned ffmpeg build (`.github/scripts/install-ffmpeg.sh`:
+it is a static build, but the video tests and the E2E transcode must still pass), Playwright's browsers and system packages
+(`playwright install --with-deps chromium`, H.264 playback in the video E2E spec), and Lighthouse (its scores and the Chrome
+flags in `frontend/scripts/lighthouse.mjs`); then the PostgreSQL 17 service container, the gitleaks install and `pnpm bundle:check`.
+Run the manual `flakiness` workflow (`gh workflow run CI`) on the new image before merging.
 
 ## Secrets
 
@@ -504,6 +546,8 @@ every extra statement also holds a pooled connection longer. So round trips are 
   `POST /files/:id/confirm` 7 (two short transactions around the storage read: documented exception); the local storage PUT 1.
   Step 7: every video endpoint 4 (create, read, offset, chunk, complete, delete, captions, the playback session; the outline with
   a video item is still ONE statement); a playback FILE request costs 0 after the first of its session (cache), the first costs 1.
+  Step 8: heartbeat / viewed / complete / undo **2** (session lookup + one definer call); every progress read (`/progress`, `/me/progress`,
+  class page, learner drilldown) 4; the CSV export costs one transaction per page of 100 learners.
   Step 5: academics reads 4, every academic change 4 (one fused statement), profile read / upsert / section moves 4,
   `GET /members` with profile filters 4, `GET /imports*` 4 (`/rows` and `/errors.csv` 5: the import and its page share a
   transaction), confirm / cancel 4, `POST /imports` = 7 + 1 per 1,000 rows staged (10,000 rows: 16 statements). The worker
@@ -564,6 +608,7 @@ pnpm docs:permissions    regenerate docs/permissions.md (--check = fail if stale
 pnpm --filter @lms/backend run bench:members   GET /members incl. the section filter (throwaway tenant, self-cleaning)
 pnpm --filter @lms/backend run bench:courses   learner outline, my courses, one student moving section at 10,000 students / 200 offerings
 pnpm --filter @lms/backend run bench:search    EXPLAIN experiment for member search, throwaway schema, self-cleaning
+pnpm --filter @lms/backend run bench:progress  heartbeat throughput, class view 500 x 100, aggregation vs counters (throwaway college, no statistics)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
@@ -574,9 +619,14 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 ## TODO / known gaps
 
 - **Video (step 7)**: only the local provider works; the GCP Transcoder + Cloud CDN provider and the managed-service provider are
-  stubs (503). No DRM (a web page cannot prevent screen recording; the watermark is a deterrent). Progress tracking (step 8) will
-  consume the player events; nothing is stored. Renditions are fixed for lectures (360/480/720). A re-transcode after the original
+  stubs (503). No DRM (a web page cannot prevent screen recording; the watermark is a deterrent). Progress tracking is step 8
+  (built). Renditions are fixed for lectures (360/480/720). A re-transcode after the original
   expired needs a re-upload. The session cache is per API instance (revocation can take up to its TTL).
+
+- **Progress (step 8)**: heartbeats over HTTP reach 436 req/s on the 2-core dev laptop (the database function alone 1,309/s); the
+  1,000/s target needs a measurement on Cloud SQL. No notifications to "behind" learners, no per-item deadlines, no grades. The
+  heartbeat rate limit is the per-instance limiter like every route. A request killed by the page unloading is lost (the next
+  heartbeat carries on). `on_view` is recorded by the client's validated call, not proven.
 
 - **Rate limiter is in-memory (per instance): needs a shared store (e.g. Redis/Memorystore) before production.**
 - Production TLS: `DB_SSL=verify-full` + `DB_SSL_CA` (Cloud SQL server CA); `off` is refused in production.

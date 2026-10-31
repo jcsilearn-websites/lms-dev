@@ -122,6 +122,8 @@ export const PlaybackSessionSchema = Type.Object({
   posterUrl: Nullable(Type.String()),
   expiresAt: DateTime,
   durationMs: Type.Integer(),
+  /** where this learner stopped (saved on the server, so it works on any device); null when they have not started */
+  resumeSeconds: Nullable(Type.Integer()),
   captions: Type.Array(PlaybackCaptionSchema),
   renditions: Type.Array(Type.Object({ name: Type.String(), height: Type.Integer() })),
 });

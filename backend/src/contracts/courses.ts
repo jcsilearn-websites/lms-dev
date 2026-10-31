@@ -86,6 +86,10 @@ export const OfferingSchema = Type.Object({
   status: OfferingStatusSchema,
   /** none | running | done | failed: a copy of content from another offering. */
   copyStatus: Type.String(),
+  /** Share of a video (unique watched seconds, in percent) that completes a video item. */
+  completionThreshold: Type.Integer(),
+  /** A learner is "behind" when a required item has been open this many days without being completed. */
+  behindAfterDays: Type.Integer(),
   /** The caller's part in it (null for an administrator who does not participate). */
   myParticipation: Type.Union([Type.Null(), ParticipationTypeSchema]),
   sectionCount: Type.Integer(),
@@ -106,6 +110,8 @@ export const CreateOfferingRequestSchema = Type.Object({
 export const UpdateOfferingRequestSchema = Type.Object({
   label: Type.Optional(Type.String({ maxLength: 40 })),
   titleOverride: Type.Optional(Nullable(Type.String({ minLength: 1, maxLength: 200 }))),
+  completionThreshold: Type.Optional(Type.Integer({ minimum: 50, maximum: 100 })),
+  behindAfterDays: Type.Optional(Type.Integer({ minimum: 1, maximum: 60 })),
 });
 
 export const OfferingListQuerySchema = Type.Object({

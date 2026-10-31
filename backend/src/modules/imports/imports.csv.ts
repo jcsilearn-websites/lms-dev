@@ -2,6 +2,8 @@
 // (formula injection), mapping a parsed record to a staged row, and the SAFE writer of the error report.
 // Nothing here touches the database or the request.
 
+import { csvCell, csvLine } from '../../core/csv';
+
 export type ImportKind = 'students' | 'faculty';
 export const IMPORT_KINDS: readonly ImportKind[] = ['students', 'faculty'];
 
@@ -95,9 +97,6 @@ export function checkCell(kind: CellKind, value: string): string | null {
   return null;
 }
 
-/** The formula characters a spreadsheet acts on (output side). */
-const FORMULA_START = /^[=+\-@\t\r]/;
-
 // ---------------------------------------------------------------- header + record mapping
 
 export interface HeaderProblem {
@@ -190,20 +189,8 @@ export function toParsedRow(
 
 // ---------------------------------------------------------------- error report (output)
 
-/**
- * A cell for a CSV that will be opened in a spreadsheet: values that would run as a formula (a leading
- * = + - @ tab or CR) get a leading apostrophe, then the usual CSV quoting. ALWAYS applied, to every
- * echoed cell and every message.
- */
-export function csvCell(value: string | number | null | undefined): string {
-  let s = value === null || value === undefined ? '' : String(value);
-  if (FORMULA_START.test(s)) s = `'${s}`;
-  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-}
-
-export function csvLine(cells: readonly (string | number | null | undefined)[]): string {
-  return `${cells.map(csvCell).join(',')}\r\n`;
-}
+// the safe writer is shared with the other exports (core/csv.ts)
+export { csvCell, csvLine };
 
 export interface ReportRow {
   rowNumber: number;

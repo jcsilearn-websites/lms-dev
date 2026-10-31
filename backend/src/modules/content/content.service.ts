@@ -44,6 +44,8 @@ export interface ItemInput {
   url?: string | undefined;
   published?: boolean | undefined;
   availableFrom?: string | null | undefined;
+  required?: boolean | undefined;
+  completion?: 'manual' | 'on_view' | 'watch' | undefined;
   after?: string | null | undefined;
 }
 
@@ -55,7 +57,13 @@ export interface ItemChange {
   url?: string | undefined;
   published?: boolean | undefined;
   availableFrom?: string | null | undefined;
+  required?: boolean | undefined;
+  completion?: 'manual' | 'on_view' | 'watch' | undefined;
 }
+
+/** The completion rule an item gets when the instructor does not choose: text is marked done, a file or link counts when opened, a video when enough of it was watched. */
+export const defaultCompletion = (kind: ItemInput['kind']): 'manual' | 'on_view' | 'watch' =>
+  kind === 'text' ? 'manual' : kind === 'video' ? 'watch' : 'on_view';
 
 /** An http(s) address, normalised; anything else (javascript:, data:, mailto: ...) is refused. */
 function cleanUrl(raw: string): string {
@@ -159,6 +167,7 @@ export function createContentService(deps: {
       return videoService.createPlayback(ctx, {
         assetId: r.video.assetId as string,
         durationMs: Number(r.video.durationMs),
+        resumeSeconds: r.video.resumeSeconds == null ? null : Number(r.video.resumeSeconds),
         renditions: (r.video.renditions as { name: string; height: number }[]) ?? [],
         captions: (r.video.captions as { language: string; label: string }[]) ?? [],
       });
@@ -222,11 +231,14 @@ export function createContentService(deps: {
       return r.row;
     },
 
-    async deleteModule(ctx: RequestContext, offeringId: string, moduleId: string): Promise<void> {
+    async deleteModule(ctx: RequestContext, offeringId: string, moduleId: string) {
       const a = spec(ctx, offeringId, 'course.edit');
-      const r = await db.withTenant(a.tenantId, (tx) => contentRepo.deleteModule(tx, a, moduleId));
+      const r = await withRetry(() =>
+        db.withTenant(a.tenantId, (tx) => contentRepo.deleteModule(tx, a, moduleId)),
+      );
       mayEdit(r.acc);
-      if (!r.deleted) throw new ModuleNotFoundError();
+      if (!r.found) throw new ModuleNotFoundError();
+      return r.archived ? ('archived' as const) : ('deleted' as const);
     },
 
     // ---------------------------------------------------------------- items
@@ -247,6 +259,8 @@ export function createContentService(deps: {
         url: null as string | null,
         published: input.published ?? false,
         availableFrom: input.availableFrom ?? null,
+        required: input.required ?? true,
+        completion: input.completion ?? defaultCompletion(input.kind),
         after: input.after as After,
       };
       if (input.kind === 'text') {
@@ -295,6 +309,8 @@ export function createContentService(deps: {
       if (change.fileId !== undefined) v.fileId = change.fileId;
       if (change.videoId !== undefined) v.videoId = change.videoId;
       if (change.published !== undefined) v.published = change.published;
+      if (change.required !== undefined) v.required = change.required;
+      if (change.completion !== undefined) v.completion = change.completion;
       if (change.availableFrom !== undefined) v.availableFrom = change.availableFrom;
       if (Object.keys(v).length === 0) throw new NothingToChangeError();
       const r = await withRetry(() =>
@@ -325,11 +341,14 @@ export function createContentService(deps: {
       return r.item;
     },
 
-    async deleteItem(ctx: RequestContext, offeringId: string, itemId: string): Promise<void> {
+    async deleteItem(ctx: RequestContext, offeringId: string, itemId: string) {
       const a = spec(ctx, offeringId, 'course.edit');
-      const r = await db.withTenant(a.tenantId, (tx) => contentRepo.deleteItem(tx, a, itemId));
+      const r = await withRetry(() =>
+        db.withTenant(a.tenantId, (tx) => contentRepo.deleteItem(tx, a, itemId)),
+      );
       mayEdit(r.acc);
-      if (!r.deleted) throw new ItemNotFoundError();
+      if (!r.found) throw new ItemNotFoundError();
+      return r.archived ? ('archived' as const) : ('deleted' as const);
     },
 
     // ---------------------------------------------------------------- copy

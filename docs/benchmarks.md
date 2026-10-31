@@ -428,3 +428,50 @@ Details, method and the size numbers per rendition: [video-cost-model.md](video-
 | a hand-cut, test-sized upload (resumable, 32 KB chunks)                                           | each chunk 4 round trips; the video tests run end to end in about 25 s including real transcodes                           |
 | player chunk (hls.js light)                                                                       | 113 KB gzip, loaded on Play / hover only; login page unchanged                                                             |
 | Lighthouse (mobile, median of 3) video item page                                                  | performance 94, accessibility 100 (this machine; neighbouring pages 91-97 in the same run)                                 |
+
+## Step 8: learning progress — 2026-10-31
+
+Reproduce with `pnpm --filter @lms/backend run bench:progress` (a throwaway `bench-*` college in the dev database, deleted
+afterwards; `HEARTBEAT_SECONDS`, `HEARTBEAT_CONNECTIONS`, `ANALYZE_ALL=1`, `CLASS_PROFILE=1`, `HB_EXPLAIN=1` for the plans). 4 x i3-1005G1
+@ 1.20 GHz, Windows, PostgreSQL 17 on the same machine as the API and the load generator (they share the CPU). 500 learners x 100
+items, about 24,000 progress rows, **no statistics gathered** (a college whose rows were just loaded: the worst case for the planner).
+
+| what                                                                                              | result                                                                                                            |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| heartbeat over HTTP (99 learners, 64 connections, 10 s, every request a NEW heartbeat)            | **436 req/s**, p50 139 ms, p99 304 ms, no errors; 2 round trips each                                              |
+| same machine, `GET /auth/me` (session lookup only)                                                | 878 req/s: a heartbeat costs about twice a bare request here                                                      |
+| the heartbeat function alone (no HTTP), 8 connections                                             | **1,309 calls/s**, p50 5.6 ms, p99 11.9 ms (CPU bound: the database shares 2 cores with Node and the load tool)   |
+| class view, page of 100 of 500 learners x 100 items (service call: transaction + ONE statement)   | median **47 - 51 ms** by name / progress / activity, 37 - 38 ms with a status filter, p95 50 - 66 ms              |
+| class view, second page (keyset)                                                                  | median 48.6 ms                                                                                                    |
+| one learner, item by item                                                                         | median 6.5 ms                                                                                                     |
+| counters instead of aggregation: the same percentages from one counter row per learner and module | **6.0 ms** read, but **+15 %** on every write and a set-based repair of 500 x 10 rows on every denominator change |
+
+What the benchmark found and fixed (all of it is the CLAUDE.md rule "Set-based SQL must not depend on the planner's estimates"):
+1. **The class view took 340 - 1,000 ms** (the target was 50). `EXPLAIN (ANALYZE, BUFFERS)` showed (a) the per-learner module
+   percentages scanning the whole `done` CTE for every learner and module (2.6 ms x 101 rows), (b) in a college without
+   statistics the planner treating the page as one row, inlining the module aggregate as a subplan and running it once per row
+   (51,510 correlated counts), (c) a nested loop re-reading a hash join 501 times (250,000 rows removed by a join filter). Now: one
+   row per learner (`done_m` with a `{moduleId: completed}` object), the page first and its module shares for the 101 rows only,
+   the steps that must run once marked `MATERIALIZED`, the module totals from one `GROUP BY`. 340 - 1,000 ms -> 47 - 51 ms, stable.
+2. **The rule every heartbeat starts with** (`learner_item_access`) joined `course_participants` to `tenant_memberships` with the
+   user filter applied after the join: every heartbeat read all participants of the offering (28 ms for 500 learners, growing with
+   the college). Migration 0027 rewrites it as a chain of unique-key lookups (`LATERAL ... OFFSET 0`): about 1 ms, and the
+   function alone went from 842 to 1,309 calls/s.
+
+The 1,000 heartbeats/s target is **not met over HTTP on this machine** (436/s). What is measured: the database function sustains
+1,309/s with 8 connections while sharing 2 cores with the API and the load generator, and the HTTP path is bounded by Node plus
+its two statements (the session lookup alone tops out at 878/s here). A heartbeat is one statement-sized call on a stateless API,
+so the capacity scales with API instances and Cloud SQL cores; confirm on Cloud SQL (a separate database host) before promising a
+number. Not done, with the expected gain: one fewer statement inside the function for the common case (look the row up with
+`FOR UPDATE` first and insert only when it is missing: about 10 - 15 %). With a heartbeat every 30 s, 1,000 heartbeats/s is about
+30,000 learners watching at the same moment.
+
+### Percentages: aggregation or counters (decision)
+
+Counters (one row per learner and module, kept by a trigger) read in 6 ms against 47 ms and cost +15 % on every completion.
+**Aggregation was kept** because (1) the class view is a staff-only, keyset-paged read (a few requests a minute, not one per
+learner), 47 ms is acceptable, and it needs the progress rows anyway for status, "behind" and last activity; (2) counters must be
+repaired for every learner whenever the DENOMINATOR changes (an item added, unpublished or archived, a module published, and
+**time itself**: an item whose `available_from` passes becomes part of everyone's total at that moment, which needs a scheduler to
+keep a counter right); (3) the learner's own views read only their own rows by primary-key prefix, never the class. If a college
+grows to a class view that must answer in a few milliseconds, add the counters then, behind the same repository function.

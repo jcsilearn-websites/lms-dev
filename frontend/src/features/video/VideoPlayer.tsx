@@ -2,6 +2,7 @@ import type { PlaybackSession } from '@lms/backend/contracts';
 import type HlsType from 'hls.js';
 import Hls from 'hls.js/light';
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { HeartbeatTracker, type TrackerOptions } from '../progress/heartbeatTracker';
 import { emitPlayerEvent, HEARTBEAT_SECONDS, type PlayerEventType } from './playerEvents';
 
 // THIS FILE IS ITS OWN CHUNK (it pulls in hls.js): it is loaded only by the video item page and the builder's
@@ -9,6 +10,8 @@ import { emitPlayerEvent, HEARTBEAT_SECONDS, type PlayerEventType } from './play
 // Native HLS on Safari, hls.js elsewhere. Own accessible controls: quality (auto / manual), speed 0.75-2x, captions,
 // keyboard shortcuts, the position is remembered on this device, and a moving watermark with the viewer's name.
 // A watermark is a deterrent only: screen recording cannot be prevented by a web page.
+// Learning progress (step 8): for a learner `tracking` is set and a HeartbeatTracker reports the seconds really played;
+// the resume point comes from the server (any device), the position kept on this device is only the instant fallback.
 
 export interface VideoPlayerProps {
   session: PlaybackSession;
@@ -20,6 +23,8 @@ export interface VideoPlayerProps {
   autoPlay?: boolean;
   /** asks for a fresh playback session (the token of the old one expired) */
   renewSession: () => Promise<PlaybackSession>;
+  /** Set for a learner of the course only: where the heartbeats go. An instructor's preview reports nothing. */
+  tracking?: Pick<TrackerOptions, 'send' | 'onResult' | 'onStale' | 'onStopped'> | undefined;
 }
 
 const SPEEDS = [0.75, 1, 1.25, 1.5, 1.75, 2];
@@ -68,6 +73,7 @@ export default function VideoPlayer({
   viewer,
   autoPlay = false,
   renewSession,
+  tracking,
 }: VideoPlayerProps) {
   const box = useRef<HTMLDivElement>(null);
   const video = useRef<HTMLVideoElement>(null);
@@ -87,6 +93,10 @@ export default function VideoPlayer({
   const [spot, setSpot] = useState(0);
   const renewing = useRef(false);
   const lastSaved = useRef(0);
+  const tracker = useRef<HeartbeatTracker | null>(null);
+  const trackingRef = useRef(tracking);
+  trackingRef.current = tracking;
+  const tracked = Boolean(tracking);
 
   const emit = useCallback(
     (type: PlayerEventType) => {
@@ -166,7 +176,8 @@ export default function VideoPlayer({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the stream is attached once per mounted player
   useEffect(() => {
-    const saved = readPosition(videoId);
+    // the server knows where this learner stopped on ANY device; this device's own memory is the fallback
+    const saved = session.resumeSeconds ?? readPosition(videoId);
     // the element, now: React clears `video.current` before this cleanup runs
     const el = video.current;
     start(session.manifestUrl, saved > 5 && saved < session.durationMs / 1000 - 10 ? saved : 0);
@@ -177,6 +188,33 @@ export default function VideoPlayer({
       hls.current = null;
     };
   }, [videoId]);
+
+  // ---- progress: one tracker per mounted player, flushed when the page hides
+  useEffect(() => {
+    if (!tracked) return;
+    const t = new HeartbeatTracker({
+      videoId,
+      send: (body, o) => {
+        const cfg = trackingRef.current;
+        if (!cfg) return Promise.reject(new Error('tracking is off'));
+        return cfg.send(body, o);
+      },
+      onResult: (r) => trackingRef.current?.onResult?.(r),
+      onStale: () => trackingRef.current?.onStale?.(),
+      onStopped: (reason) => trackingRef.current?.onStopped?.(reason),
+    });
+    tracker.current = t;
+    const onVisibility = () => (document.visibilityState === 'hidden' ? t.hide() : t.show());
+    const onPageHide = () => t.hide();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('pagehide', onPageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('pagehide', onPageHide);
+      t.dispose();
+      tracker.current = null;
+    };
+  }, [tracked, videoId]);
 
   // ---- the watermark moves now and then
   useEffect(() => {
@@ -316,17 +354,30 @@ export default function VideoPlayer({
         preload="metadata"
         className="aspect-video w-full bg-black"
         onClick={toggle}
-        onPlay={() => {
+        onPlay={(e) => {
           setPlaying(true);
           emit('play');
+          tracker.current?.play(e.currentTarget.currentTime, e.currentTarget.playbackRate);
         }}
-        onPause={() => {
+        onPause={(e) => {
           setPlaying(false);
-          if (!video.current?.ended) emit('pause');
-          if (video.current) writePosition(videoId, video.current.currentTime);
+          // the element fires `pause` before `ended`: the tracker closes the range at the end itself
+          if (!e.currentTarget.ended) {
+            emit('pause');
+            tracker.current?.pause(e.currentTarget.currentTime);
+          }
+          writePosition(videoId, e.currentTarget.currentTime);
         }}
-        onEnded={() => emit('ended')}
-        onSeeked={() => emit('seek')}
+        onEnded={(e) => {
+          emit('ended');
+          tracker.current?.ended(e.currentTarget.currentTime);
+        }}
+        onSeeking={() => tracker.current?.seeking()}
+        onSeeked={(e) => {
+          emit('seek');
+          tracker.current?.seeked(e.currentTarget.currentTime);
+        }}
+        onRateChange={(e) => tracker.current?.setRate(e.currentTarget.playbackRate)}
         onWaiting={() => setBuffering(true)}
         onPlaying={() => setBuffering(false)}
         onCanPlay={() => setBuffering(false)}
@@ -334,6 +385,7 @@ export default function VideoPlayer({
         onTimeUpdate={(e) => {
           const t = e.currentTarget.currentTime;
           setTime(t);
+          tracker.current?.timeupdate(t);
           if (Math.abs(t - lastSaved.current) >= 5) {
             lastSaved.current = t;
             writePosition(videoId, t);

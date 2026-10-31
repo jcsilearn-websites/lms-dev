@@ -82,8 +82,12 @@ export function createContentController(deps: { contentService: ContentService }
         ),
       ),
     deleteModule: async (request: FastifyRequest<Mod>) => {
-      await svc.deleteModule(contextFrom(request), request.params.id, request.params.moduleId);
-      return { status: 'deleted' };
+      const status = await svc.deleteModule(
+        contextFrom(request),
+        request.params.id,
+        request.params.moduleId,
+      );
+      return { status };
     },
 
     createItem: async (
@@ -125,8 +129,12 @@ export function createContentController(deps: { contentService: ContentService }
         ),
       ),
     deleteItem: async (request: FastifyRequest<Itm>) => {
-      await svc.deleteItem(contextFrom(request), request.params.id, request.params.itemId);
-      return { status: 'deleted' };
+      const status = await svc.deleteItem(
+        contextFrom(request),
+        request.params.id,
+        request.params.itemId,
+      );
+      return { status };
     },
 
     copy: async (

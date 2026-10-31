@@ -57,6 +57,9 @@ const lockOf = (staff: SQL): SQL => sql`
 const itemJson = (staff: SQL, withBody: boolean, from: SQL = sql`lms.content_items`): SQL => sql`
   SELECT jsonb_build_object(
     'id', i.id, 'moduleId', i.module_id, 'kind', i.kind, 'title', i.title, 'published', i.published,
+    'required', i.required, 'completion', i.completion,
+    'hasProgress', (${staff} AND EXISTS (SELECT 1 FROM lms.item_progress ip
+                     WHERE ip.tenant_id = i.tenant_id AND ip.item_id = i.id)),
     'availableFrom', l.eff, 'locked', l.locked,
     'url', CASE WHEN l.locked THEN NULL ELSE i.url END,
     'file', CASE WHEN l.locked OR f.id IS NULL THEN NULL ELSE jsonb_build_object(
@@ -84,13 +87,16 @@ export function createContentRepository() {
             SELECT jsonb_agg(mm.j ORDER BY mm.pos) FROM (
               SELECT m.position AS pos, jsonb_build_object(
                 'id', m.id, 'title', m.title, 'published', m.published, 'availableFrom', m.available_from,
+                'hasProgress', (${staff} AND EXISTS (SELECT 1 FROM lms.item_progress ip
+                                  JOIN lms.content_items ci ON ci.tenant_id = ip.tenant_id AND ci.id = ip.item_id
+                                 WHERE ip.tenant_id = m.tenant_id AND ci.module_id = m.id)),
                 'items', coalesce((
                   SELECT jsonb_agg(x.j ORDER BY x.pos) FROM (
                     ${itemJson(staff, false)}
-                    WHERE i.tenant_id = ${a.tenantId}::uuid AND i.module_id = m.id
+                    WHERE i.tenant_id = ${a.tenantId}::uuid AND i.module_id = m.id AND i.deleted_at IS NULL
                       AND (${staff} OR i.published)) x), '[]'::jsonb)) AS j
                 FROM lms.content_modules m
-               WHERE m.tenant_id = ${a.tenantId}::uuid AND m.offering_id = ${a.offeringId}::uuid
+               WHERE m.tenant_id = ${a.tenantId}::uuid AND m.offering_id = ${a.offeringId}::uuid AND m.deleted_at IS NULL
                  AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)
                  AND (${staff} OR m.published)) mm), '[]'::jsonb) AS modules`);
       const r = res.rows[0];
@@ -110,7 +116,8 @@ export function createContentRepository() {
                (SELECT x.j FROM (
                   ${itemJson(staff, true)}
                   WHERE i.tenant_id = ${a.tenantId}::uuid AND i.offering_id = ${a.offeringId}::uuid
-                    AND i.id = ${itemId}::uuid AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)
+                    AND i.id = ${itemId}::uuid AND i.deleted_at IS NULL AND mo.deleted_at IS NULL
+                    AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)
                     AND (${staff} OR (i.published AND mo.published))) x) AS item`);
       const r = res.rows[0];
       return { acc: asAcc(r?.acc), item: (r?.item as Row | null) ?? null };
@@ -133,7 +140,8 @@ export function createContentRepository() {
                     JOIN lms.files f ON f.tenant_id = i.tenant_id AND f.id = i.file_id AND f.status = 'ready'
                     CROSS JOIN LATERAL (${lockOf(staff)}) l
                    WHERE i.tenant_id = ${a.tenantId}::uuid AND i.offering_id = ${a.offeringId}::uuid
-                     AND i.id = ${itemId}::uuid AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)
+                     AND i.id = ${itemId}::uuid AND i.deleted_at IS NULL AND mo.deleted_at IS NULL
+                    AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)
                      AND (${staff} OR (i.published AND mo.published))) r) AS file`);
       const r = res.rows[0];
       const file = (r?.file as Row | null) ?? null;
@@ -152,6 +160,11 @@ export function createContentRepository() {
         SELECT (SELECT to_jsonb(acc) FROM acc) AS acc,
                (SELECT to_jsonb(r) FROM (
                   SELECT va.id AS "assetId", va.status, va.duration_ms AS "durationMs", va.renditions, l.locked,
+                         (SELECT ip.position_s FROM lms.item_progress ip
+                            JOIN lms.course_participants cp ON cp.tenant_id = ip.tenant_id AND cp.id = ip.participant_id
+                            JOIN lms.tenant_memberships ctm ON ctm.tenant_id = cp.tenant_id AND ctm.id = cp.membership_id
+                           WHERE ip.tenant_id = i.tenant_id AND ip.item_id = i.id AND ctm.user_id = ${a.userId}::uuid
+                           LIMIT 1) AS "resumeSeconds",
                          coalesce((SELECT jsonb_agg(jsonb_build_object('language', c.language, 'label', c.label)
                                                     ORDER BY c.language)
                                      FROM lms.video_captions c
@@ -161,7 +174,8 @@ export function createContentRepository() {
                     JOIN lms.video_assets va ON va.tenant_id = i.tenant_id AND va.id = i.video_asset_id
                     CROSS JOIN LATERAL (${lockOf(staff)}) l
                    WHERE i.tenant_id = ${a.tenantId}::uuid AND i.offering_id = ${a.offeringId}::uuid
-                     AND i.id = ${itemId}::uuid AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)
+                     AND i.id = ${itemId}::uuid AND i.deleted_at IS NULL AND mo.deleted_at IS NULL
+                    AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)
                      AND (${staff} OR (i.published AND mo.published))) r) AS video`);
       const r = res.rows[0];
       const video = (r?.video as Row | null) ?? null;
@@ -207,7 +221,7 @@ export function createContentRepository() {
         WITH ${accessCte({ ...a, lock: true })},
         upd AS (
           UPDATE lms.content_modules x SET ${sql.join(set, sql`, `)}, updated_at = now() FROM acc
-           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${moduleId}::uuid AND ${may}
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${moduleId}::uuid AND x.deleted_at IS NULL AND ${may}
           RETURNING x.id, x.title, x.published, x.available_from)
         SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, (SELECT to_jsonb(upd) FROM upd) AS row`);
       const r = res.rows[0];
@@ -226,7 +240,7 @@ export function createContentRepository() {
         ${posCte('content_modules', a.tenantId, scope, after, moduleId)},
         upd AS (
           UPDATE lms.content_modules x SET position = pos.p, updated_at = now() FROM acc, pos
-           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${moduleId}::uuid AND ${may}
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${moduleId}::uuid AND x.deleted_at IS NULL AND ${may}
           RETURNING x.id, x.title, x.published, x.available_from)
         SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, EXISTS (SELECT 1 FROM pos) AS pos_found,
                (SELECT to_jsonb(upd) FROM upd) AS row`);
@@ -238,20 +252,47 @@ export function createContentRepository() {
       };
     },
 
+    /**
+     * Deletes a module, unless something in it has learner progress: then the module and ALL its items are
+     * archived (`deleted_at`) and the progress stays as history.
+     */
     async deleteModule(
       tx: Executor,
       a: AccessSpec,
       moduleId: string,
-    ): Promise<{ acc: AccessRow | null; deleted: boolean }> {
+    ): Promise<{ acc: AccessRow | null; found: boolean; deleted: boolean; archived: boolean }> {
       const res = await tx.execute(sql`
         WITH ${accessCte({ ...a, lock: true })},
+        cur AS (
+          SELECT x.id,
+                 EXISTS (SELECT 1 FROM lms.item_progress p JOIN lms.content_items i
+                           ON i.tenant_id = p.tenant_id AND i.id = p.item_id
+                          WHERE p.tenant_id = x.tenant_id AND i.module_id = x.id) AS has_progress
+            FROM lms.content_modules x, acc
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${moduleId}::uuid
+             AND x.deleted_at IS NULL AND ${may}),
         del AS (
-          DELETE FROM lms.content_modules x USING acc
-           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${moduleId}::uuid AND ${may}
+          DELETE FROM lms.content_modules x USING cur
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.id = cur.id AND NOT cur.has_progress
+          RETURNING x.id),
+        arc_items AS (
+          UPDATE lms.content_items i SET deleted_at = now(), updated_at = now() FROM cur
+           WHERE i.tenant_id = ${a.tenantId}::uuid AND i.module_id = cur.id AND cur.has_progress AND i.deleted_at IS NULL
+          RETURNING i.id),
+        arc AS (
+          UPDATE lms.content_modules x SET deleted_at = now(), updated_at = now() FROM cur
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.id = cur.id AND cur.has_progress
           RETURNING x.id)
-        SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, EXISTS (SELECT 1 FROM del) AS deleted`);
+        SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, EXISTS (SELECT 1 FROM cur) AS found,
+               EXISTS (SELECT 1 FROM del) AS deleted, EXISTS (SELECT 1 FROM arc) AS archived,
+               (SELECT count(*) FROM arc_items) AS n`);
       const r = res.rows[0];
-      return { acc: asAcc(r?.acc), deleted: r?.deleted === true };
+      return {
+        acc: asAcc(r?.acc),
+        found: r?.found === true,
+        deleted: r?.deleted === true,
+        archived: r?.archived === true,
+      };
     },
 
     // ---------------------------------------------------------------- items
@@ -269,6 +310,8 @@ export function createContentRepository() {
         url: string | null;
         published: boolean;
         availableFrom: string | null;
+        required: boolean;
+        completion: string;
         after: After;
       },
       createdBy: string,
@@ -284,7 +327,8 @@ export function createContentRepository() {
       const res = await tx.execute(sql`
         WITH ${accessCte({ ...a, lock: true })},
         mod AS (SELECT id FROM lms.content_modules
-                 WHERE tenant_id = ${a.tenantId}::uuid AND offering_id = ${a.offeringId}::uuid AND id = ${moduleId}::uuid),
+                 WHERE tenant_id = ${a.tenantId}::uuid AND offering_id = ${a.offeringId}::uuid AND id = ${moduleId}::uuid
+                   AND deleted_at IS NULL),
         ${posCte('content_items', a.tenantId, scope, v.after)},
         fl AS (
           SELECT f.id FROM lms.files f
@@ -303,10 +347,10 @@ export function createContentRepository() {
         ins AS (
           INSERT INTO lms.content_items
             (id, tenant_id, offering_id, module_id, kind, title, position, body, file_id, video_asset_id, url,
-             published, available_from, created_by)
+             published, available_from, required, completion, created_by)
           SELECT ${v.id}::uuid, ${a.tenantId}::uuid, acc.id, mod.id, ${v.kind}, ${v.title}, pos.p,
                  ${v.body === null ? null : JSON.stringify(v.body)}::jsonb, ${v.fileId}::uuid, ${v.videoId}::uuid,
-                 ${v.url}, ${v.published}, ${v.availableFrom}::timestamptz, ${createdBy}::uuid
+                 ${v.url}, ${v.published}, ${v.availableFrom}::timestamptz, ${v.required}, ${v.completion}, ${createdBy}::uuid
             FROM acc, mod, pos
            WHERE ${may} AND (${v.fileId}::uuid IS NULL OR EXISTS (SELECT 1 FROM fl))
              AND (${v.videoId}::uuid IS NULL OR EXISTS (SELECT 1 FROM vd))
@@ -339,6 +383,8 @@ export function createContentRepository() {
         url?: string;
         published?: boolean;
         availableFrom?: string | null;
+        required?: boolean;
+        completion?: string;
       },
       actor: string,
     ): Promise<{ acc: AccessRow | null; fileOk: boolean; videoOk: boolean; item: Row | null }> {
@@ -349,6 +395,8 @@ export function createContentRepository() {
       if (v.fileId !== undefined) set.push(sql`file_id = ${v.fileId}::uuid`);
       if (v.videoId !== undefined) set.push(sql`video_asset_id = ${v.videoId}::uuid`);
       if (v.published !== undefined) set.push(sql`published = ${v.published}`);
+      if (v.required !== undefined) set.push(sql`required = ${v.required}`);
+      if (v.completion !== undefined) set.push(sql`completion = ${v.completion}`);
       if (v.availableFrom !== undefined)
         set.push(sql`available_from = ${v.availableFrom}::timestamptz`);
       const res = await tx.execute(sql`
@@ -369,7 +417,7 @@ export function createContentRepository() {
                                 AND ci.video_asset_id = va.id))),
         upd AS (
           UPDATE lms.content_items x SET ${sql.join(set, sql`, `)}, updated_at = now() FROM acc
-           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${itemId}::uuid AND ${may}
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${itemId}::uuid AND x.deleted_at IS NULL AND ${may}
              AND (${v.fileId ?? null}::uuid IS NULL OR EXISTS (SELECT 1 FROM fl))
              AND (${v.videoId ?? null}::uuid IS NULL OR EXISTS (SELECT 1 FROM vd))
           RETURNING x.*)
@@ -402,7 +450,7 @@ export function createContentRepository() {
         ${posCte('content_items', a.tenantId, scope, to.after, itemId)},
         upd AS (
           UPDATE lms.content_items x SET position = pos.p, module_id = ${target}, updated_at = now() FROM acc, pos
-           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${itemId}::uuid AND ${may}
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${itemId}::uuid AND x.deleted_at IS NULL AND ${may}
           RETURNING x.*)
         SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, EXISTS (SELECT 1 FROM pos) AS pos_found,
                (SELECT x.j FROM (${itemJson(sql`TRUE`, true, sql`upd`)}) x) AS item`);
@@ -414,20 +462,41 @@ export function createContentRepository() {
       };
     },
 
+    /**
+     * Deletes an item, unless it has learner progress: then it is archived (`deleted_at`): gone from outlines,
+     * percentages and the builder, its progress kept as history.
+     */
     async deleteItem(
       tx: Executor,
       a: AccessSpec,
       itemId: string,
-    ): Promise<{ acc: AccessRow | null; deleted: boolean }> {
+    ): Promise<{ acc: AccessRow | null; found: boolean; deleted: boolean; archived: boolean }> {
       const res = await tx.execute(sql`
         WITH ${accessCte({ ...a, lock: true })},
+        cur AS (
+          SELECT x.id,
+                 EXISTS (SELECT 1 FROM lms.item_progress p
+                          WHERE p.tenant_id = x.tenant_id AND p.item_id = x.id) AS has_progress
+            FROM lms.content_items x, acc
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${itemId}::uuid
+             AND x.deleted_at IS NULL AND ${may}),
         del AS (
-          DELETE FROM lms.content_items x USING acc
-           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.offering_id = acc.id AND x.id = ${itemId}::uuid AND ${may}
+          DELETE FROM lms.content_items x USING cur
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.id = cur.id AND NOT cur.has_progress
+          RETURNING x.id),
+        arc AS (
+          UPDATE lms.content_items x SET deleted_at = now(), updated_at = now() FROM cur
+           WHERE x.tenant_id = ${a.tenantId}::uuid AND x.id = cur.id AND cur.has_progress
           RETURNING x.id)
-        SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, EXISTS (SELECT 1 FROM del) AS deleted`);
+        SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, EXISTS (SELECT 1 FROM cur) AS found,
+               EXISTS (SELECT 1 FROM del) AS deleted, EXISTS (SELECT 1 FROM arc) AS archived`);
       const r = res.rows[0];
-      return { acc: asAcc(r?.acc), deleted: r?.deleted === true };
+      return {
+        acc: asAcc(r?.acc),
+        found: r?.found === true,
+        deleted: r?.deleted === true,
+        archived: r?.archived === true,
+      };
     },
 
     // ---------------------------------------------------------------- copy
@@ -463,14 +532,15 @@ export function createContentRepository() {
         tgt AS (SELECT (copy_status = 'running') AS busy FROM lms.course_offerings
                  WHERE tenant_id = ${t} AND id = ${v.targetId}::uuid),
         cnt AS (SELECT count(*)::int AS n FROM lms.content_items
-                 WHERE tenant_id = ${t} AND offering_id = ${v.sourceId}::uuid),
+                 WHERE tenant_id = ${t} AND offering_id = ${v.sourceId}::uuid AND deleted_at IS NULL),
         go AS (SELECT (${allowed}) AS ok, (${inlineOk}) AS inline),
         base AS (SELECT coalesce((SELECT max(position) FROM lms.content_modules
                                    WHERE tenant_id = ${t} AND offering_id = ${v.targetId}::uuid), '') AS prefix),
         mm AS (
           SELECT m.id AS old_id, lms.uuid_v7() AS new_id, m.title, base.prefix || m.position AS position
             FROM lms.content_modules m, base, go
-           WHERE m.tenant_id = ${t} AND m.offering_id = ${v.sourceId}::uuid AND go.ok AND go.inline),
+           WHERE m.tenant_id = ${t} AND m.offering_id = ${v.sourceId}::uuid AND m.deleted_at IS NULL
+             AND go.ok AND go.inline),
         nm AS (
           INSERT INTO lms.content_modules (id, tenant_id, offering_id, title, position, published, available_from)
           SELECT new_id, ${t}, ${v.targetId}::uuid, title, position, false, NULL FROM mm
@@ -478,11 +548,11 @@ export function createContentRepository() {
         ni AS (
           INSERT INTO lms.content_items
             (id, tenant_id, offering_id, module_id, kind, title, position, body, file_id, video_asset_id, url,
-             published, available_from, created_by)
+             published, available_from, required, completion, created_by)
           SELECT lms.uuid_v7(), ${t}, ${v.targetId}::uuid, mm.new_id, i.kind, i.title, i.position, i.body, i.file_id,
-                 i.video_asset_id, i.url, false, NULL, ${v.actorUserId}::uuid
+                 i.video_asset_id, i.url, false, NULL, i.required, i.completion, ${v.actorUserId}::uuid
             FROM lms.content_items i JOIN mm ON mm.old_id = i.module_id
-           WHERE i.tenant_id = ${t}
+           WHERE i.tenant_id = ${t} AND i.deleted_at IS NULL
           RETURNING id),
         queued AS (
           UPDATE lms.course_offerings SET copy_status = 'running', updated_at = now()

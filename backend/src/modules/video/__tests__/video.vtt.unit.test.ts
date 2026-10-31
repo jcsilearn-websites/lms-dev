@@ -18,8 +18,8 @@ describe('WebVTT validation', () => {
   it('refuses a file that is not WebVTT', () => {
     for (const text of [
       'hello',
-      'WEBVTTX\n\n' + cue,
-      ' WEBVTT\n\n' + cue,
+      `WEBVTTX\n\n${cue}`,
+      ` WEBVTT\n\n${cue}`,
       '1\n00:00:01,000 --> 00:00:02,000\nSRT\n',
     ]) {
       expect(validateWebVtt(text), text).toMatchObject({ ok: false });

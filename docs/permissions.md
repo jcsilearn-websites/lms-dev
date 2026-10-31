@@ -45,13 +45,15 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `submission.grade` |  |  |  | yes | yes |  | Grade submissions |
 | `grade.finalize` |  |  |  | yes |  |  | Finalize grades |
 | `grade.view_own` |  |  |  |  |  | own only | See your own grades only |
+| `progress.record` |  |  |  |  |  | yes | Record your own learning progress (watching, opening, marking done) |
+| `progress.view_class` |  | yes |  | yes | yes |  | View the learning progress of the learners of an offering; export it |
 | **platform** | | | | | | | |
 | `platform.tenant.read` | yes |  |  |  |  |  | View colleges and (audited) their members |
 | `platform.tenant.manage` | yes |  |  |  |  |  | Create, rename, suspend colleges and invite their admins |
 | `platform.audit.read` | yes |  |  |  |  |  | Read the platform audit log |
 | `platform.user.unlock` | yes |  |  |  |  |  | Clear a login lockout (admin host) |
 
-31 permissions. Notes:
+33 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
 - "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
@@ -115,6 +117,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/imports/templates/students.csv` | `import.run` |
 | GET | `/api/me/courses` | any signed-in user |
 | GET | `/api/me/profile` | `profile.read_own` |
+| GET | `/api/me/progress` | any signed-in user |
 | GET | `/api/members` | `member.read` |
 | DELETE | `/api/members/:userId` | `member.remove` |
 | GET | `/api/members/:userId` | `member.read` |
@@ -138,6 +141,10 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/offerings/:id/items/:itemId/download` | `content.view` in the offering |
 | POST | `/api/offerings/:id/items/:itemId/move` | `course.edit` in the offering |
 | POST | `/api/offerings/:id/items/:itemId/playback` | `content.view` in the offering |
+| DELETE | `/api/offerings/:id/items/:itemId/progress/complete` | `progress.record` in the offering |
+| POST | `/api/offerings/:id/items/:itemId/progress/complete` | `progress.record` in the offering |
+| POST | `/api/offerings/:id/items/:itemId/progress/heartbeat` | `progress.record` in the offering |
+| POST | `/api/offerings/:id/items/:itemId/progress/viewed` | `progress.record` in the offering |
 | POST | `/api/offerings/:id/modules` | `course.edit` in the offering |
 | DELETE | `/api/offerings/:id/modules/:moduleId` | `course.edit` in the offering |
 | PATCH | `/api/offerings/:id/modules/:moduleId` | `course.edit` in the offering |
@@ -148,6 +155,10 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/offerings/:id/participants` | `offering.manage` in the offering |
 | DELETE | `/api/offerings/:id/participants/:participantId` | `offering.manage` in the offering |
 | PATCH | `/api/offerings/:id/participants/:participantId` | `offering.manage` in the offering |
+| GET | `/api/offerings/:id/progress` | `content.view` in the offering |
+| GET | `/api/offerings/:id/progress/class` | `progress.view_class` in the offering |
+| GET | `/api/offerings/:id/progress/class.csv` | `progress.view_class` in the offering |
+| GET | `/api/offerings/:id/progress/learners/:participantId` | `progress.view_class` in the offering |
 | POST | `/api/offerings/:id/publish` | `course.publish` in the offering |
 | GET | `/api/offerings/:id/sections` | `offering.manage` in the offering |
 | POST | `/api/offerings/:id/sections` | `offering.manage` in the offering |

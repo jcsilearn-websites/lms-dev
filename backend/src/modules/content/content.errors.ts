@@ -83,6 +83,8 @@ export function mapContentDbError(err: unknown): Error | null {
   const code = pgErrorCode(err);
   const constraint = pgConstraint(err) ?? '';
   if (code === '23514' && constraint === 'content_items_kind_ck') return new InvalidItemError();
+  if (code === '23514' && constraint === 'content_items_completion_ck')
+    return new InvalidItemError();
   if (code === '23514' && constraint.startsWith('content_items_url')) return new InvalidLinkError();
   if (code === '23503') return new ModuleNotFoundError();
   return null;

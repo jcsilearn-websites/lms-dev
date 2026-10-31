@@ -29,6 +29,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'offering.manage',
     'participant.read',
     'content.view',
+    'progress.view_class',
     'academic.read',
     'academic.manage',
     'profile.read_own',
@@ -49,13 +50,24 @@ export const PARTICIPATION_PERMISSIONS: Readonly<
     'participant.read',
     'course.edit',
     'course.publish',
+    'progress.view_class',
     'assessment.create',
     'submission.grade',
     'grade.finalize',
   ]),
-  assistant: new Set<Permission>(['content.view', 'participant.read', 'submission.grade']),
+  assistant: new Set<Permission>([
+    'content.view',
+    'participant.read',
+    'progress.view_class',
+    'submission.grade',
+  ]),
   // grade.view_own additionally requires resource.ownerUserId === the caller (see policy.ts)
-  learner: new Set<Permission>(['content.view', 'submission.create', 'grade.view_own']),
+  learner: new Set<Permission>([
+    'content.view',
+    'progress.record',
+    'submission.create',
+    'grade.view_own',
+  ]),
 };
 
 /** The participation types that grant `permission` (for the SQL that decides access in one statement). */

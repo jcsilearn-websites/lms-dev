@@ -102,6 +102,12 @@ import {
   createProfilesService,
 } from './modules/profiles';
 import {
+  createProgressController,
+  createProgressHandlers,
+  createProgressRepository,
+  createProgressService,
+} from './modules/progress';
+import {
   createSessionsController,
   createSessionsHandlers,
   createSessionsRepository,
@@ -487,6 +493,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     videoService,
   });
   const coursesService = createCoursesService({ db, coursesRepo: createCoursesRepository() });
+  const progressService = createProgressService({ db, progressRepo: createProgressRepository() });
 
   const handlers: HandlerMap = {
     ...createHealthHandlers({ healthService }),
@@ -501,6 +508,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createProfilesHandlers({ profilesService }),
     ...createImportsHandlers({ importsService, purge: config.purge }),
     ...createContentHandlers({ contentService }),
+    ...createProgressHandlers(),
     ...createVideoHandlers({ videoService, sweep: { everyMs: video.purgeEveryMs } }),
     ...createFilesHandlers({ filesService, purge: { everyMs: config.storage.purgeEveryMs } }),
     ...createCoursesHandlers({
@@ -530,6 +538,10 @@ export function createModules(db: Database, config: ModulesConfig) {
         storage.driver === 'local'
           ? createStorageController({ storage: storage as LocalStorage })
           : null,
+    },
+    progress: {
+      service: progressService,
+      controller: createProgressController({ progressService }),
     },
     video: {
       service: videoService,

@@ -1,9 +1,11 @@
-import type { OutlineItem } from '@lms/backend/contracts';
+import type { ItemStatus, MyProgress, OutlineItem } from '@lms/backend/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useParams } from '@tanstack/react-router';
 import { Badge, PageHeader } from '../../shared/ui/layout';
 import { EmptyState, ErrorState, ListSkeleton } from '../../shared/ui/states';
 import { usePermissions } from '../auth/useMe';
+import { ItemStatusBadge, ProgressBar } from '../progress/ProgressBar';
+import { getMyProgress, progressKeys } from '../progress/progress.api';
 import { courseKeys, getOffering, getOutline } from './courses.api';
 
 const KIND: Record<string, string> = {
@@ -37,6 +39,16 @@ export function OfferingPage() {
     queryKey: courseKeys.outline(id),
     queryFn: ({ signal }) => getOutline(id, signal),
   });
+
+  // a learner's progress (an instructor or an administrator has none: `participant` is false)
+  const progress = useQuery({
+    queryKey: progressKeys.offering(id),
+    queryFn: ({ signal }) => getMyProgress(id, signal),
+    staleTime: 30_000,
+  });
+  const mine: MyProgress | null = progress.data?.participant ? progress.data : null;
+  const statusOf = new Map<string, ItemStatus>(mine?.items.map((i) => [i.itemId, i.status]));
+  const moduleOf = new Map(mine?.modules.map((m) => [m.moduleId, m]));
 
   if (offering.isLoading || outline.isLoading)
     return <ListSkeleton rows={6} label="Loading the course" />;
@@ -73,6 +85,11 @@ export function OfferingPage() {
               </Link>
             )}
             {staff && (
+              <Link to={`/offerings/${id}/progress` as '/'} className={linkBtn}>
+                Class progress
+              </Link>
+            )}
+            {staff && (
               <Link to={`/offerings/${id}/people` as '/'} className={linkBtn}>
                 {has('offering.manage') ? 'People and sections' : 'Class list'}
               </Link>
@@ -93,6 +110,23 @@ export function OfferingPage() {
           </Badge>
         )}
       </p>
+
+      {mine && (
+        <section
+          aria-label="Your progress"
+          className="rounded-md border border-border bg-surface p-4"
+        >
+          <ProgressBar
+            percent={mine.percent}
+            label={`Your progress in ${o.title}`}
+            detail={
+              mine.totalRequired > 0
+                ? `${mine.completedRequired} of ${mine.totalRequired} required items`
+                : undefined
+            }
+          />
+        </section>
+      )}
 
       {data.modules.length === 0 ? (
         <EmptyState
@@ -116,13 +150,18 @@ export function OfferingPage() {
                   <span className="min-w-0 flex-1">{m.title}</span>
                   {!m.published && <Badge tone="warning">Hidden from learners</Badge>}
                   {m.availableFrom && <Badge>Opens {when(m.availableFrom)}</Badge>}
+                  {moduleOf.get(m.id)?.percent != null && (
+                    <span className="text-sm font-normal tabular-nums text-muted-foreground">
+                      {moduleOf.get(m.id)?.percent}% complete
+                    </span>
+                  )}
                 </h2>
                 {m.items.length === 0 ? (
                   <p className="p-3 text-sm text-muted-foreground">No items.</p>
                 ) : (
                   <ul className="divide-y divide-border">
                     {m.items.map((i) => (
-                      <ItemLine key={i.id} offeringId={id} item={i} />
+                      <ItemLine key={i.id} offeringId={id} item={i} status={statusOf.get(i.id)} />
                     ))}
                   </ul>
                 )}
@@ -135,12 +174,23 @@ export function OfferingPage() {
   );
 }
 
-function ItemLine({ offeringId, item }: { offeringId: string; item: OutlineItem }) {
+function ItemLine({
+  offeringId,
+  item,
+  status,
+}: {
+  offeringId: string;
+  item: OutlineItem;
+  /** the learner's own status (undefined for someone who is not a learner) */
+  status: ItemStatus | undefined;
+}) {
   const meta = (
     <span className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
       <span>{KIND[item.kind] ?? item.kind}</span>
       {item.file && <span>{item.file.name}</span>}
       {!item.published && <Badge tone="warning">Hidden from learners</Badge>}
+      {status && <ItemStatusBadge status={status} />}
+      {status && !item.required && <Badge>Optional</Badge>}
     </span>
   );
   if (item.locked) {

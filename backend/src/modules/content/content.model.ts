@@ -10,6 +10,8 @@ export const contentModules = lms.table('content_modules', {
   position: text('position').notNull(),
   published: boolean('published').notNull().default(false),
   availableFrom: timestamp('available_from', { withTimezone: true }),
+  // archived with its items when something in it has learner progress (migration 0026)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -29,6 +31,11 @@ export const contentItems = lms.table('content_items', {
   published: boolean('published').notNull().default(false),
   availableFrom: timestamp('available_from', { withTimezone: true }),
   createdBy: uuid('created_by'),
+  // required items count towards progress; completion: manual | on_view | watch (video)
+  required: boolean('required').notNull().default(true),
+  completion: text('completion').notNull(),
+  // an item with learner progress is archived, not deleted (its progress is history)
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

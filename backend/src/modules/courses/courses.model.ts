@@ -1,4 +1,4 @@
-import { numeric, primaryKey, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { numeric, primaryKey, smallint, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { createdAt, lms, updatedAt } from '../../db/lms-schema';
 
 export const offeringStatus = lms.enum('offering_status', ['draft', 'published', 'archived']);
@@ -35,6 +35,9 @@ export const courseOfferings = lms.table('course_offerings', {
   titleOverride: text('title_override'),
   status: offeringStatus('status').notNull().default('draft'),
   copyStatus: text('copy_status').notNull().default('none'),
+  // progress settings (migration 0026)
+  completionThreshold: smallint('completion_threshold').notNull().default(90),
+  behindAfterDays: smallint('behind_after_days').notNull().default(7),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

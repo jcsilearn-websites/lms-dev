@@ -1,5 +1,5 @@
 import type { PlaybackSession } from '@lms/backend/contracts';
-import { act, render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type PlayerEvent, subscribeToPlayerEvents } from '../src/features/video/playerEvents';
@@ -47,6 +47,7 @@ const SESSION: PlaybackSession = {
     { language: 'hi', label: 'Hindi', url: '/api/video/play/TOKEN1/asset/captions/hi.vtt' },
   ],
   renditions: [{ name: '720p', height: 720 }],
+  resumeSeconds: null,
 };
 const VIDEO_ID = '33000000-0000-7000-8000-000000000001';
 const ITEM_ID = '44000000-0000-7000-8000-000000000001';
@@ -357,6 +358,96 @@ describe('player events (step 8 listens to these)', () => {
     off();
     act(() => void el.dispatchEvent(new Event('pause')));
     expect(events).toHaveLength(1);
+  });
+});
+
+describe('learning progress (step 8)', () => {
+  const OK = {
+    result: 'ok' as const,
+    watchedSeconds: 8,
+    durationSeconds: 600,
+    percent: 1,
+    completed: false,
+    positionSeconds: 8,
+  };
+  const timeTo = (el: HTMLVideoElement, t: number) => {
+    st(el).time = t;
+    act(() => void el.dispatchEvent(new Event('timeupdate')));
+  };
+
+  it('starts where the SERVER says the learner stopped (any device), before this device’s memory', () => {
+    localStorage.setItem(`lms.video.position.${VIDEO_ID}`, '50');
+    const { off } = setup({ session: { ...SESSION, resumeSeconds: 123 } });
+    expect(hls.instances[0]?.config.startPosition).toBe(123);
+    off();
+  });
+  it('falls back to this device when the server has no position', () => {
+    localStorage.setItem(`lms.video.position.${VIDEO_ID}`, '50');
+    const { off } = setup({ session: { ...SESSION, resumeSeconds: null } });
+    expect(hls.instances[0]?.config.startPosition).toBe(50);
+    off();
+  });
+
+  it('a learner’s player reports the seconds played, with the position, when it is paused', async () => {
+    const send = vi.fn().mockResolvedValue(OK);
+    const { el, off } = setup({ tracking: { send } });
+    act(() => void el.dispatchEvent(new Event('play')));
+    for (let t = 1; t <= 8; t++) timeTo(el, t);
+    act(() => void el.dispatchEvent(new Event('pause')));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send.mock.calls[0]?.[0]).toMatchObject({
+      videoId: VIDEO_ID,
+      seq: 1,
+      ranges: [[0, 8]],
+      position: 8,
+    });
+    expect(send.mock.calls[0]?.[1]).toEqual({ keepalive: false });
+    off();
+  });
+
+  it('skipping ahead with the slider is not reported as watched', async () => {
+    const send = vi.fn().mockResolvedValue(OK);
+    const { el, off } = setup({ tracking: { send } });
+    act(() => void el.dispatchEvent(new Event('play')));
+    for (let t = 1; t <= 5; t++) timeTo(el, t);
+    act(() => void el.dispatchEvent(new Event('seeking')));
+    st(el).time = 300;
+    act(() => void el.dispatchEvent(new Event('seeked')));
+    for (let t = 301; t <= 304; t++) timeTo(el, t);
+    act(() => void el.dispatchEvent(new Event('pause')));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls.map((c) => c[0].ranges)).toEqual([[[0, 5]], [[300, 304]]]);
+    off();
+  });
+
+  it('an instructor’s preview (no tracking) never sends anything', () => {
+    vi.useFakeTimers();
+    const net = vi.spyOn(globalThis, 'fetch');
+    const { el, unmount, off } = setup(); // no `tracking`
+    act(() => void el.dispatchEvent(new Event('play')));
+    for (let t = 1; t <= 8; t++) timeTo(el, t);
+    act(() => void vi.advanceTimersByTime(60_000));
+    act(() => void el.dispatchEvent(new Event('pause')));
+    act(() => void window.dispatchEvent(new Event('pagehide')));
+    unmount();
+    expect(net).not.toHaveBeenCalled();
+    off();
+  });
+
+  it('hiding the page sends what was played with keepalive; leaving the player sends the rest', async () => {
+    const send = vi.fn().mockResolvedValue(OK);
+    const { el, unmount, off } = setup({ tracking: { send } });
+    act(() => void el.dispatchEvent(new Event('play')));
+    for (let t = 1; t <= 6; t++) timeTo(el, t);
+    act(() => void window.dispatchEvent(new Event('pagehide')));
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send.mock.calls[0]?.[1]).toEqual({ keepalive: true });
+    for (let t = 7; t <= 9; t++) timeTo(el, t);
+    unmount();
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    expect(send.mock.calls[1]?.[0].ranges).toEqual([[6, 9]]);
+    expect(send.mock.calls[1]?.[1]).toEqual({ keepalive: true });
+    off();
   });
 });
 

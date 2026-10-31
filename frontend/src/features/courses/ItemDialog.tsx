@@ -8,6 +8,7 @@ import { typeboxResolver } from '../../shared/forms/validation';
 import { Button } from '../../shared/ui/button';
 import { Dialog } from '../../shared/ui/dialog';
 import { Field } from '../../shared/ui/field';
+import { Select } from '../../shared/ui/select';
 import { Skeleton } from '../../shared/ui/states';
 import { toast } from '../../shared/ui/toast';
 import { VideoField } from '../video/VideoField';
@@ -25,12 +26,18 @@ const FormSchema = Type.Object({
   url: Type.Optional(Type.String({ maxLength: 2000 })),
   availableFrom: Type.Optional(Type.String()),
   published: Type.Boolean(),
+  required: Type.Boolean(),
+  completion: Type.String(),
 });
 interface Values {
   title: string;
   url?: string | undefined;
   availableFrom?: string | undefined;
   published: boolean;
+  /** counts towards the learner's progress */
+  required: boolean;
+  /** manual (Mark as done) | on_view (opening it); a video is always completed by watching it */
+  completion: string;
 }
 
 export type ItemKindChoice = 'text' | 'file' | 'link' | 'video';
@@ -92,6 +99,8 @@ export function ItemDialog({
       url: item?.url ?? 'https://',
       availableFrom: toLocalInput(item?.availableFrom ?? null),
       published: item?.published ?? false,
+      required: item?.required ?? true,
+      completion: item?.completion ?? (kind === 'text' ? 'manual' : 'on_view'),
     },
     resolver: typeboxResolver<Values>(FormSchema, { title: 'Title', url: 'Web address' }),
   });
@@ -103,6 +112,9 @@ export function ItemDialog({
         title: v.title.trim(),
         published: v.published,
         availableFrom: fromLocalInput(v.availableFrom),
+        required: v.required,
+        // a video is completed by watching it: the server sets that rule
+        ...(kind === 'video' ? {} : { completion: v.completion }),
       };
       const extra =
         kind === 'link'
@@ -281,6 +293,25 @@ export function ItemDialog({
             {...form.register('availableFrom')}
           />
         </div>
+
+        <fieldset className="grid gap-4 rounded-md border border-border p-3 sm:grid-cols-2">
+          <legend className="px-1 text-sm font-medium">Progress</legend>
+          <label className="flex min-h-11 items-center gap-2 text-sm sm:min-h-9">
+            <input type="checkbox" className="h-5 w-5" {...form.register('required')} />
+            Required (counts towards course progress)
+          </label>
+          {kind === 'video' ? (
+            <p className="text-sm text-muted-foreground">
+              Completed when the learner has watched enough of the video (the share is a setting of
+              the course).
+            </p>
+          ) : (
+            <Select label="Completed when" {...form.register('completion')}>
+              <option value="manual">The learner marks it as done</option>
+              <option value="on_view">The learner opens it</option>
+            </Select>
+          )}
+        </fieldset>
 
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={onClose} disabled={save.isPending}>

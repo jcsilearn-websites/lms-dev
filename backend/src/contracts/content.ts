@@ -14,6 +14,13 @@ export const ContentKindSchema = Type.Union([
 ]);
 export type ContentKind = Static<typeof ContentKindSchema>;
 
+export const CompletionRuleSchema = Type.Union([
+  Type.Literal('manual'),
+  Type.Literal('on_view'),
+  Type.Literal('watch'),
+]);
+export type CompletionRule = Static<typeof CompletionRuleSchema>;
+
 /**
  * Rich text is a document TREE (ProseMirror / Tiptap JSON), never HTML. The server accepts only the nodes and
  * marks below (see content.richtext.ts) and the browser renders it with its own React renderer. The schema
@@ -40,6 +47,12 @@ export const OutlineItemSchema = Type.Object({
   title: Type.String(),
   /** Always true for a learner (an unpublished item is not sent to them at all). */
   published: Type.Boolean(),
+  /** Counts towards the progress percentages (an optional item does not). */
+  required: Type.Boolean(),
+  /** What completes it: manual (Mark as done), on_view (opening / downloading it), watch (enough of a video). */
+  completion: CompletionRuleSchema,
+  /** Editors only: learners have progress on it, so deleting it ARCHIVES it (hidden, progress kept). */
+  hasProgress: Type.Boolean(),
   /** When it opens (the later of the item's and its module's date); null = open. */
   availableFrom: Nullable(DateTime),
   /** The learner cannot open it yet: only the title and `availableFrom` are sent. */
@@ -58,6 +71,8 @@ export const OutlineModuleSchema = Type.Object({
   title: Type.String(),
   published: Type.Boolean(),
   availableFrom: Nullable(DateTime),
+  /** Editors only: an item in it has learner progress, so deleting the module ARCHIVES it. */
+  hasProgress: Type.Boolean(),
   items: Type.Array(OutlineItemSchema),
 });
 export type OutlineModule = Static<typeof OutlineModuleSchema>;
@@ -76,6 +91,8 @@ export const ItemSchema = Type.Object({
   kind: ContentKindSchema,
   title: Type.String(),
   published: Type.Boolean(),
+  required: Type.Boolean(),
+  completion: CompletionRuleSchema,
   availableFrom: Nullable(DateTime),
   locked: Type.Boolean(),
   url: Nullable(Type.String()),
@@ -129,6 +146,8 @@ export const CreateItemRequestSchema = Type.Object({
   url: Type.Optional(Type.String({ maxLength: 2000 })),
   published: Type.Optional(Type.Boolean()),
   availableFrom: Type.Optional(Nullable(DateTime)),
+  required: Type.Optional(Type.Boolean()),
+  completion: Type.Optional(CompletionRuleSchema),
   after: After,
 });
 export const UpdateItemRequestSchema = Type.Object({
@@ -140,6 +159,8 @@ export const UpdateItemRequestSchema = Type.Object({
   url: Type.Optional(Type.String({ maxLength: 2000 })),
   published: Type.Optional(Type.Boolean()),
   availableFrom: Type.Optional(Nullable(DateTime)),
+  required: Type.Optional(Type.Boolean()),
+  completion: Type.Optional(CompletionRuleSchema),
 });
 
 export const CopyContentRequestSchema = Type.Object({ sourceOfferingId: Id });

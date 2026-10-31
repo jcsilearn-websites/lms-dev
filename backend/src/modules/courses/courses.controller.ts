@@ -54,6 +54,8 @@ export function toOfferingDto(r: Row) {
     termName: r.term_name as string,
     status: r.status as 'draft' | 'published' | 'archived',
     copyStatus: r.copy_status as string,
+    completionThreshold: Number(r.completion_threshold),
+    behindAfterDays: Number(r.behind_after_days),
     myParticipation: str(r.my_participation) as 'instructor' | 'assistant' | 'learner' | null,
     sectionCount: r.section_count as number,
     createdAt: iso(r.created_at),

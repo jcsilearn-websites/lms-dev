@@ -189,10 +189,30 @@ await withStack(
               .first()
               .waitFor();
             await t.snap('video-dialog');
+            // the builder's archive explanation (the demo learner has progress on this item)
+            await t.pg.getByRole('button', { name: 'Cancel' }).click();
+            await t.pg.getByRole('button', { name: /^Delete Getting started: reading 1/ }).click();
+            await t.pg.getByRole('dialog', { name: /Archive/ }).waitFor();
+            await t.snap('builder-archive');
+            await t.pg.getByRole('button', { name: 'Cancel' }).click();
+            // the class progress page, with a learner opened item by item
+            await t.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/progress`);
+            await t.pg.getByText('Maya Mentee').first().waitFor();
+            await t.snap('class-progress');
+            await t.pg.getByRole('button', { name: 'Details of Lena Learner' }).click();
+            await t.pg
+              .getByRole('dialog')
+              .getByText(/watched \d+%/)
+              .waitFor();
+            await t.snap('class-progress-learner');
             await t.c.close();
 
             const l = await signedIn(demo.learnerEmail);
-            await l.pg.getByRole('link', { name: new RegExp(COURSE_TITLE) }).waitFor();
+            await l.pg
+              .getByRole('link', { name: new RegExp(COURSE_TITLE) })
+              .first()
+              .waitFor();
+            await l.pg.getByRole('progressbar', { name: /Progress in/ }).waitFor();
             await l.snap('my-courses');
             await l.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}`);
             await l.pg.getByText(/Available from/).waitFor();

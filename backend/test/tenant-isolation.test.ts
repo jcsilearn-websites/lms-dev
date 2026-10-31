@@ -82,6 +82,7 @@ describe('tenant isolation (RLS)', () => {
       'content_items',
       'video_assets',
       'video_captions',
+      'item_progress',
     ]) {
       const { rows } = await rawApp.query(`SELECT 1 FROM lms.${table}`);
       expect(rows, table).toHaveLength(0);
@@ -277,6 +278,7 @@ describe('lms_app privileges', () => {
         'files',
         'import_jobs',
         'import_rows',
+        'item_progress',
         'jobs',
         'member_profiles',
         'offering_sections',

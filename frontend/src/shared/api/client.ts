@@ -28,6 +28,8 @@ export interface ApiOptions {
   /** Query string values; undefined, null and '' are left out. */
   query?: Record<string, string | number | boolean | null | undefined>;
   signal?: AbortSignal | undefined;
+  /** Lets the request finish after the page is gone (page hide). Not sendBeacon: CSRF needs the X-Requested-With header. */
+  keepalive?: boolean;
   /**
    * A 401 on this call means "not signed in", which is an ordinary answer (login page, /auth/me):
    * do not clear the cache and redirect.
@@ -85,6 +87,7 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
       headers,
       body,
       signal: opts.signal,
+      ...(opts.keepalive ? { keepalive: true } : {}),
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err;

@@ -38,6 +38,7 @@ import {
   tenantMemberships,
 } from '../src/modules/memberships/memberships.model';
 import { memberProfiles, profileType } from '../src/modules/profiles/profiles.model';
+import { itemProgress } from '../src/modules/progress/progress.model';
 import { sessions } from '../src/modules/sessions/sessions.model';
 import { tenantSettings, tenantStatus, tenants } from '../src/modules/tenants/tenants.model';
 import { users } from '../src/modules/users/users.model';
@@ -86,6 +87,7 @@ const schema = {
   contentItems,
   videoAssets,
   videoCaptions,
+  itemProgress,
 };
 
 import { testOwnerPool } from './support';

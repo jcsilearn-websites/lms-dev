@@ -12,6 +12,11 @@ import { FRONTEND, MAIL_FILE } from './stack.mjs';
 export const INSTRUCTOR = 'member@e2e-one.test'; // seeded member with the E2E password
 export const LEARNER = 'lh.learner@e2e-one.test';
 export const COURSE_TITLE = 'Introduction to Programming';
+/** two more learners for the class progress screens (the first one, LEARNER, does most of the work) */
+export const MORE_LEARNERS = [
+  ['lh.maya@e2e-one.test', 'Maya Mentee'],
+  ['lh.noah@e2e-one.test', 'Noah Newcomer'],
+];
 
 const doc = (...paragraphs) => ({
   type: 'doc',
@@ -189,6 +194,28 @@ export async function seedCourseDemo({ webPort, password }) {
     }),
     'learner',
   );
+  for (const [email, displayName] of MORE_LEARNERS) {
+    const invite = await admin.post('auth/invites', {
+      data: { email, role: 'member', displayName },
+    });
+    if (!invite.ok()) throw new Error(`demo invite of ${email} failed: ${invite.status()}`);
+    const who = await api(webPort);
+    await must(
+      await who.post('auth/invites/accept', { data: { token: inviteToken(email), password } }),
+      'accept invite',
+    );
+    await who.dispose();
+    const found = await must(await admin.get(`members?q=${email.split('@')[0]}`), 'members');
+    await must(
+      await admin.post(`offerings/${offering.id}/participants`, {
+        data: {
+          userId: found.items.find((m) => m.email === email)?.userId,
+          participation: 'learner',
+        },
+      }),
+      'more learners',
+    );
+  }
   await admin.dispose();
 
   // content, built by the instructor
@@ -278,6 +305,44 @@ export async function seedCourseDemo({ webPort, password }) {
   }
   await must(await teach.post(`offerings/${offering.id}/publish`), 'publish');
   await teach.dispose();
+
+  // learning progress: the learner has done a good part of the course and half-watched the video; Maya a little
+  const doSome = async (email, count, watch) => {
+    const l = await api(webPort, email, password);
+    const mine = await must(await l.get(`offerings/${offering.id}/progress`), 'progress');
+    const todo = mine.items.filter((i) => i.status === 'not_started' && i.itemId !== videoItemId);
+    for (const i of todo.slice(0, count)) {
+      // text is marked by hand; a link completes when it is opened (the API says which with a 409)
+      const done = await l.post(`offerings/${offering.id}/items/${i.itemId}/progress/complete`);
+      if (done.status() === 409) {
+        await must(
+          await l.post(`offerings/${offering.id}/items/${i.itemId}/progress/viewed`),
+          'viewed',
+        );
+      } else {
+        await must(done, 'complete');
+      }
+    }
+    if (watch) {
+      const item = await must(await l.get(`offerings/${offering.id}/items/${videoItemId}`), 'item');
+      await must(
+        await l.post(`offerings/${offering.id}/items/${videoItemId}/progress/heartbeat`, {
+          data: {
+            videoId: item.video.id,
+            streamId: '0b000000-0000-7000-8000-00000000000a',
+            seq: 1,
+            ranges: [[0, 4]],
+            position: 4,
+            rate: 1,
+          },
+        }),
+        'heartbeat',
+      );
+    }
+    await l.dispose();
+  };
+  await doSome(LEARNER, 14, true);
+  await doSome(MORE_LEARNERS[0][0], 5, false);
   return {
     offeringId: offering.id,
     videoItemId,

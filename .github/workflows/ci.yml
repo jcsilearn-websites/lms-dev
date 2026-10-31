@@ -15,11 +15,12 @@ concurrency:
 permissions:
   contents: read
 
+# Every job runs on ubuntu-24.04, NOT ubuntu-latest: the OS changes only when we decide (CLAUDE.md, "CI runner").
 jobs:
   # Secret scan of the FULL history (and so of every new commit / PR commit). Rules: .gitleaks.toml.
   secrets:
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -35,7 +36,7 @@ jobs:
 
   verify:
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     services:
@@ -103,7 +104,7 @@ jobs:
   # Bundle budgets: login page <= 125 KB gzip (initial load), every route <= 150 KB gzip.
   bundle-size:
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
@@ -119,7 +120,7 @@ jobs:
   # Playwright end-to-end tests (headless Chromium) against the real API, worker and PostgreSQL.
   e2e:
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -167,7 +168,7 @@ jobs:
   # Lighthouse (mobile preset) on the login page and the members list: performance >= 90, accessibility >= 95.
   lighthouse:
     if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       postgres:
@@ -215,7 +216,7 @@ jobs:
   # affected tests only; see "Verification policy" in CLAUDE.md.
   flakiness:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     services:
       postgres:

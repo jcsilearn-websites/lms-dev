@@ -1,10 +1,12 @@
-import type { OfferingDto } from '@lms/backend/contracts';
+import type { MyOfferingsProgress, OfferingDto } from '@lms/backend/contracts';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Badge } from '../../shared/ui/layout';
 import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/states';
 import { usePermissions } from '../auth/useMe';
 import { courseKeys, listMyCourses } from '../courses/courses.api';
+import { ProgressBar } from '../progress/ProgressBar';
+import { getMyOfferingsProgress, progressKeys } from '../progress/progress.api';
 
 const ROLE: Record<string, string> = {
   instructor: 'Instructor',
@@ -12,7 +14,9 @@ const ROLE: Record<string, string> = {
   learner: 'Learner',
 };
 
-function CourseCard({ o }: { o: OfferingDto }) {
+type OfferingProgress = MyOfferingsProgress['offerings'][number];
+
+function CourseCard({ o, progress }: { o: OfferingDto; progress: OfferingProgress | undefined }) {
   return (
     <li>
       <Link
@@ -28,9 +32,22 @@ function CourseCard({ o }: { o: OfferingDto }) {
           {o.myParticipation && <Badge>{ROLE[o.myParticipation]}</Badge>}
           {o.status === 'draft' && <Badge tone="warning">Draft</Badge>}
         </span>
+        {progress && progress.totalRequired > 0 && (
+          <ProgressBar
+            percent={progress.percent}
+            label={`Progress in ${o.title}`}
+            detail={`${progress.completedRequired} of ${progress.totalRequired}`}
+          />
+        )}
       </Link>
     </li>
   );
+}
+
+function formatPosition(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = String(seconds % 60).padStart(2, '0');
+  return `${m}:${s}`;
 }
 
 /** Home: "My courses" for everyone, plus shortcuts to the tools an administrator has. */
@@ -40,6 +57,14 @@ export function DashboardPage() {
     queryKey: [...courseKeys.mine, 'home'],
     queryFn: ({ signal }) => listMyCourses(undefined, signal),
   });
+  // progress is a small separate read: the course cards never wait for it
+  const progress = useQuery({
+    queryKey: progressKeys.me,
+    queryFn: ({ signal }) => getMyOfferingsProgress(signal),
+    staleTime: 30_000,
+  });
+  const progressOf = new Map(progress.data?.offerings.map((p) => [p.offeringId, p]));
+  const resume = progress.data?.resume ?? null;
   const shortcuts = [
     { to: '/courses', label: 'Courses', hint: 'The catalog of the college', perm: 'course.read' },
     {
@@ -72,6 +97,25 @@ export function DashboardPage() {
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-semibold">Welcome{me ? `, ${me.user.displayName}` : ''}</h1>
+      {resume && (
+        <section aria-labelledby="continue">
+          <h2 id="continue" className="mb-3 text-lg font-semibold">
+            Continue where you left off
+          </h2>
+          <Link
+            to={`/offerings/${resume.offeringId}/items/${resume.itemId}` as '/'}
+            className="flex min-h-11 flex-col gap-1 rounded-md border border-border bg-surface p-4 hover:bg-muted"
+          >
+            <span className="font-semibold text-primary">{resume.itemTitle}</span>
+            <span className="text-sm text-muted-foreground">
+              {resume.offeringTitle}
+              {resume.kind === 'video' && resume.positionSeconds > 0
+                ? ` · resumes at ${formatPosition(resume.positionSeconds)}`
+                : ''}
+            </span>
+          </Link>
+        </section>
+      )}
       <section aria-labelledby="my-courses">
         <h2 id="my-courses" className="mb-3 text-lg font-semibold">
           My courses
@@ -100,7 +144,7 @@ export function DashboardPage() {
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((o) => (
-              <CourseCard key={o.id} o={o} />
+              <CourseCard key={o.id} o={o} progress={progressOf.get(o.id)} />
             ))}
           </ul>
         )}

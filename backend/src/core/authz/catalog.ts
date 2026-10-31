@@ -28,6 +28,8 @@ export const PERMISSION_GROUPS = {
     'submission.grade',
     'grade.finalize',
     'grade.view_own',
+    'progress.record',
+    'progress.view_class',
   ],
   platform: [
     'platform.tenant.read',
@@ -76,6 +78,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
   'course.edit': 'Edit the content of an offering (modules, items, files)',
   'course.publish': 'Publish and unpublish an offering; copy content from another offering',
   'content.view': 'View the content of an offering',
+  'progress.record': 'Record your own learning progress (watching, opening, marking done)',
+  'progress.view_class': 'View the learning progress of the learners of an offering; export it',
   'assessment.create': 'Create assessments',
   'submission.create': 'Submit work',
   'submission.grade': 'Grade submissions',
