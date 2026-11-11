@@ -5,12 +5,13 @@ const Id = Type.String({ format: 'uuid' });
 const DateTime = Type.String({ format: 'date-time' });
 const Nullable = <T extends ReturnType<typeof Type.String>>(t: T) => Type.Union([Type.Null(), t]);
 
-export const CONTENT_KINDS = ['text', 'file', 'link', 'video'] as const;
+export const CONTENT_KINDS = ['text', 'file', 'link', 'video', 'assessment'] as const;
 export const ContentKindSchema = Type.Union([
   Type.Literal('text'),
   Type.Literal('file'),
   Type.Literal('link'),
   Type.Literal('video'),
+  Type.Literal('assessment'),
 ]);
 export type ContentKind = Static<typeof ContentKindSchema>;
 
@@ -18,6 +19,8 @@ export const CompletionRuleSchema = Type.Union([
   Type.Literal('manual'),
   Type.Literal('on_view'),
   Type.Literal('watch'),
+  // an assessment item: done when the learner submits an attempt
+  Type.Literal('on_submit'),
 ]);
 export type CompletionRule = Static<typeof CompletionRuleSchema>;
 

@@ -148,6 +148,11 @@ const storageFields = {
   // an unreferenced file is deleted this long after upload confirmation / its last reference was removed
   FILE_PURGE_GRACE_HOURS: Type.Integer({ minimum: 0, default: 24 }),
   FILE_PURGE_INTERVAL_SECONDS: Type.Integer({ minimum: 1, default: 3600 }),
+  // assessments (step 9): answers are accepted this long after the server deadline (network delay), then the attempt is
+  // closed; the worker's sweeper closes attempts nobody submitted every ASSESSMENT_SWEEP_SECONDS, ...BATCH at a time
+  ASSESSMENT_SAVE_GRACE_SECONDS: Type.Integer({ minimum: 0, maximum: 300, default: 30 }),
+  ASSESSMENT_SWEEP_SECONDS: Type.Integer({ minimum: 1, maximum: 3600, default: 15 }),
+  ASSESSMENT_SWEEP_BATCH: Type.Integer({ minimum: 1, maximum: 1000, default: 200 }),
 };
 
 /**

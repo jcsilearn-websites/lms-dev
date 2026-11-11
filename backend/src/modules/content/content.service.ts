@@ -36,7 +36,7 @@ export type { Row } from './content.repository';
 export const COPY_INLINE_LIMIT = 500;
 
 export interface ItemInput {
-  kind: 'text' | 'file' | 'link' | 'video';
+  kind: 'text' | 'file' | 'link' | 'video' | 'assessment';
   title: string;
   body?: unknown;
   fileId?: string | undefined;
@@ -45,7 +45,7 @@ export interface ItemInput {
   published?: boolean | undefined;
   availableFrom?: string | null | undefined;
   required?: boolean | undefined;
-  completion?: 'manual' | 'on_view' | 'watch' | undefined;
+  completion?: 'manual' | 'on_view' | 'watch' | 'on_submit' | undefined;
   after?: string | null | undefined;
 }
 
@@ -58,12 +58,20 @@ export interface ItemChange {
   published?: boolean | undefined;
   availableFrom?: string | null | undefined;
   required?: boolean | undefined;
-  completion?: 'manual' | 'on_view' | 'watch' | undefined;
+  completion?: 'manual' | 'on_view' | 'watch' | 'on_submit' | undefined;
 }
 
 /** The completion rule an item gets when the instructor does not choose: text is marked done, a file or link counts when opened, a video when enough of it was watched. */
-export const defaultCompletion = (kind: ItemInput['kind']): 'manual' | 'on_view' | 'watch' =>
-  kind === 'text' ? 'manual' : kind === 'video' ? 'watch' : 'on_view';
+export const defaultCompletion = (
+  kind: ItemInput['kind'],
+): 'manual' | 'on_view' | 'watch' | 'on_submit' =>
+  kind === 'text'
+    ? 'manual'
+    : kind === 'video'
+      ? 'watch'
+      : kind === 'assessment'
+        ? 'on_submit'
+        : 'on_view';
 
 /** An http(s) address, normalised; anything else (javascript:, data:, mailto: ...) is refused. */
 function cleanUrl(raw: string): string {
@@ -273,6 +281,11 @@ export function createContentService(deps: {
           throw new InvalidItemError();
         }
         v.fileId = input.fileId;
+      } else if (input.kind === 'assessment') {
+        // its settings row is created by the database (trigger); the questions are set on the assessment endpoints
+        if (input.body !== undefined || input.fileId || input.url || input.videoId) {
+          throw new InvalidItemError();
+        }
       } else if (input.kind === 'video') {
         if (!input.videoId || input.body !== undefined || input.fileId || input.url) {
           throw new InvalidItemError();

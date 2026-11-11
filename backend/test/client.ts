@@ -61,6 +61,9 @@ export class TestClient {
   post(url: string, body?: unknown, opts?: RequestOptions) {
     return this.request('POST', url, { ...opts, body });
   }
+  put(url: string, body?: unknown, opts?: RequestOptions) {
+    return this.request('PUT', url, { ...opts, body });
+  }
   patch(url: string, body?: unknown, opts?: RequestOptions) {
     return this.request('PATCH', url, { ...opts, body });
   }

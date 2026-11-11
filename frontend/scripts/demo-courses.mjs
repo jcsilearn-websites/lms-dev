@@ -343,9 +343,116 @@ export async function seedCourseDemo({ webPort, password }) {
   };
   await doSome(LEARNER, 14, true);
   await doSome(MORE_LEARNERS[0][0], 5, false);
+
+  // assessments: a bank of 20 questions, an exam the learner has STARTED (the exam screen) and a quiz the learner has
+  // HANDED IN with the results shown at once (the result screen)
+  const teach2 = await api(webPort, INSTRUCTOR, password);
+  const mod = await must(
+    await teach2.post(`offerings/${offering.id}/modules`, { data: { title: 'Assessments' } }),
+    'assessment module',
+  );
+  await must(
+    await teach2.patch(`offerings/${offering.id}/modules/${mod.id}`, { data: { published: true } }),
+    'show assessment module',
+  );
+  const questionIds = [];
+  for (let n = 1; n <= 20; n++) {
+    const q = await must(
+      await teach2.post(`courses/${course.id}/questions`, {
+        data: {
+          type: n % 5 === 0 ? 'multiple_choice' : 'single_choice',
+          difficulty: n % 3 === 0 ? 'hard' : 'easy',
+          stem: doc(`Question ${n}: which statement about ${topics[n % topics.length]} is true?`),
+          options: [
+            { text: doc('The first statement'), correct: true },
+            { text: doc('The second statement'), correct: n % 5 === 0 },
+            { text: doc('The third statement'), correct: false },
+            { text: doc('The fourth statement'), correct: false },
+          ],
+          tags: ['demo'],
+        },
+      }),
+      'question',
+    );
+    questionIds.push(q.id);
+  }
+  const makeAssessment = async (title, settings) => {
+    const item = await must(
+      await teach2.post(`offerings/${offering.id}/modules/${mod.id}/items`, {
+        data: { kind: 'assessment', title, published: true },
+      }),
+      'assessment item',
+    );
+    await must(
+      await teach2.put(`offerings/${offering.id}/items/${item.id}/assessment`, { data: settings }),
+      'settings',
+    );
+    await must(
+      await teach2.put(`offerings/${offering.id}/items/${item.id}/assessment/slots`, {
+        data: {
+          slots: questionIds.map((questionId) => ({ kind: 'fixed', questionId, points: 1 })),
+        },
+      }),
+      'slots',
+    );
+    return item.id;
+  };
+  const examItemId = await makeAssessment('Midterm exam', {
+    kind: 'exam',
+    timeLimitMinutes: 90,
+    attemptsAllowed: 2,
+    shuffleQuestions: true,
+    shuffleOptions: true,
+    resultsVisibility: 'immediate',
+    answersVisibility: 'never',
+  });
+  const quizItemId = await makeAssessment('Quick quiz', {
+    kind: 'practice',
+    attemptsAllowed: 3,
+    resultsVisibility: 'immediate',
+    answersVisibility: 'after_release',
+  });
+  await teach2.dispose();
+  const learner = await api(webPort, LEARNER, password);
+  const exam = await must(
+    await learner.post(`offerings/${offering.id}/items/${examItemId}/attempts`, { data: {} }),
+    'start exam',
+  );
+  const quiz = await must(
+    await learner.post(`offerings/${offering.id}/items/${quizItemId}/attempts`, { data: {} }),
+    'start quiz',
+  );
+  const paper = await must(
+    await learner.get(`offerings/${offering.id}/attempts/${quiz.attemptId}`),
+    'quiz paper',
+  );
+  await must(
+    await learner.put(`offerings/${offering.id}/attempts/${quiz.attemptId}/answers`, {
+      data: {
+        answers: paper.questions.slice(0, 14).map((q, i) => ({
+          position: q.position,
+          answer: { o: [q.options[0].id] },
+          rev: 1,
+          at: Date.now() + i,
+        })),
+        events: [],
+      },
+    }),
+    'quiz answers',
+  );
+  await must(
+    await learner.post(`offerings/${offering.id}/attempts/${quiz.attemptId}/submit`, { data: {} }),
+    'submit quiz',
+  );
+  await learner.dispose();
   return {
     offeringId: offering.id,
+    courseId: course.id,
     videoItemId,
+    examItemId,
+    quizItemId,
+    examAttemptId: exam.attemptId,
+    resultAttemptId: quiz.attemptId,
     learnerEmail: LEARNER,
     instructorEmail: INSTRUCTOR,
   };

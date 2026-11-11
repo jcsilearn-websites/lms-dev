@@ -16,6 +16,14 @@ export function createFilesRoutes(deps: {
       },
       c.requestUpload,
     );
+    app.post(
+      '/courses/:courseId/files',
+      {
+        config: { permission: 'question.manage', scope: 'course' },
+        schema: s.requestCourseUploadRouteSchema,
+      },
+      c.requestCourseUpload,
+    );
     // the uploader confirms their own file; the service checks `created_by` (and the offering was checked
     // when the upload was requested)
     app.post(

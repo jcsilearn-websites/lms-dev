@@ -40,20 +40,24 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `course.edit` |  |  |  | yes |  |  | Edit the content of an offering (modules, items, files) |
 | `course.publish` |  |  |  | yes |  |  | Publish and unpublish an offering; copy content from another offering |
 | `content.view` |  | yes |  | yes | yes | yes | View the content of an offering |
-| `assessment.create` |  |  |  | yes |  |  | Create assessments |
-| `submission.create` |  |  |  |  |  | yes | Submit work |
-| `submission.grade` |  |  |  | yes | yes |  | Grade submissions |
-| `grade.finalize` |  |  |  | yes |  |  | Finalize grades |
-| `grade.view_own` |  |  |  |  |  | own only | See your own grades only |
+| `assessment.create` |  |  |  | yes |  |  | Build assessments, set accommodations |
+| `submission.create` |  |  |  |  |  | yes | Take assessments (start, answer and submit attempts) |
+| `submission.grade` |  |  |  | yes | yes |  | Grade answers and see attempts (instructors and assistants) |
+| `grade.finalize` |  |  |  | yes |  |  | Regrade and release the results of an assessment |
+| `grade.view_own` |  |  |  |  |  | own only | See your own results (as far as the assessment allows) |
 | `progress.record` |  |  |  |  |  | yes | Record your own learning progress (watching, opening, marking done) |
 | `progress.view_class` |  | yes |  | yes | yes |  | View the learning progress of the learners of an offering; export it |
+| `question.read` |  | yes |  | yes | yes |  | See the question bank of a course (with the answer keys) |
+| `question.manage` |  |  |  | yes |  |  | Create, edit (new version), archive and import questions of a course |
+| `assessment.analyze` |  |  |  | yes |  |  | See the item analysis of an assessment |
+| `assessment.view_accommodations` |  | yes |  | yes |  |  | See the accommodations (extra time) of the learners of an assessment, and their reasons |
 | **platform** | | | | | | | |
 | `platform.tenant.read` | yes |  |  |  |  |  | View colleges and (audited) their members |
 | `platform.tenant.manage` | yes |  |  |  |  |  | Create, rename, suspend colleges and invite their admins |
 | `platform.audit.read` | yes |  |  |  |  |  | Read the platform audit log |
 | `platform.user.unlock` | yes |  |  |  |  |  | Clear a login lockout (admin host) |
 
-33 permissions. Notes:
+37 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
 - "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
@@ -94,6 +98,22 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/batches/:id/unarchive` | `academic.manage` |
 | GET | `/api/courses` | `course.read` |
 | POST | `/api/courses` | `course.create` |
+| POST | `/api/courses/:courseId/files` | `question.manage` in any offering of the course |
+| POST | `/api/courses/:courseId/question-imports` | `question.manage` in any offering of the course |
+| GET | `/api/courses/:courseId/question-imports/:importId` | `question.manage` in any offering of the course |
+| POST | `/api/courses/:courseId/question-imports/:importId/cancel` | `question.manage` in any offering of the course |
+| POST | `/api/courses/:courseId/question-imports/:importId/confirm` | `question.manage` in any offering of the course |
+| GET | `/api/courses/:courseId/question-imports/:importId/rows` | `question.manage` in any offering of the course |
+| GET | `/api/courses/:courseId/question-imports/template.csv` | `question.manage` in any offering of the course |
+| GET | `/api/courses/:courseId/question-tags` | `question.read` in any offering of the course |
+| GET | `/api/courses/:courseId/questions` | `question.read` in any offering of the course |
+| POST | `/api/courses/:courseId/questions` | `question.manage` in any offering of the course |
+| GET | `/api/courses/:courseId/questions/:questionId` | `question.read` in any offering of the course |
+| PUT | `/api/courses/:courseId/questions/:questionId` | `question.manage` in any offering of the course |
+| POST | `/api/courses/:courseId/questions/:questionId/archive` | `question.manage` in any offering of the course |
+| GET | `/api/courses/:courseId/questions/:questionId/files/:fileId` | `question.read` in any offering of the course |
+| POST | `/api/courses/:courseId/questions/:questionId/unarchive` | `question.manage` in any offering of the course |
+| GET | `/api/courses/:courseId/questions/:questionId/versions` | `question.read` in any offering of the course |
 | GET | `/api/courses/:id` | `course.read` |
 | PATCH | `/api/courses/:id` | `course.manage` |
 | GET | `/api/departments` | `academic.read` |
@@ -133,11 +153,35 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/offerings/:id` | `content.view` in the offering |
 | PATCH | `/api/offerings/:id` | `offering.manage` in the offering |
 | POST | `/api/offerings/:id/archive` | `offering.manage` in the offering |
+| GET | `/api/offerings/:id/attempts/:attemptId` | `submission.create` in the offering |
+| PUT | `/api/offerings/:id/attempts/:attemptId/answers` | `submission.create` in the offering |
+| PUT | `/api/offerings/:id/attempts/:attemptId/feedback` | `submission.grade` in the offering |
+| GET | `/api/offerings/:id/attempts/:attemptId/files/:fileId` | `submission.create` in the offering |
+| GET | `/api/offerings/:id/attempts/:attemptId/grading` | `submission.grade` in the offering |
+| PUT | `/api/offerings/:id/attempts/:attemptId/questions/:position/grade` | `submission.grade` in the offering |
+| GET | `/api/offerings/:id/attempts/:attemptId/result` | `grade.view_own` in the offering |
+| POST | `/api/offerings/:id/attempts/:attemptId/submit` | `submission.create` in the offering |
 | POST | `/api/offerings/:id/copy` | `course.publish` in the offering |
 | POST | `/api/offerings/:id/files` | `course.edit` in the offering |
 | DELETE | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
 | GET | `/api/offerings/:id/items/:itemId` | `content.view` in the offering |
 | PATCH | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment` | `assessment.create` in the offering |
+| PUT | `/api/offerings/:id/items/:itemId/assessment` | `assessment.create` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment/accommodations` | `assessment.view_accommodations` in the offering |
+| DELETE | `/api/offerings/:id/items/:itemId/assessment/accommodations/:participantId` | `assessment.create` in the offering |
+| PUT | `/api/offerings/:id/items/:itemId/assessment/accommodations/:participantId` | `assessment.create` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment/analysis` | `assessment.analyze` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment/attempts` | `submission.grade` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment/grading/answers` | `submission.grade` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment/grading/summary` | `submission.grade` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment/me` | `submission.create` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment/preview` | `assessment.create` in the offering |
+| POST | `/api/offerings/:id/items/:itemId/assessment/regrade` | `grade.finalize` in the offering |
+| GET | `/api/offerings/:id/items/:itemId/assessment/regrades` | `grade.finalize` in the offering |
+| POST | `/api/offerings/:id/items/:itemId/assessment/release` | `grade.finalize` in the offering |
+| PUT | `/api/offerings/:id/items/:itemId/assessment/slots` | `assessment.create` in the offering |
+| POST | `/api/offerings/:id/items/:itemId/attempts` | `submission.create` in the offering |
 | GET | `/api/offerings/:id/items/:itemId/download` | `content.view` in the offering |
 | POST | `/api/offerings/:id/items/:itemId/move` | `course.edit` in the offering |
 | POST | `/api/offerings/:id/items/:itemId/playback` | `content.view` in the offering |

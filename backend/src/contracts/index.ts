@@ -1,6 +1,7 @@
 // Shared API contracts. The ONLY backend entrypoint the frontend may import
 // (package.json "exports": "./contracts"). Keep this folder free of Node/server dependencies.
 export * from './academics';
+export * from './assessments';
 export * from './audit';
 export * from './auth';
 export * from './content';
@@ -13,6 +14,7 @@ export * from './members';
 export * from './platform';
 export * from './profiles';
 export * from './progress';
+export * from './questions';
 export * from './roles';
 export * from './tenant';
 export * from './video';

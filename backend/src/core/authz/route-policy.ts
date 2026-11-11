@@ -15,14 +15,17 @@ import { can } from './policy';
 //                                           (instructor, assistant, learner). The route hook can only require
 //                                           a session; the service resolves the participation and answers 404
 //                                           for a non-participant and 403 for a participant without the permission.
+//   config: { permission: 'question.manage', scope: 'course' }
+//                                           the same for the question bank: granted by a participation (instructor ...)
+//                                           in ANY offering of the course
 //   config: { authenticated: true }         any signed-in user
 //   config: { public: true }                no sign-in needed (login, health probes, ...)
 declare module 'fastify' {
   interface FastifyContextConfig {
     /** One permission, or several of which ANY suffices (the service then decides which applies). */
     permission?: Permission | readonly Permission[];
-    /** 'offering': the permission is decided from the caller's participation by the service. */
-    scope?: 'offering';
+    /** 'offering' / 'course': the permission is decided from the caller's participation by the service. */
+    scope?: 'offering' | 'course';
     authenticated?: boolean;
     public?: boolean;
   }
@@ -30,7 +33,7 @@ declare module 'fastify' {
 
 export interface RouteDeclaration {
   permission?: Permission | readonly Permission[] | undefined;
-  scope?: 'offering' | undefined;
+  scope?: 'offering' | 'course' | undefined;
   authenticated?: boolean | undefined;
   public?: boolean | undefined;
 }
@@ -92,7 +95,7 @@ export function registerRoutePolicy(app: FastifyInstance): void {
       );
     }
     // an offering-scoped permission cannot be decided without the offering: the service does it
-    if (config?.permission !== undefined && config.scope === 'offering')
+    if (config?.permission !== undefined && config.scope !== undefined)
       guard = requireAuthenticated;
     else if (config?.permission !== undefined) guard = requirePermission(config.permission);
     else if (config?.authenticated === true) guard = requireAuthenticated;

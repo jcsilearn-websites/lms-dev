@@ -1,6 +1,13 @@
 import { sql } from 'drizzle-orm';
 import type { Executor } from '../../db/client';
-import { type AccessRow, type AccessSpec, accessCte } from '../courses';
+import {
+  type AccessRow,
+  type AccessSpec,
+  accessCte,
+  type CourseAccessRow,
+  type CourseAccessSpec,
+  courseAccessCte,
+} from '../courses';
 
 // SQL only. One statement per function.
 export type Row = Record<string, unknown>;
@@ -28,6 +35,30 @@ export function createFilesRepository() {
         SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, (SELECT to_jsonb(ins) FROM ins) AS row`);
       const r = res.rows[0];
       return { acc: asAcc(r?.acc), row: (r?.row as Row | null) ?? null };
+    },
+
+    /** The same for an image of a question: the caller needs `question.manage` in the COURSE. */
+    async createPendingForCourse(
+      tx: Executor,
+      a: CourseAccessSpec,
+      f: { id: string; storageKey: string; name: string; contentType: string; size: number },
+      createdBy: string,
+    ): Promise<{ acc: CourseAccessRow | null; row: Row | null }> {
+      const res = await tx.execute(sql`
+        WITH ${courseAccessCte(a)},
+        ins AS (
+          INSERT INTO lms.files (id, tenant_id, storage_key, original_name, content_type, declared_size, created_by)
+          SELECT ${f.id}::uuid, ${a.tenantId}::uuid, ${f.storageKey}, ${f.name}, ${f.contentType}, ${f.size}::bigint,
+                 ${createdBy}::uuid
+            FROM acc WHERE acc.visible AND acc.allowed
+          RETURNING id, original_name, content_type, declared_size AS size, status, created_at, storage_key
+        )
+        SELECT (SELECT to_jsonb(acc) FROM acc) AS acc, (SELECT to_jsonb(ins) FROM ins) AS row`);
+      const r = res.rows[0];
+      return {
+        acc: (r?.acc as CourseAccessRow | null) ?? null,
+        row: (r?.row as Row | null) ?? null,
+      };
     },
 
     /** A file the caller uploaded (the only one who may confirm it). */

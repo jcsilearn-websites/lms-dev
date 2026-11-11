@@ -11,6 +11,7 @@ import { Field } from '../../shared/ui/field';
 import { Select } from '../../shared/ui/select';
 import { Skeleton } from '../../shared/ui/states';
 import { toast } from '../../shared/ui/toast';
+import { toLocalInput } from '../../shared/utils/datetime';
 import { VideoField } from '../video/VideoField';
 import { courseKeys, createItem, getItem, updateItem } from './courses.api';
 import { loadEditor } from './editor/loadEditor';
@@ -40,15 +41,10 @@ interface Values {
   completion: string;
 }
 
-export type ItemKindChoice = 'text' | 'file' | 'link' | 'video';
+export type ItemKindChoice = 'text' | 'file' | 'link' | 'video' | 'assessment';
 
-/** ISO time -> the value of an <input type="datetime-local"> in the viewer's time zone. */
-export function toLocalInput(iso: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+export { toLocalInput };
+
 const fromLocalInput = (v: string | undefined): string | null =>
   v ? new Date(v).toISOString() : null;
 
@@ -114,7 +110,7 @@ export function ItemDialog({
         availableFrom: fromLocalInput(v.availableFrom),
         required: v.required,
         // a video is completed by watching it: the server sets that rule
-        ...(kind === 'video' ? {} : { completion: v.completion }),
+        ...(kind === 'video' || kind === 'assessment' ? {} : { completion: v.completion }),
       };
       const extra =
         kind === 'link'
@@ -127,9 +123,11 @@ export function ItemDialog({
               ? videoId && videoId !== item?.video?.id
                 ? { videoId }
                 : {}
-              : bodyTouched || !editing
-                ? { body: body ?? { type: 'doc', content: [] } }
-                : {};
+              : kind === 'assessment'
+                ? {}
+                : bodyTouched || !editing
+                  ? { body: body ?? { type: 'doc', content: [] } }
+                  : {};
       if (item)
         return {
           saved: await updateItem(offeringId, item.id, { ...common, ...extra }),
@@ -178,7 +176,13 @@ export function ItemDialog({
     kind === 'video'
       ? videoReady && !videoBusy
       : kind !== 'file' || !!fileId || (editing && !!item?.file);
-  const label = { text: 'text', file: 'file', link: 'link', video: 'video' }[kind];
+  const label = {
+    text: 'text',
+    file: 'file',
+    link: 'link',
+    video: 'video',
+    assessment: 'quiz or exam',
+  }[kind];
   return (
     <Dialog open onClose={onClose} title={`${editing ? 'Edit' : 'Add'} ${label}`}>
       <form onSubmit={form.handleSubmit((v) => save.mutate(v))} noValidate className="space-y-4">
@@ -304,6 +308,11 @@ export function ItemDialog({
             <p className="text-sm text-muted-foreground">
               Completed when the learner has watched enough of the video (the share is a setting of
               the course).
+            </p>
+          ) : kind === 'assessment' ? (
+            <p className="text-sm text-muted-foreground">
+              Completed when the learner hands in an attempt. Set the questions, time limit and
+              dates on the assessment page after adding it.
             </p>
           ) : (
             <Select label="Completed when" {...form.register('completion')}>

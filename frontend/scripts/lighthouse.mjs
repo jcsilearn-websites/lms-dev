@@ -155,6 +155,18 @@ const rows = await withStack(
         cookie: learnerCookie,
       },
       {
+        // the exam screen of a learner (20 questions, the timer and the save status): must be light for cheap phones
+        name: 'Exam page',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/attempts/${demo.examAttemptId}/take`,
+        cookie: learnerCookie,
+      },
+      {
+        // the result of a handed-in quiz: score and the marks per question
+        name: 'Exam result',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/attempts/${demo.resultAttemptId}/result`,
+        cookie: learnerCookie,
+      },
+      {
         // the video item page: the player (hls.js) is a lazy chunk, the poster is the picture
         name: 'Video item',
         url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/items/${demo.videoItemId}`,

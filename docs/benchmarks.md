@@ -475,3 +475,54 @@ repaired for every learner whenever the DENOMINATOR changes (an item added, unpu
 **time itself**: an item whose `available_from` passes becomes part of everyone's total at that moment, which needs a scheduler to
 keep a counter right); (3) the learner's own views read only their own rows by primary-key prefix, never the class. If a college
 grows to a class view that must answer in a few milliseconds, add the counters then, behind the same repository function.
+
+
+## Step 9: quizzes and exams — 2026-10-31
+
+Reproduce with `pnpm --filter @lms/backend run bench:assessments` (a throwaway `bench-*` college in the dev database, deleted
+afterwards; `BENCH_LEARNERS`, `BENCH_CONNECTIONS`, `BENCH_REALISTIC_SECONDS`, `BENCH_WORST_SECONDS`, `BENCH_SATURATION_SECONDS`).
+4 x i3-1005G1 @ 1.20 GHz (2 cores really busy), Windows, PostgreSQL 17 on the same machine as the API and the load generator
+(they share the CPU: **a laptop, so read every number as a floor, not as a Cloud Run + Cloud SQL figure**).
+**1,500 learners**, one 60-minute exam of **50 questions** drawn by three random pools from a bank of 300 (20 easy single choice,
+20 medium multiple choice with partial credit, 10 hard numeric / short answer), shuffled questions and options, **no table
+statistics** (a college whose rows were just loaded) and autovacuum paused on the exam tables so it cannot analyze mid-run.
+Requests go over HTTP through the real API (sessions are inserted directly: a login hashes a password and 1,500 of them would
+take minutes).
+
+| what                                                                                                               | result                                                                                                                        |
+| ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| **start**: 1,500 learners (64 connections): one database call draws, shuffles and stores 50 questions              | 35 - 150 starts/s over three runs; all 1,500 started in **10 - 43 s** (target: within 60 s); p50 0.4 - 1.8 s, p99 0.6 - 2.0 s |
+| resume read (a page load: 50 questions with saved answers and revisions), 1,500 learners                           | 250 req/s, all in 6 s; p50 238 ms, p99 325 ms                                                                                 |
+| **autosave, realistic**: each learner changes an answer every ~30 s (**50 saves/s**), 30 s                         | **52 req/s, p50 22 ms, p99 160 ms**, 0 errors, every save applied                                                             |
+| **autosave, worst case**: everybody saves every 3 s (**500 saves/s**), 20 s                                        | **501 req/s, p50 47 ms, p99 109 ms**, 0 errors                                                                                |
+| autosave, saturation (as fast as this machine goes), 15 s                                                          | **592 - 672 req/s**, p50 94 - 103 ms, p99 120 - 180 ms, 0 errors                                                              |
+| **submit burst**: all 1,500 hand in at once; each call scores 50 answers                                           | 300 req/s, the whole class in **5 s**; p50 192 ms, p99 298 ms (the target was the last 2 minutes)                             |
+| **auto-submit with the browsers closed + grading time**: the sweeper closes and scores 1,500 x 50 = 75,000 answers | **3.9 - 4.1 s** in batches of 200, one statement each = 362 - 381 attempts/s; 0 attempts left open                            |
+| regrade of one question (credit) over 1,500 attempts: dry run / apply                                              | 39 - 46 ms / 73 ms                                                                                                            |
+| final scores of the offering (the gradebook interface), 1,500 learners                                             | 44 - 53 ms                                                                                                                    |
+| attempts list page (50 rows)                                                                                       | 5 ms                                                                                                                          |
+| item analysis of 1,500 attempts x 50 questions                                                                     | **417 ms** (9.3 s before the fix below)                                                                                       |
+
+How to read it:
+- The load pattern the product asked for (1,500 learners, a change every 20 - 40 s) is **50 saves/s: p99 160 ms and about a tenth of
+  what this laptop can do**. The worst case (everybody every 3 s) is **500/s, still p99 109 ms**; the save path does not degrade
+  until saturation at about 590/s, where the machine, not the database, is the limit (CPU shared with Node and the load tool).
+  Every statement on these paths is a primary-key or unique-key lookup (the attempt row, the 50 `attempt_questions` rows by
+  primary key, a version by unique key); no request scans the class.
+- Saves are HOT updates (the answer column has no index) on a `fillfactor 70` table, one row per question.
+- The start is the heaviest call (random draw of 50 from 100 candidates per pool, shuffle, 51 inserts). It varied a lot between
+  runs on this shared laptop: 150/s (10 s), 107/s (14 s) and, in the last run right after the suite, 35/s (43 s, p99 2 s). All are
+  inside the 60 s target but the 43 s one is not comfortable: the draw (`ORDER BY random()` over each pool's candidates) is the
+  place to optimise first if starts become the bottleneck on Cloud SQL (a pre-numbered candidate table would make it a lookup).
+- Grading the whole class at the deadline is **set based**: 200 attempts (10,000 answers) per statement, joined to the versions by
+  unique key (`LATERAL ... OFFSET 0`), scored by `lms.score_answer`; 1,500 x 50 in about 4 s. A person-graded essay is not in this number.
+
+What the benchmark found and fixed (the CLAUDE.md "planner lesson" again):
+1. **The item analysis took 9.3 s** for 1,500 x 50: the option distribution was read by a correlated subquery over a CTE that
+   PostgreSQL re-evaluated for every option of every question. `per` and `picks` are now `MATERIALIZED` (417 ms now).
+2. Nothing else was needed: the exam-time functions were written as unique-key lookups from the start, measured in the
+   statistics-free state, and the regrade and analysis statements use `MATERIALIZED` steps and one row per attempt before joining.
+
+Laptop caveat, again: the figures are for one 2-core laptop where the API, PostgreSQL and the load generator compete. Confirm on
+Cloud SQL (a separate host) before promising a number; autosave scales with API instances and database cores, because a save is one
+2-statement request on a stateless API.

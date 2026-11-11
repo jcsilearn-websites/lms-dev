@@ -11,6 +11,15 @@ import {
 
 const tags = ['files'];
 
+export const requestCourseUploadRouteSchema = {
+  tags,
+  summary:
+    'Ask for a signed URL to upload an IMAGE (PNG / JPEG) for a question of a course (instructors of any offering of it)',
+  params: Type.Object({ courseId: Type.String({ format: 'uuid' }) }),
+  body: RequestUploadSchema,
+  response: { 201: RequestUploadResponseSchema, 413: ErrorResponseSchema, ...COMMON_ERRORS },
+};
+
 export const requestUploadRouteSchema = {
   tags,
   summary:

@@ -5,7 +5,8 @@ Steps 1 (foundation), 1b (module-based restructure), 2 (authentication + tenant 
 budget + cleanup jobs), 4 (permission system + member and tenant management), 5 (academic structure, member
 profiles, bulk CSV import, Postgres job queue), 5b (the frontend for all of them) and 6 (courses, offerings,
 participation, course content, file storage; backend + frontend), 6b (soft removal, PostgreSQL 17 everywhere), 7 (video
-lessons behind provider interfaces; backend + frontend) and 8 (learning progress tracking; backend + frontend) are built. Do not build features beyond the current step without
+lessons behind provider interfaces; backend + frontend), 8 (learning progress tracking; backend + frontend) and 9 (quizzes and
+exams: question bank, assessments, attempt engine, grading; backend + frontend) are built. Do not build features beyond the current step without
 being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -49,13 +50,15 @@ backend/
     core/storage/   StorageProvider (local signed-URL driver, GCS stub), file types + magic bytes
     core/video/     VideoProvider (local = ffmpeg + HLS served by the API; gcp / bunny stubs), playback tokens, ffmpeg/ffprobe runner
     modules/<module>/   health, tenants (+tenant_settings), users, memberships, audit, sessions, auth,
-                        jobs (queue), academics, profiles, imports, courses, content, files, video, progress
+                        jobs (queue), academics, profiles, imports, courses, content, files, video, progress,
+                        questions (bank, versions, CSV import), assessments (settings, attempts, grading, regrade)
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
 frontend/src/
   app/              app shell, root layout (branding, 404 college), providers, router (one route tree per host kind), theme
-  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses, video, progress:
+  features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses, video, progress,
+                       assessments (bank/, builder/, grading/, exam/ + results):
                        <feature>.api.ts (typed with backend contracts), pages, hooks
   shared/           ui/ (button, field, select, dialog, data-table, toast, states), api/ (client, errors), forms/, utils/
 frontend/e2e/       Playwright specs + helpers   frontend/scripts/  stack, e2e, serve, bundle check, lighthouse, screenshots
@@ -373,6 +376,41 @@ Full reasoning, the integrity story and the numbers: `docs/adr/0016-learning-pro
   status), item page (Mark as done / not done, `on_view` completes on open), class progress page (lazy route, table, filters, learner
   drilldown dialog, CSV export, the two settings), builder (required + completion rule per item, archive explanation).
 
+## Quizzes and exams (step 9)
+
+Full reasoning, the leakage and integrity story: `docs/adr/0017-assessments.md`. Numbers: `docs/benchmarks.md` (Step 9).
+- **Question bank** (`questions` module, `/courses/:courseId/questions...`, `scope: 'course'`): questions belong to a COURSE, the
+  permission comes from participation in ANY offering of it (`courseAccessCte`; instructors manage, assistants + administrators
+  read). **Editing adds a VERSION** (`question_versions`, immutable: `lms_app` can only INSERT); an attempt points at the exact
+  versions it showed. A version has `presentation` (what a learner may be sent) and `answer_key` (never sent before release) in
+  two columns. **Option ids are random per option** (12 hex), kept when an option survives an edit (regrades need that).
+  Scoring is ONE SQL function `lms.score_answer` (single / multiple with partial credit / true-false / numeric with tolerance /
+  short answer normalised / essay manual). CSV import: synchronous, <= 1,000 rows, staged, same `checkCell` formula rules.
+  Images: `POST /courses/:id/files` (PNG/JPEG), `question_files` references protect them from the purge; a learner downloads an
+  image only through THEIR attempt that shows it.
+- **Assessment** = a content item of kind `assessment` (completion `on_submit`; a trigger creates its `assessments` row).
+  `assessment_slots` = fixed question or pool `(tag, difficulty, count)`. Copying an offering brings the item with DEFAULT settings.
+- **Attempt engine** (all learner calls are definer functions on an autocommit connection = **2 round trips**): `assessment_start`
+  (gate, window, attempts, draw, shuffle, server deadline `least(start + limit + accommodation, close)`, 24 h cap when nothing
+  limits it), `attempt_read` (no key by construction), `attempt_save` (batch; a change applies only if `(rev, client_at)` is higher;
+  `stale` returns what the server has; refused after `deadline + ASSESSMENT_SAVE_GRACE_SECONDS`), `attempt_submit` (idempotent),
+  `assessment_me`, `attempt_result` (visibility rules in `results_visible`). One active attempt per learner (partial unique index).
+  `attempts_finalize` scores a SET of attempts in one statement; `assessments.sweep` (worker, every `ASSESSMENT_SWEEP_SECONDS`)
+  closes attempts past deadline + grace with `SKIP LOCKED`. `lms_app` can UPDATE only the grading columns of attempts.
+- **Integrity log**: tab hidden / blur / offline events, informational only; the UI and ADR say what it cannot detect.
+- **Accommodations are sensitive**: `reason` is visible only to `assessment.view_accommodations` (instructors, institution admins:
+  NOT assistants), never in lists / exports, never in the audit entry (minutes and dates only). A test greps every audit row.
+- **Grading / regrade / release / analysis**: `submission.grade` (assistants too), `grade.finalize` (regrade, release),
+  `assessment.analyze` (instructors). Regrade (`rekey` only with the SAME option ids, `drop`, `credit`) is one set-based statement
+  with a dry run and an audit entry. The score that counts is exposed to step 11 as `lms.assessment_final_scores` /
+  `assessmentsService.finalScores()`; NO gradebook is built.
+- **Frontend**: the exam screen is its own small chunk. The answer queue (`features/assessments/exam/answerQueue.ts`, plain TS, unit
+  tested) saves on change (debounced ~1.8 s), at once on leaving a question / hiding the page / going online / submit, never on a
+  timer when nothing changed; it is DURABLE (`localStorage`, written before sending, removed when acknowledged, flushed before
+  "Saved" on load); revisions continue from the server's. The paper and the `/auth/me` answer are kept in the browser so a reload while
+  the API is unreachable still opens the exam. The countdown uses the monotonic clock from the server time it last received.
+  `check-bundle-size.mjs` allows the editor chunk from the question bank as well as the builder.
+
 ## Tenant-isolation rules (most important rules in the repo)
 
 1. Tenant data is touched ONLY through `db.withTenant(tenantId, async (tx) => …)` (opened by services). It opens a
@@ -548,6 +586,9 @@ every extra statement also holds a pooled connection longer. So round trips are 
   a video item is still ONE statement); a playback FILE request costs 0 after the first of its session (cache), the first costs 1.
   Step 8: heartbeat / viewed / complete / undo **2** (session lookup + one definer call); every progress read (`/progress`, `/me/progress`,
   class page, learner drilldown) 4; the CSV export costs one transaction per page of 100 learners.
+  Step 9: every learner exam call (start, read, autosave, submit, my page, result) **2** (session lookup + one definer call); every
+  question-bank, builder, grading, regrade, release, analysis and accommodation call 4 (a new question VERSION 5: it reads the kept
+  option ids and writes in one transaction); the worker's sweeper closes a batch of 200 attempts in 1 statement.
   Step 5: academics reads 4, every academic change 4 (one fused statement), profile read / upsert / section moves 4,
   `GET /members` with profile filters 4, `GET /imports*` 4 (`/rows` and `/errors.csv` 5: the import and its page share a
   transaction), confirm / cancel 4, `POST /imports` = 7 + 1 per 1,000 rows staged (10,000 rows: 16 statements). The worker
@@ -609,6 +650,7 @@ pnpm --filter @lms/backend run bench:members   GET /members incl. the section fi
 pnpm --filter @lms/backend run bench:courses   learner outline, my courses, one student moving section at 10,000 students / 200 offerings
 pnpm --filter @lms/backend run bench:search    EXPLAIN experiment for member search, throwaway schema, self-cleaning
 pnpm --filter @lms/backend run bench:progress  heartbeat throughput, class view 500 x 100, aggregation vs counters (throwaway college, no statistics)
+pnpm --filter @lms/backend run bench:assessments  1,500 learners start / autosave / submit / auto-submit one exam, grading time (throwaway college)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
@@ -649,3 +691,45 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - Real mail provider (only `console`, `file` (dev/E2E) and capturing mailers exist); the auth rate limits are per instance.
 - Re-run the full suite on Node 24 (local machine was on 22).
 - Upgrade TypeScript to 7.x once dependency-cruiser supports it.
+- **Assessments (step 9)**: no proctoring (the integrity log is information, not proof); no per-question time limits; the question bank is
+  per course (no sharing across courses); copying an offering gives assessment items DEFAULT settings (set the dates and questions
+  again); no gradebook (step 11 reads `assessmentsService.finalScores()`); no notification when results are released; an offline
+  reload needs the page assets in the browser cache (no service worker); the exam endpoints' rate limit is per instance (a college lab
+  shares one address: 120,000 saves/min); grading-queue "by student" is the script dialog of an attempt.
+- **Open for the GCP step** (collected here so nothing is lost): the real mail provider; the GCS storage driver and the GCP
+  Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
+  Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s
+  over HTTP on the dev laptop).
+
+## Current state / handoff (read after the sections above)
+
+Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/benchmarks.md` or the code.
+- **Where we are**: steps 1-9 are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+  and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
+  removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
+  205, E2E 41, lint, typecheck, `bundle:check`, Lighthouse, gitleaks. **Step 9 is verified: see the end of this section. Do not start step 10 unasked.**
+- **Working agreement**: the owner commits and pushes. Never stage, commit, push or rewrite history. At the end of a step give a
+  commit plan with EXACT `git add` commands per commit (full paths or directories, every changed file covered exactly once, checked
+  with a script against `git status`) and the commit messages; a file that mixes two commits (e.g. CLAUDE.md) is split with a patch
+  for `git apply --cached`, not by guessing. Delete your helper scripts and benchmark dumps before the plan (`git status` must show
+  only intended files). Commit messages end with the attribution line the harness gives.
+- **Verification habit**: affected tests while working, ONE full run at the end of a step (backend `pnpm test`, frontend vitest, `pnpm
+  e2e`, `pnpm build` + `pnpm bundle:check`, `pnpm lighthouse`, `pnpm screenshots`, `pnpm secrets:scan`, `pnpm docs:permissions
+  --check`). These are CPU heavy: never run two at once. Every new endpoint gets a query-budget test and a matrix row.
+- **Settled decisions to keep**: PostgreSQL 17 native on the dev machine (no Docker; CI runs the same major); shared schema + forced RLS;
+  forward-only hand-written migrations (a fix to a not-yet-pushed migration is still a NEW migration, e.g. 0027, because it was
+  applied to the dev DB); history tables use `ON DELETE RESTRICT` + soft states (item_progress, participants, memberships, archived
+  items); CI jobs pinned to `ubuntu-24.04`; ffmpeg is dev/CI only and `VIDEO_PROVIDER=local` is refused in production; dependencies
+  pinned exactly and the pnpm minimum release age is never bypassed (pin an older version instead).
+- **Planner lesson (cost two bugs in step 8)**: a freshly loaded tenant has no statistics. Measure every new set-based statement
+  in that state BEFORE the timing loops (autovacuum can analyze mid-run and hide the problem); aggregate to one row per entity
+  before joining, `MATERIALIZED` for run-once steps, unique-key `LATERAL ... OFFSET 0` lookups.
+- **Step 9 verification** (once, at the end of the step): see the final report of the step; the exam-time numbers are in `docs/benchmarks.md`.
+- **Migrations of step 9** are 0028 (bank), 0029 (assessments + engine), 0030 (grants, purge), 0031 (helper grants), 0032 (FK of a
+  question's current version): they are applied to the dev DB, so a fix is a NEW migration.
+- **Known cosmetic issues**: the demo learners (Lighthouse / screenshots / E2E data) have no member profile,
+  so the Section column of the class table shows "—"; My courses can show two links to the same course (the resume card and the
+  course card), so scripts and tests use `.first()`.
+- **Environment quirks** live in the owner's memory file, not here: a heredoc-written script mangles backslashes (use the Write
+  tool), a relative path from a nested directory drops files in the repo root, `biome check --write` reformats code so later
+  string-replace edits can silently match nothing (re-read first).

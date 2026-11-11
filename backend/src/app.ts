@@ -13,6 +13,7 @@ import { registerSecurity } from './core/security';
 import { registerUploads } from './core/uploads';
 import type { Database } from './db/client';
 import { createAcademicsRoutes } from './modules/academics';
+import { createAssessmentsRoutes } from './modules/assessments';
 import { createAuditRoutes } from './modules/audit';
 import { createAuthRoutes } from './modules/auth';
 import { createContentRoutes } from './modules/content';
@@ -23,6 +24,7 @@ import { createImportsRoutes } from './modules/imports';
 import { createMembershipsRoutes } from './modules/memberships';
 import { createProfilesRoutes } from './modules/profiles';
 import { createProgressRoutes } from './modules/progress';
+import { createQuestionsRoutes } from './modules/questions';
 import { createSessionsRoutes } from './modules/sessions';
 import { createTenantsRoutes } from './modules/tenants';
 import { createUsersRoutes } from './modules/users';
@@ -101,6 +103,12 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
       void api.register(createContentRoutes({ contentController: modules.content.controller }));
       void api.register(createFilesRoutes({ filesController: modules.files.controller }));
       void api.register(createProgressRoutes({ progressController: modules.progress.controller }));
+      void api.register(
+        createAssessmentsRoutes({ assessmentsController: modules.assessments.controller }),
+      );
+      void api.register(
+        createQuestionsRoutes({ questionsController: modules.questions.controller }),
+      );
       void api.register(createVideoRoutes({ videoController: modules.video.controller }));
       void api.register(
         createVideoUploadRoutes({

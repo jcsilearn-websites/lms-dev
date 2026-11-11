@@ -219,6 +219,32 @@ const itemRoute = child(
   '/offerings/$id/items/$itemId',
   lazyPage(() => import('../features/courses/ItemPage'), 'ItemPage'),
 );
+// assessments (step 9). The exam screen is its own small chunk (no editor, no validators); the question bank, builder and
+// grading are lazy chunks of their own. The API decides who may do what (404 / 403): participation in a course is
+// not an account permission, so no route guard here.
+const examRoute = child(
+  '/offerings/$id/attempts/$attemptId/take',
+  lazyPage(() => import('../features/assessments/exam/ExamPage'), 'ExamPage'),
+);
+const resultRoute = child(
+  '/offerings/$id/attempts/$attemptId/result',
+  lazyPage(() => import('../features/assessments/ResultPage'), 'ResultPage'),
+);
+const assessmentBuilderRoute = child(
+  '/offerings/$id/items/$itemId/assessment',
+  lazyPage(
+    () => import('../features/assessments/builder/AssessmentBuilderPage'),
+    'AssessmentBuilderPage',
+  ),
+);
+const gradingRoute = child(
+  '/offerings/$id/items/$itemId/grading',
+  lazyPage(() => import('../features/assessments/grading/GradingPage'), 'GradingPage'),
+);
+const bankRoute = child(
+  '/courses/$courseId/questions',
+  lazyPage(() => import('../features/assessments/bank/BankPage'), 'BankPage'),
+);
 const academicsRoute = child(
   '/academics',
   lazyPage(() => import('../features/academics/AcademicsPage'), 'AcademicsPage'),
@@ -283,6 +309,11 @@ function buildRouteTree() {
           builderRoute,
           peopleRoute,
           itemRoute,
+          examRoute,
+          resultRoute,
+          assessmentBuilderRoute,
+          gradingRoute,
+          bankRoute,
           academicsRoute,
           importsRoute,
           importRoute,

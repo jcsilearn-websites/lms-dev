@@ -77,6 +77,7 @@ const KIND_LABEL: Record<string, string> = {
   file: 'File',
   link: 'Link',
   video: 'Video',
+  assessment: 'Quiz / exam',
 };
 
 export function BuilderPage() {
@@ -216,6 +217,14 @@ export function BuilderPage() {
             >
               Preview as a learner
             </Link>
+            {offering.data && (
+              <Link
+                to={`/courses/${offering.data.courseId}/questions` as '/'}
+                className="inline-flex min-h-11 items-center rounded-md border border-input px-4 text-sm sm:min-h-9"
+              >
+                Question bank
+              </Link>
+            )}
             <Button variant="secondary" onClick={() => setDialog({ type: 'copy' })}>
               Copy content from…
             </Button>
@@ -466,18 +475,35 @@ function ModuleCard({
           </DndContext>
         )}
         <div className="mt-3 flex flex-wrap gap-2">
-          {(['text', 'file', 'link', 'video'] as const).map((k) => (
+          {(['text', 'file', 'link', 'video', 'assessment'] as const).map((k) => (
             <Button
               key={k}
               variant="secondary"
               onClick={() => onDialog({ type: 'item', moduleId: m.id, kind: k })}
             >
-              Add {k}
+              {k === 'assessment' ? 'Add quiz or exam' : `Add ${k}`}
             </Button>
           ))}
         </div>
       </div>
     </li>
+  );
+}
+
+/** The tools of an assessment item: its settings and questions, and the grading and results. */
+function AssessmentLinks({ itemId }: { itemId: string }) {
+  const { id } = useParams({ strict: false }) as { id: string };
+  const cls =
+    'inline-flex min-h-11 items-center rounded-md border border-input px-3 text-sm hover:bg-muted sm:min-h-9';
+  return (
+    <>
+      <Link to={`/offerings/${id}/items/${itemId}/assessment` as '/'} className={cls}>
+        Questions and settings
+      </Link>
+      <Link to={`/offerings/${id}/items/${itemId}/grading` as '/'} className={cls}>
+        Grading and results
+      </Link>
+    </>
   );
 }
 
@@ -521,6 +547,7 @@ function ItemRow({
       </button>
       <Badge>{KIND_LABEL[item.kind] ?? item.kind}</Badge>
       <span className="min-w-0 flex-1 break-words font-medium">{item.title}</span>
+      {item.kind === 'assessment' && <AssessmentLinks itemId={item.id} />}
       {item.video?.status === 'processing' && (
         <Badge tone="warning">Processing {item.video.progress}%</Badge>
       )}

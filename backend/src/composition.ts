@@ -37,6 +37,12 @@ import {
   createAcademicsService,
 } from './modules/academics';
 import {
+  createAssessmentsController,
+  createAssessmentsHandlers,
+  createAssessmentsRepository,
+  createAssessmentsService,
+} from './modules/assessments';
+import {
   createAuditController,
   createAuditHandlers,
   createAuditRepository,
@@ -108,6 +114,12 @@ import {
   createProgressService,
 } from './modules/progress';
 import {
+  createQuestionsController,
+  createQuestionsHandlers,
+  createQuestionsRepository,
+  createQuestionsService,
+} from './modules/questions';
+import {
   createSessionsController,
   createSessionsHandlers,
   createSessionsRepository,
@@ -152,6 +164,7 @@ export interface ModulesConfig {
   jobs: JobsConfig;
   imports: ImportsConfig;
   storage: StorageConfig;
+  assessments: AssessmentsModuleConfig;
   video: VideoModuleConfig;
   /** port of the web app for links in queued emails (development only) */
   publicPort: number | undefined;
@@ -168,6 +181,12 @@ export interface StorageConfig {
   urlTtlSeconds: number;
   purgeGraceHours: number;
   purgeEveryMs: number;
+}
+
+export interface AssessmentsModuleConfig {
+  graceSeconds: number;
+  sweepEveryMs: number;
+  sweepBatch: number;
 }
 
 export interface VideoModuleConfig extends VideoConfig {
@@ -242,6 +261,9 @@ export function modulesConfigFromEnv(
     | 'STORAGE_GCS_BUCKET'
     | 'FILE_PURGE_GRACE_HOURS'
     | 'FILE_PURGE_INTERVAL_SECONDS'
+    | 'ASSESSMENT_SAVE_GRACE_SECONDS'
+    | 'ASSESSMENT_SWEEP_SECONDS'
+    | 'ASSESSMENT_SWEEP_BATCH'
     | 'VIDEO_PROVIDER'
     | 'VIDEO_SIGNING_SECRET'
     | 'VIDEO_MAX_BYTES'
@@ -316,6 +338,11 @@ export function modulesConfigFromEnv(
       urlTtlSeconds: env.STORAGE_URL_TTL_SECONDS,
       purgeGraceHours: env.FILE_PURGE_GRACE_HOURS,
       purgeEveryMs: env.FILE_PURGE_INTERVAL_SECONDS * 1000,
+    },
+    assessments: {
+      graceSeconds: env.ASSESSMENT_SAVE_GRACE_SECONDS,
+      sweepEveryMs: env.ASSESSMENT_SWEEP_SECONDS * 1000,
+      sweepBatch: env.ASSESSMENT_SWEEP_BATCH,
     },
     video: {
       provider: env.VIDEO_PROVIDER,
@@ -494,6 +521,19 @@ export function createModules(db: Database, config: ModulesConfig) {
   });
   const coursesService = createCoursesService({ db, coursesRepo: createCoursesRepository() });
   const progressService = createProgressService({ db, progressRepo: createProgressRepository() });
+  const assessmentsService = createAssessmentsService({
+    db,
+    assessmentsRepo: createAssessmentsRepository(),
+    filesService,
+    config: {
+      graceSeconds: config.assessments.graceSeconds,
+      sweepBatch: config.assessments.sweepBatch,
+    },
+  });
+  const questionsService = createQuestionsService({
+    db,
+    questionsRepo: createQuestionsRepository(),
+  });
 
   const handlers: HandlerMap = {
     ...createHealthHandlers({ healthService }),
@@ -509,6 +549,14 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createImportsHandlers({ importsService, purge: config.purge }),
     ...createContentHandlers({ contentService }),
     ...createProgressHandlers(),
+    ...createQuestionsHandlers({
+      questionsService,
+      purge: { everyMs: config.storage.purgeEveryMs },
+    }),
+    ...createAssessmentsHandlers({
+      assessmentsService,
+      sweep: { everyMs: config.assessments.sweepEveryMs },
+    }),
     ...createVideoHandlers({ videoService, sweep: { everyMs: video.purgeEveryMs } }),
     ...createFilesHandlers({ filesService, purge: { everyMs: config.storage.purgeEveryMs } }),
     ...createCoursesHandlers({
@@ -538,6 +586,14 @@ export function createModules(db: Database, config: ModulesConfig) {
         storage.driver === 'local'
           ? createStorageController({ storage: storage as LocalStorage })
           : null,
+    },
+    assessments: {
+      service: assessmentsService,
+      controller: createAssessmentsController({ assessmentsService }),
+    },
+    questions: {
+      service: questionsService,
+      controller: createQuestionsController({ questionsService, filesService }),
     },
     progress: {
       service: progressService,

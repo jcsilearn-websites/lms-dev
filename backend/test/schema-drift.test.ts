@@ -9,6 +9,16 @@ import {
   sections,
   terms,
 } from '../src/modules/academics/academics.model';
+import {
+  assessmentAccommodations,
+  assessmentSlots,
+  assessments,
+  attemptEvents,
+  attemptQuestions,
+  attempts,
+  regradeChanges,
+  regradeRuns,
+} from '../src/modules/assessments/assessments.model';
 import { auditLog, platformAuditLog } from '../src/modules/audit/audit.model';
 import { authTokenPurpose, authTokens, userCredentials } from '../src/modules/auth/auth.model';
 import { contentItems, contentModules } from '../src/modules/content/content.model';
@@ -39,6 +49,14 @@ import {
 } from '../src/modules/memberships/memberships.model';
 import { memberProfiles, profileType } from '../src/modules/profiles/profiles.model';
 import { itemProgress } from '../src/modules/progress/progress.model';
+import {
+  questionFiles,
+  questionImportRows,
+  questionImports,
+  questions,
+  questionTags,
+  questionVersions,
+} from '../src/modules/questions/questions.model';
 import { sessions } from '../src/modules/sessions/sessions.model';
 import { tenantSettings, tenantStatus, tenants } from '../src/modules/tenants/tenants.model';
 import { users } from '../src/modules/users/users.model';
@@ -88,6 +106,20 @@ const schema = {
   videoAssets,
   videoCaptions,
   itemProgress,
+  questions,
+  questionVersions,
+  questionTags,
+  questionFiles,
+  questionImports,
+  questionImportRows,
+  assessments,
+  assessmentSlots,
+  assessmentAccommodations,
+  attempts,
+  attemptQuestions,
+  attemptEvents,
+  regradeRuns,
+  regradeChanges,
 };
 
 import { testOwnerPool } from './support';

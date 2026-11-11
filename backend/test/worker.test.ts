@@ -20,8 +20,9 @@ describe('worker lifecycle', () => {
   it('boots, connects to the database and shuts down gracefully (idempotent stop)', async () => {
     const worker = await startWorker(env(), silent);
     // the purges are scheduled: a system job per time slot on the queue
-    expect(worker.scheduled).toBe(8);
+    expect(worker.scheduled).toBe(10);
     expect(Object.keys(worker.handlers).sort()).toEqual([
+      'assessments.sweep', // auto-submit: scheduled every few seconds
       'auth.purge_tokens',
       'content.copy', // enqueued by a large copy: not scheduled
       'courses.sync', // queued by database triggers: not scheduled
@@ -31,6 +32,7 @@ describe('worker lifecycle', () => {
       'imports.reap',
       'invites.send', // enqueued by the import: not scheduled
       'jobs.purge',
+      'questions.purge_imports',
       'sessions.purge_dead',
       'video', // enqueued when an upload is complete: not scheduled
       'video.expire_sources',

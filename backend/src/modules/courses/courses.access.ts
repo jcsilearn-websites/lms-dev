@@ -2,7 +2,7 @@ import { type SQL, sql } from 'drizzle-orm';
 import type { ParticipationType } from '../../core/authz';
 import { ForbiddenError } from '../../core/errors';
 import { pgArray } from '../../core/pg-array';
-import { OfferingNotFoundError } from './courses.errors';
+import { CourseNotFoundError, OfferingNotFoundError } from './courses.errors';
 
 // How "can this caller do X in THIS offering" is decided: inside the same statement as the work (one round
 // trip, no check-then-act gap). The statement carries a CTE named `acc`; the service reads its row and maps
@@ -58,6 +58,48 @@ export function accessCte(a: AccessSpec): SQL {
 /** 404 when the offering is missing or not visible to the caller; 403 when visible but not allowed. */
 export function assertAccess(acc: AccessRow | null | undefined): AccessRow {
   if (!acc?.visible) throw new OfferingNotFoundError();
+  if (!acc.allowed) throw new ForbiddenError();
+  return acc;
+}
+
+// ------------------------------------------------------------------ the same for the COURSE (the question bank)
+// Questions belong to a course and are shared by all its offerings, so the permission is granted by a participation
+// in ANY offering of the course: instructors manage, assistants read. Administrators (course.read) see the course and
+// hold read-only permissions by their account role. Not a participant and not an administrator -> 404.
+
+export interface CourseAccessRow {
+  id: string;
+  visible: boolean;
+  allowed: boolean;
+}
+
+export interface CourseAccessSpec {
+  tenantId: string;
+  userId: string;
+  courseId: string;
+  viewAll: boolean;
+  accountAllowed: boolean;
+  allowedBy: readonly ParticipationType[];
+}
+
+/** `acc AS (...)`: at most one row (id, visible, allowed) for the course. */
+export function courseAccessCte(a: CourseAccessSpec): SQL {
+  const takesPart = (types: SQL) => sql`EXISTS (
+      SELECT 1 FROM lms.course_offerings o
+        JOIN lms.course_participants p ON p.tenant_id = o.tenant_id AND p.offering_id = o.id
+        JOIN lms.tenant_memberships m ON m.tenant_id = p.tenant_id AND m.id = p.membership_id
+       WHERE o.tenant_id = c.tenant_id AND o.course_id = c.id AND m.user_id = ${a.userId}::uuid
+         AND p.status = 'active' AND m.status = 'active' AND p.participation::text = ANY(${types}))`;
+  return sql`acc AS (
+    SELECT c.id,
+           (${a.viewAll}::boolean OR ${takesPart(sql`ARRAY['instructor', 'assistant']`)}) AS visible,
+           (${a.accountAllowed}::boolean OR ${takesPart(sql`${pgArray(a.allowedBy)}::text[]`)}) AS allowed
+      FROM lms.courses c
+     WHERE c.tenant_id = ${a.tenantId}::uuid AND c.id = ${a.courseId}::uuid)`;
+}
+
+export function assertCourseAccess(acc: CourseAccessRow | null | undefined): CourseAccessRow {
+  if (!acc?.visible) throw new CourseNotFoundError();
   if (!acc.allowed) throw new ForbiddenError();
   return acc;
 }

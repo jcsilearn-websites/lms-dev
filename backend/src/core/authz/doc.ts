@@ -29,7 +29,11 @@ function authLabel(c: RouteDeclaration | undefined): string {
   const p = c?.permission;
   if (p === undefined) return 'UNDECLARED';
   const names = (typeof p === 'string' ? [p] : [...p]).map((x) => `\`${x}\``).join(' or ');
-  return c?.scope === 'offering' ? `${names} in the offering` : names;
+  return c?.scope === 'offering'
+    ? `${names} in the offering`
+    : c?.scope === 'course'
+      ? `${names} in any offering of the course`
+      : names;
 }
 
 /**

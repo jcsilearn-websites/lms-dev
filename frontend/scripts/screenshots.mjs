@@ -236,7 +236,33 @@ await withStack(
               () => (document.querySelector('video')?.currentTime ?? 0) > 1.5,
             );
             await l.snap('video-playing');
+            // assessments: the exam screen, a result, and the instructor's tools
+            await l.pg.goto(
+              `${origin('e2e-one')}/offerings/${demo.offeringId}/attempts/${demo.examAttemptId}/take`,
+            );
+            await l.pg.getByRole('timer').waitFor();
+            await l.snap('exam');
+            await l.pg.goto(
+              `${origin('e2e-one')}/offerings/${demo.offeringId}/attempts/${demo.resultAttemptId}/result`,
+            );
+            await l.pg.getByTestId('score').waitFor();
+            await l.snap('exam-result');
             await l.c.close();
+            const t2 = await signedIn(demo.instructorEmail);
+            await t2.pg.goto(`${origin('e2e-one')}/courses/${demo.courseId}/questions`);
+            await t2.pg.getByText('Question 1:').first().waitFor();
+            await t2.snap('question-bank');
+            await t2.pg.goto(
+              `${origin('e2e-one')}/offerings/${demo.offeringId}/items/${demo.examItemId}/assessment`,
+            );
+            await t2.pg.getByRole('button', { name: 'Save settings' }).waitFor();
+            await t2.snap('assessment-builder');
+            await t2.pg.goto(
+              `${origin('e2e-one')}/offerings/${demo.offeringId}/items/${demo.quizItemId}/grading`,
+            );
+            await t2.pg.getByRole('row', { name: /Lena Learner/ }).waitFor();
+            await t2.snap('grading');
+            await t2.c.close();
           }
 
           // platform area (admin host)

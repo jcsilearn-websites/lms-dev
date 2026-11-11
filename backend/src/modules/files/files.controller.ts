@@ -36,6 +36,24 @@ export function createFilesController(deps: { filesService: FilesService; maxByt
         maxBytes: r.maxBytes,
       });
     },
+    requestCourseUpload: async (
+      request: FastifyRequest<{
+        Params: { courseId: string };
+        Body: Static<typeof RequestUploadSchema>;
+      }>,
+      reply: FastifyReply,
+    ) => {
+      const r = await svc.requestCourseUpload(
+        contextFrom(request),
+        request.params.courseId,
+        request.body,
+      );
+      return reply.code(201).send({
+        file: toFileDto(r.row),
+        upload: { ...r.upload, expiresAt: r.upload.expiresAt.toISOString() },
+        maxBytes: r.maxBytes,
+      });
+    },
     confirm: async (request: FastifyRequest<{ Params: Static<typeof FileParamsSchema> }>) =>
       toFileDto(await svc.confirm(contextFrom(request), request.params.id)),
     maxBytes,

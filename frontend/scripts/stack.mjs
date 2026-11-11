@@ -86,6 +86,9 @@ export async function withStack(fn, { extraMembers = 0 } = {}) {
     VIDEO_WORK_DIR: join(FRONTEND, '.e2e-tmp', 'video-work'),
     VIDEO_UPLOAD_CHUNK_BYTES: '65536',
     VIDEO_PLAYBACK_TTL_SECONDS: '20',
+    // assessments: a short grace after the deadline and a fast sweeper, so the auto-submit test does not wait long
+    ASSESSMENT_SAVE_GRACE_SECONDS: '3',
+    ASSESSMENT_SWEEP_SECONDS: '2',
   };
   const children = [];
   function start(name, cmd, args, shell = isWindows) {

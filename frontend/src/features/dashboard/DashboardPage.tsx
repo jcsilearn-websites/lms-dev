@@ -16,7 +16,15 @@ const ROLE: Record<string, string> = {
 
 type OfferingProgress = MyOfferingsProgress['offerings'][number];
 
-function CourseCard({ o, progress }: { o: OfferingDto; progress: OfferingProgress | undefined }) {
+function CourseCard({
+  o,
+  progress,
+  loading,
+}: {
+  o: OfferingDto;
+  progress: OfferingProgress | undefined;
+  loading: boolean;
+}) {
   return (
     <li>
       <Link
@@ -32,12 +40,23 @@ function CourseCard({ o, progress }: { o: OfferingDto; progress: OfferingProgres
           {o.myParticipation && <Badge>{ROLE[o.myParticipation]}</Badge>}
           {o.status === 'draft' && <Badge tone="warning">Draft</Badge>}
         </span>
-        {progress && progress.totalRequired > 0 && (
-          <ProgressBar
-            percent={progress.percent}
-            label={`Progress in ${o.title}`}
-            detail={`${progress.completedRequired} of ${progress.totalRequired}`}
-          />
+        {/* The slot has a fixed height for learners (the only ones with progress), so the bar arriving
+            from its own read moves nothing: no layout shift. */}
+        {o.myParticipation === 'learner' && (
+          <div className="h-8 shrink-0" data-testid="progress-slot">
+            {loading ? (
+              <Skeleton className="h-7 w-full" />
+            ) : (
+              progress &&
+              progress.totalRequired > 0 && (
+                <ProgressBar
+                  percent={progress.percent}
+                  label={`Progress in ${o.title}`}
+                  detail={`${progress.completedRequired} of ${progress.totalRequired}`}
+                />
+              )
+            )}
+          </div>
         )}
       </Link>
     </li>
@@ -97,6 +116,13 @@ export function DashboardPage() {
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-semibold">Welcome{me ? `, ${me.user.displayName}` : ''}</h1>
+      {/* the resume card arrives with the progress read: its space is reserved meanwhile, so the courses below do not jump */}
+      {progress.isLoading && (
+        <div aria-hidden="true" data-testid="resume-slot" className="h-[7.5rem]">
+          <Skeleton className="mb-3 h-7 w-64" />
+          <Skeleton className="h-[4.25rem] w-full" />
+        </div>
+      )}
       {resume && (
         <section aria-labelledby="continue">
           <h2 id="continue" className="mb-3 text-lg font-semibold">
@@ -144,7 +170,12 @@ export function DashboardPage() {
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {items.map((o) => (
-              <CourseCard key={o.id} o={o} progress={progressOf.get(o.id)} />
+              <CourseCard
+                key={o.id}
+                o={o}
+                progress={progressOf.get(o.id)}
+                loading={progress.isLoading}
+              />
             ))}
           </ul>
         )}

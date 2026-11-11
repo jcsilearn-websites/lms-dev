@@ -4,6 +4,10 @@ export {
   type AccessSpec,
   accessCte,
   assertAccess,
+  assertCourseAccess,
+  type CourseAccessRow,
+  type CourseAccessSpec,
+  courseAccessCte,
 } from './courses.access';
 export {
   type CoursesController,

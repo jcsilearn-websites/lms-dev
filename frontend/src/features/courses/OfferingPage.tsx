@@ -13,6 +13,7 @@ const KIND: Record<string, string> = {
   file: 'File',
   link: 'Link',
   video: 'Video',
+  assessment: 'Quiz / exam',
 };
 const linkBtn =
   'inline-flex min-h-11 items-center rounded-md border border-input bg-surface px-4 text-sm font-medium hover:bg-muted sm:min-h-9';
@@ -87,6 +88,11 @@ export function OfferingPage() {
             {staff && (
               <Link to={`/offerings/${id}/progress` as '/'} className={linkBtn}>
                 Class progress
+              </Link>
+            )}
+            {(o.myParticipation === 'instructor' || o.myParticipation === 'assistant') && (
+              <Link to={`/courses/${o.courseId}/questions` as '/'} className={linkBtn}>
+                Question bank
               </Link>
             )}
             {staff && (

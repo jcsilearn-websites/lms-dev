@@ -60,6 +60,25 @@ const BODIES: Record<string, unknown> = {
   },
   'POST /offerings/:id/items/:itemId/progress/viewed': {},
   'POST /offerings/:id/items/:itemId/progress/complete': {},
+  'PUT /offerings/:id/items/:itemId/assessment': { attemptsAllowed: 1 },
+  'PUT /offerings/:id/items/:itemId/assessment/slots': { slots: [] },
+  'PUT /offerings/:id/items/:itemId/assessment/accommodations/:participantId': { extraMinutes: 0 },
+  'POST /offerings/:id/items/:itemId/attempts': {},
+  'PUT /offerings/:id/attempts/:attemptId/answers': { answers: [] },
+  'POST /offerings/:id/attempts/:attemptId/submit': {},
+  'PUT /offerings/:id/attempts/:attemptId/questions/:position/grade': { score: 0 },
+  'PUT /offerings/:id/attempts/:attemptId/feedback': { feedback: null },
+  'POST /offerings/:id/items/:itemId/assessment/regrade': {
+    questionId: U,
+    action: 'drop',
+    dryRun: true,
+  },
+  'POST /offerings/:id/items/:itemId/assessment/release': {},
+};
+
+/** Routes whose schema needs a query string or a number in the path to get past validation. */
+const QUERIES: Record<string, string> = {
+  'GET /offerings/:id/items/:itemId/assessment/grading/answers': `questionId=${U}`,
 };
 
 interface Probe {
@@ -122,9 +141,16 @@ afterAll(async () => {
   await owner.end();
 });
 
-const fill = (url: string) => url.replace(':id', offeringId).replace(/:[A-Za-z]+/g, U);
+const fill = (url: string) =>
+  url
+    .replace(':id', offeringId)
+    .replace(':position', '1')
+    .replace(/:[A-Za-z]+/g, U);
 const send = (c: TestClient, p: Probe) =>
-  c.request(p.method, fill(p.url), p.key in BODIES ? { body: BODIES[p.key] } : {});
+  c.request(p.method, fill(p.url), {
+    ...(p.key in BODIES ? { body: BODIES[p.key] } : {}),
+    ...(p.key in QUERIES ? { query: QUERIES[p.key] as string } : {}),
+  });
 
 describe("routes declared with scope 'offering'", () => {
   it('there are some, and each has a probe request when it needs a body', () => {

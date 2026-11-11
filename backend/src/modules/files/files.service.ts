@@ -11,7 +11,13 @@ import {
 } from '../../core/storage';
 import { newId } from '../../core/uuid';
 import type { Database } from '../../db/client';
-import { type AccessSpec, assertAccess, OfferingArchivedError } from '../courses';
+import {
+  type AccessSpec,
+  assertAccess,
+  assertCourseAccess,
+  type CourseAccessSpec,
+  OfferingArchivedError,
+} from '../courses';
 import {
   FileContentMismatchError,
   FileNotFoundError,
@@ -89,6 +95,47 @@ export function createFilesService(deps: {
       const acc = assertAccess(r.acc);
       if (!r.row) throw new OfferingArchivedError();
       void acc;
+      const upload = await storageCall(() =>
+        storage.createUploadTarget({ key, contentType: kind.mime, maxBytes: config.maxBytes }),
+      );
+      return { row: r.row, upload, maxBytes: config.maxBytes };
+    },
+
+    /**
+     * An image for a question of a COURSE (the bank is shared by the offerings): the same rules, but only PNG / JPEG,
+     * and the caller needs `question.manage` in any offering of the course.
+     */
+    async requestCourseUpload(
+      ctx: RequestContext,
+      courseId: string,
+      input: { name: string; size: number },
+    ) {
+      const name = cleanFileName(input.name);
+      const kind = kindForName(name);
+      if (!name || !kind || (kind.mime !== 'image/png' && kind.mime !== 'image/jpeg'))
+        throw new FileTypeNotAllowedError();
+      if (input.size > config.maxBytes) throw new FileTooLargeError(config.maxBytes);
+      if (!ctx.tenantId) throw new ForbiddenError();
+      const a: CourseAccessSpec = {
+        tenantId: ctx.tenantId,
+        userId: ctx.userId,
+        courseId,
+        viewAll: can(ctx, 'course.read'),
+        accountAllowed: can(ctx, 'question.manage'),
+        allowedBy: participationsGranting('question.manage'),
+      };
+      const id = newId();
+      const key = storageKey(a.tenantId, id);
+      const r = await db.withTenant(a.tenantId, (tx) =>
+        filesRepo.createPendingForCourse(
+          tx,
+          a,
+          { id, storageKey: key, name, contentType: kind.mime, size: input.size },
+          ctx.userId,
+        ),
+      );
+      assertCourseAccess(r.acc);
+      if (!r.row) throw new FileNotFoundError();
       const upload = await storageCall(() =>
         storage.createUploadTarget({ key, contentType: kind.mime, maxBytes: config.maxBytes }),
       );
