@@ -34,6 +34,10 @@ export const PERMISSION_GROUPS = {
     'question.manage',
     'assessment.analyze',
     'assessment.view_accommodations',
+    'assignment.manage',
+    'assignment.view_extensions',
+    'rubric.read',
+    'rubric.manage',
   ],
   platform: [
     'platform.tenant.read',
@@ -89,6 +93,12 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
   'assessment.analyze': 'See the item analysis of an assessment',
   'assessment.view_accommodations':
     'See the accommodations (extra time) of the learners of an assessment, and their reasons',
+  'assignment.manage':
+    'Build assignments, set extensions, attach rubrics, release and download submissions',
+  'assignment.view_extensions':
+    'See the due-date extensions of the learners of an assignment, and their reasons',
+  'rubric.read': 'See the rubrics of a course',
+  'rubric.manage': 'Create, edit (new version) and archive the rubrics of a course',
   'assessment.create': 'Build assessments, set accommodations',
   'submission.create': 'Take assessments (start, answer and submit attempts)',
   'submission.grade': 'Grade answers and see attempts (instructors and assistants)',

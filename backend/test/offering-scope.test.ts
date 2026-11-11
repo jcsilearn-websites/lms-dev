@@ -74,11 +74,29 @@ const BODIES: Record<string, unknown> = {
     dryRun: true,
   },
   'POST /offerings/:id/items/:itemId/assessment/release': {},
+  'PUT /offerings/:id/items/:itemId/assignment': { maxPoints: 5 },
+  'PUT /offerings/:id/items/:itemId/assignment/attachments': { fileIds: [] },
+  'PUT /offerings/:id/items/:itemId/assignment/rubric': { rubricId: null },
+  'PUT /offerings/:id/items/:itemId/assignment/extensions/:participantId': {
+    extendedDueAt: '2030-01-01T00:00:00.000Z',
+  },
+  'POST /offerings/:id/items/:itemId/assignment/files': { name: 'a.pdf', size: 10 },
+  'POST /offerings/:id/items/:itemId/assignment/files/:fileId/confirm': {},
+  'POST /offerings/:id/items/:itemId/assignment/submissions': { requestKey: U, fileIds: [] },
+  'PUT /offerings/:id/items/:itemId/assignment/grading/learners/:learnerKey/grade': {
+    submissionId: U,
+    rawScore: 1,
+  },
+  'PUT /offerings/:id/items/:itemId/assignment/grading/learners/:learnerKey/penalty-waiver': {
+    reason: 'because',
+  },
+  'POST /offerings/:id/items/:itemId/assignment/release': {},
 };
 
 /** Routes whose schema needs a query string or a number in the path to get past validation. */
 const QUERIES: Record<string, string> = {
   'GET /offerings/:id/items/:itemId/assessment/grading/answers': `questionId=${U}`,
+  'GET /offerings/:id/copy-preview': `sourceOfferingId=${U}`,
 };
 
 interface Probe {

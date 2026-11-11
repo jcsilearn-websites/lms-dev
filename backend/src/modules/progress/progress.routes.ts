@@ -16,7 +16,7 @@ export function createProgressRoutes(deps: {
       '/offerings/:id/items/:itemId/progress/heartbeat',
       {
         // a player sends one every 30 s and on pause / seek / hide: generous, per IP
-        config: { ...record, rateLimit: { max: 6000, timeWindow: '1 minute' } },
+        config: { ...record, rateLimit: { max: 600, timeWindow: '1 minute' } },
         schema: s.heartbeatRouteSchema,
       },
       c.heartbeat,

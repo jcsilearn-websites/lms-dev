@@ -1,6 +1,6 @@
 import cookie from '@fastify/cookie';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { NotFoundError } from './errors';
+import { NotFoundError, TooManyRequestsError } from './errors';
 import { type HostInfo, parseHost } from './host';
 import { bindTenantToLog } from './tenant-log';
 import { hashToken } from './tokens';
@@ -71,6 +71,8 @@ export function registerAuthContext(
      * that TTL (VIDEO_SESSION_CACHE_TTL_SECONDS); every other URL is checked on every request as always.
      */
     cachedSessions?: { cache: TtlCache<AuthContext>; keyOf(url: string): string | null };
+    /** counts cookies that are not a live session per address (see createBadSessionLimiter) */
+    badSessions?: { exceeded(ip: string): boolean };
   },
 ): void {
   void app.register(cookie);
@@ -109,6 +111,8 @@ export function registerAuthContext(
     if (auth) {
       request.auth = auth;
       request.log = request.log.child({ user_id: auth.userId });
+    } else if (deps.badSessions?.exceeded(request.ip)) {
+      throw new TooManyRequestsError();
     }
   });
 }

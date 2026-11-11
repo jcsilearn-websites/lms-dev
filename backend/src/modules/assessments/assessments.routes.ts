@@ -57,8 +57,8 @@ export function createAssessmentsRoutes(deps: {
     app.put(
       '/offerings/:id/attempts/:attemptId/answers',
       {
-        // a college lab shares one address: 1,500 learners saving every few seconds
-        config: { ...take, rateLimit: { max: 120_000, timeWindow: '1 minute' } },
+        // per SESSION (never per address: a college lab shares one): a learner saves every few seconds, bursts on reconnect
+        config: { ...take, rateLimit: { max: 900, timeWindow: '1 minute' } },
         schema: s.saveRouteSchema,
       },
       c.save,

@@ -2,6 +2,7 @@
 // (package.json "exports": "./contracts"). Keep this folder free of Node/server dependencies.
 export * from './academics';
 export * from './assessments';
+export * from './assignments';
 export * from './audit';
 export * from './auth';
 export * from './content';

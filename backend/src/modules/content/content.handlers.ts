@@ -9,7 +9,13 @@ export function createContentHandlers(deps: { contentService: ContentService }):
     'content.copy': {
       run: async (payload, ctx) => {
         if (!ctx.tenantId) throw new Error('content.copy needs a tenant');
-        const p = payload as { sourceId: string; targetId: string; actorUserId: string };
+        const p = payload as {
+          sourceId: string;
+          targetId: string;
+          actorUserId: string;
+          shiftDays?: number | null;
+          clearDates?: boolean;
+        };
         return contentService.runCopy(ctx.tenantId, p, {
           number: ctx.attempt,
           max: ctx.maxAttempts,

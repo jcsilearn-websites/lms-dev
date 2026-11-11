@@ -2,6 +2,8 @@ import {
   COMMON_ERRORS,
   CopyContentRequestSchema,
   CopyContentResponseSchema,
+  CopyPreviewQuerySchema,
+  CopyPreviewSchema,
   CreateItemRequestSchema,
   CreateModuleRequestSchema,
   DownloadTargetSchema,
@@ -103,6 +105,15 @@ export const deleteItemRouteSchema = {
   summary: 'Delete an item',
   params: OfferingItemParamsSchema,
   response: { 200: OkResponseSchema, ...COMMON_ERRORS },
+};
+
+export const copyPreviewRouteSchema = {
+  tags,
+  summary:
+    'What copying another offering would do: the terms, the proposed shift of the dates, every assessment and assignment (nothing is written)',
+  params: OfferingParamsSchema,
+  querystring: CopyPreviewQuerySchema,
+  response: { 200: CopyPreviewSchema, ...COMMON_ERRORS },
 };
 
 export const copyRouteSchema = {

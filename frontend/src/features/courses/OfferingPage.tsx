@@ -14,6 +14,7 @@ const KIND: Record<string, string> = {
   link: 'Link',
   video: 'Video',
   assessment: 'Quiz / exam',
+  assignment: 'Assignment',
 };
 const linkBtn =
   'inline-flex min-h-11 items-center rounded-md border border-input bg-surface px-4 text-sm font-medium hover:bg-muted sm:min-h-9';

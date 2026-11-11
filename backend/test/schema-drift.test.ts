@@ -19,6 +19,17 @@ import {
   regradeChanges,
   regradeRuns,
 } from '../src/modules/assessments/assessments.model';
+import {
+  assignmentAttachments,
+  assignmentExtensions,
+  assignmentFeedbackFiles,
+  assignmentGrades,
+  assignmentLearners,
+  assignments,
+  assignmentUploads,
+  submissionFiles,
+  submissions,
+} from '../src/modules/assignments/assignments.model';
 import { auditLog, platformAuditLog } from '../src/modules/audit/audit.model';
 import { authTokenPurpose, authTokens, userCredentials } from '../src/modules/auth/auth.model';
 import { contentItems, contentModules } from '../src/modules/content/content.model';
@@ -57,6 +68,7 @@ import {
   questionTags,
   questionVersions,
 } from '../src/modules/questions/questions.model';
+import { rubrics, rubricVersions } from '../src/modules/rubrics/rubrics.model';
 import { sessions } from '../src/modules/sessions/sessions.model';
 import { tenantSettings, tenantStatus, tenants } from '../src/modules/tenants/tenants.model';
 import { users } from '../src/modules/users/users.model';
@@ -120,6 +132,17 @@ const schema = {
   attemptEvents,
   regradeRuns,
   regradeChanges,
+  assignments,
+  assignmentAttachments,
+  assignmentExtensions,
+  assignmentLearners,
+  assignmentUploads,
+  submissions,
+  submissionFiles,
+  assignmentGrades,
+  assignmentFeedbackFiles,
+  rubrics,
+  rubricVersions,
 };
 
 import { testOwnerPool } from './support';

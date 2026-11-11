@@ -3,6 +3,8 @@
 // business code), exactly how Google Cloud Storage signed URLs work; the local driver imitates that with
 // HMAC-signed URLs served by this API (development only).
 
+import type { Readable } from 'node:stream';
+
 export interface UploadTarget {
   /** Where the browser PUTs the bytes. */
   url: string;
@@ -38,6 +40,8 @@ export interface StorageProvider {
   }): DownloadTarget;
   /** Reads the object (size, head, sha256); null when nothing was uploaded under the key. */
   inspect(key: string): Promise<StoredObject | null>;
+  /** The object's bytes as a stream with its size (bulk exports read many objects one after another); null when missing. */
+  read(key: string): Promise<{ stream: Readable; size: number } | null>;
   /** Deletes objects; a missing object is not an error. */
   remove(keys: readonly string[]): Promise<void>;
 }

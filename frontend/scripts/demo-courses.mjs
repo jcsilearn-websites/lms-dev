@@ -445,7 +445,116 @@ export async function seedCourseDemo({ webPort, password }) {
     'submit quiz',
   );
   await learner.dispose();
+
+  // an assignment: the instructions, a PDF from the instructor, a rubric, a due date in three days with late work accepted
+  // for nine; the learners HAND IN (one a PDF, the others text) so the learner page and the grading view are full
+  const pdfBytes = (label) =>
+    Buffer.from(`%PDF-1.4\n1 0 obj\n<<>>\nendobj\n% ${label}\ntrailer\n<<>>\n%%EOF\n`);
+  const teach3 = await api(webPort, INSTRUCTOR, password);
+  const put = async (client, target, bytes) => {
+    const r = await client.put(target.upload.url, {
+      data: bytes,
+      headers: { ...target.upload.headers, 'content-length': String(bytes.length) },
+    });
+    if (!r.ok()) throw new Error(`demo upload failed: ${r.status()}`);
+  };
+  const assignment = await must(
+    await teach3.post(`offerings/${offering.id}/modules/${mod.id}/items`, {
+      data: { kind: 'assignment', title: 'Term essay', published: true },
+    }),
+    'assignment item',
+  );
+  const A = `offerings/${offering.id}/items/${assignment.id}/assignment`;
+  const day = 86_400_000;
+  await must(
+    await teach3.put(A, {
+      data: {
+        instructions: doc(
+          'Write a short essay (about 500 words) on one of the topics of the course.',
+          'Cite at least two sources. Hand in a PDF, or paste the text.',
+        ),
+        dueAt: new Date(Date.now() + 3 * day).toISOString(),
+        latePolicy: 'allowed',
+        lateCutoffAt: new Date(Date.now() + 9 * day).toISOString(),
+        penaltyKind: 'per_day',
+        penaltyValue: 10,
+        penaltyCap: 30,
+        maxPoints: 50,
+        passingScore: 40,
+        allowText: true,
+      },
+    }),
+    'assignment settings',
+  );
+  const rubric = await must(
+    await teach3.post(`courses/${course.id}/rubrics`, {
+      data: {
+        title: 'Essay rubric',
+        criteria: [
+          {
+            title: 'Argument',
+            levels: [
+              { title: 'Unclear', points: 0 },
+              { title: 'Clear', points: 10 },
+              { title: 'Convincing', points: 20 },
+            ],
+          },
+          {
+            title: 'Sources',
+            levels: [
+              { title: 'None', points: 0 },
+              { title: 'Some', points: 5 },
+              { title: 'Well chosen', points: 10 },
+            ],
+          },
+        ],
+      },
+    }),
+    'rubric',
+  );
+  await must(await teach3.put(`${A}/rubric`, { data: { rubricId: rubric.id } }), 'attach rubric');
+  const brief = await must(
+    await teach3.post(`offerings/${offering.id}/files`, {
+      data: { name: 'essay-brief.pdf', size: pdfBytes('brief').length },
+    }),
+    'brief upload',
+  );
+  await put(teach3, brief, pdfBytes('brief'));
+  await must(await teach3.post(`files/${brief.file.id}/confirm`), 'brief confirm');
+  await must(
+    await teach3.put(`${A}/attachments`, { data: { fileIds: [brief.file.id] } }),
+    'attachments',
+  );
+  const handIn = async (email, withFile, text) => {
+    const l = await api(webPort, email, password);
+    const ids = [];
+    if (withFile) {
+      const bytes = pdfBytes(`work of ${email}`);
+      const up = await must(
+        await l.post(`${A}/files`, { data: { name: 'my-essay.pdf', size: bytes.length } }),
+        'hand-in upload',
+      );
+      await put(l, up, bytes);
+      await must(await l.post(`${A}/files/${up.fileId}/confirm`), 'hand-in confirm');
+      ids.push(up.fileId);
+    }
+    await must(
+      await l.post(`${A}/submissions`, {
+        data: { requestKey: crypto.randomUUID(), fileIds: ids, ...(text ? { text } : {}) },
+      }),
+      'hand in',
+    );
+    await l.dispose();
+  };
+  await handIn(LEARNER, true, 'Here is my essay on loops and recursion.');
+  for (const [email] of MORE_LEARNERS)
+    await handIn(email, false, `Essay of ${email}: a text hand-in.`);
+  const queue = await must(await teach3.get(`${A}/grading/queue?limit=10`), 'grading queue');
+  const gradingLearnerKey = queue.items[0].learnerKey;
+  await teach3.dispose();
   return {
+    assignmentItemId: assignment.id,
+    gradingLearnerKey,
     offeringId: offering.id,
     courseId: course.id,
     videoItemId,

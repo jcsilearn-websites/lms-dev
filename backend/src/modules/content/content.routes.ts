@@ -76,5 +76,13 @@ export function createContentRoutes(deps: {
       { config: { permission: 'course.publish', scope: 'offering' }, schema: s.copyRouteSchema },
       c.copy,
     );
+    app.get(
+      '/offerings/:id/copy-preview',
+      {
+        config: { permission: 'course.publish', scope: 'offering' },
+        schema: s.copyPreviewRouteSchema,
+      },
+      c.copyPreview,
+    );
   };
 }

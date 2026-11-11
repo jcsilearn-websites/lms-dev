@@ -97,6 +97,17 @@ describe('tenant isolation (RLS)', () => {
       'questions',
       'regrade_changes',
       'regrade_runs',
+      'assignment_attachments',
+      'assignment_extensions',
+      'assignment_feedback_files',
+      'assignment_grades',
+      'assignment_learners',
+      'assignment_uploads',
+      'assignments',
+      'rubric_versions',
+      'rubrics',
+      'submission_files',
+      'submissions',
     ]) {
       const { rows } = await rawApp.query(`SELECT 1 FROM lms.${table}`);
       expect(rows, table).toHaveLength(0);
@@ -322,6 +333,17 @@ describe('lms_app privileges', () => {
         'questions',
         'regrade_changes',
         'regrade_runs',
+        'assignment_attachments',
+        'assignment_extensions',
+        'assignment_feedback_files',
+        'assignment_grades',
+        'assignment_learners',
+        'assignment_uploads',
+        'assignments',
+        'rubric_versions',
+        'rubrics',
+        'submission_files',
+        'submissions',
       ].sort(),
     );
     for (const r of rows) expect({ ...r }, r.relname).toMatchObject({ on: true, forced: true });

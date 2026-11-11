@@ -36,7 +36,7 @@ export type { Row } from './content.repository';
 export const COPY_INLINE_LIMIT = 500;
 
 export interface ItemInput {
-  kind: 'text' | 'file' | 'link' | 'video' | 'assessment';
+  kind: 'text' | 'file' | 'link' | 'video' | 'assessment' | 'assignment';
   title: string;
   body?: unknown;
   fileId?: string | undefined;
@@ -69,7 +69,7 @@ export const defaultCompletion = (
     ? 'manual'
     : kind === 'video'
       ? 'watch'
-      : kind === 'assessment'
+      : kind === 'assessment' || kind === 'assignment'
         ? 'on_submit'
         : 'on_view';
 
@@ -281,8 +281,8 @@ export function createContentService(deps: {
           throw new InvalidItemError();
         }
         v.fileId = input.fileId;
-      } else if (input.kind === 'assessment') {
-        // its settings row is created by the database (trigger); the questions are set on the assessment endpoints
+      } else if (input.kind === 'assessment' || input.kind === 'assignment') {
+        // its settings row is created by the database (trigger); the questions / instructions are set on its own endpoints
         if (input.body !== undefined || input.fileId || input.url || input.videoId) {
           throw new InvalidItemError();
         }
@@ -369,7 +369,12 @@ export function createContentService(deps: {
      * Copies the content of another offering to the end of this one (as unpublished drafts; the copies share
      * the files). Needs course.publish here and the right to edit the source (or to administer the college).
      */
-    async copyFrom(ctx: RequestContext, targetId: string, sourceId: string) {
+    async copyFrom(
+      ctx: RequestContext,
+      targetId: string,
+      sourceId: string,
+      options: { shiftDays?: number | undefined; clearDates?: boolean | undefined } = {},
+    ) {
       if (targetId === sourceId)
         throw new CopyNotPossibleError('An offering cannot be copied into itself');
       const target = spec(ctx, targetId, 'course.publish');
@@ -381,7 +386,14 @@ export function createContentService(deps: {
       const r = await db.withTenant(target.tenantId, (tx) =>
         contentRepo.copy(
           tx,
-          { tenantId: target.tenantId, sourceId, targetId, actorUserId: ctx.userId },
+          {
+            tenantId: target.tenantId,
+            sourceId,
+            targetId,
+            actorUserId: ctx.userId,
+            shiftDays: options.shiftDays ?? null,
+            clearDates: options.clearDates === true,
+          },
           { target, source, inlineLimit: COPY_INLINE_LIMIT },
         ),
       );
@@ -389,13 +401,49 @@ export function createContentService(deps: {
       if (!r.sourceAcc?.visible) throw new OfferingNotFoundError();
       if (!r.sourceAcc.allowed) throw new ForbiddenError();
       if (r.busy) throw new CopyInProgressError();
-      return { status: r.mode ?? 'done', modules: r.modules, items: r.items };
+      return {
+        status: r.mode ?? 'done',
+        modules: r.modules,
+        items: r.items,
+        assessments: r.assessments,
+        assignments: r.assignments,
+      };
+    },
+
+    /** What a copy would do (the terms, the proposed shift, the dates of every assessment and assignment): nothing is written. */
+    async copyPreview(ctx: RequestContext, targetId: string, sourceId: string) {
+      if (targetId === sourceId)
+        throw new CopyNotPossibleError('An offering cannot be copied into itself');
+      const target = spec(ctx, targetId, 'course.publish');
+      const source: AccessSpec = {
+        ...spec(ctx, sourceId, 'course.edit'),
+        accountAllowed: false,
+        viewAll: can(ctx, 'course.read'),
+      };
+      const r = await db.withTenant(target.tenantId, (tx) =>
+        contentRepo.copyPreview(
+          tx,
+          { tenantId: target.tenantId, sourceId, targetId },
+          { target, source },
+        ),
+      );
+      mayEdit(r.targetAcc);
+      if (!r.sourceAcc?.visible) throw new OfferingNotFoundError();
+      if (!r.sourceAcc.allowed) throw new ForbiddenError();
+      if (!r.row) throw new OfferingNotFoundError();
+      return r.row;
     },
 
     /** The `content.copy` job: copies a large source in the background (a retry after success does nothing). */
     async runCopy(
       tenantId: string,
-      job: { sourceId: string; targetId: string; actorUserId: string },
+      job: {
+        sourceId: string;
+        targetId: string;
+        actorUserId: string;
+        shiftDays?: number | null;
+        clearDates?: boolean;
+      },
       attempt: { number: number; max: number },
     ): Promise<{ modules: number; items: number }> {
       try {

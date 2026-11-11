@@ -167,6 +167,18 @@ const rows = await withStack(
         cookie: learnerCookie,
       },
       {
+        // an assignment as a learner sees it: instructions, the rules, the hand-in form, their versions
+        name: 'Assignment',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/items/${demo.assignmentItemId}`,
+        cookie: learnerCookie,
+      },
+      {
+        // the grading screen of an instructor with a learner open (queue, versions, rubric, score): a lazy route
+        name: 'Grading view',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/items/${demo.assignmentItemId}/assignment/grading?learner=${demo.gradingLearnerKey}`,
+        cookie: teacherCookie,
+      },
+      {
         // the video item page: the player (hls.js) is a lazy chunk, the poster is the picture
         name: 'Video item',
         url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/items/${demo.videoItemId}`,

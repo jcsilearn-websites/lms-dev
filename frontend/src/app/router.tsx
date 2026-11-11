@@ -241,6 +241,20 @@ const gradingRoute = child(
   '/offerings/$id/items/$itemId/grading',
   lazyPage(() => import('../features/assessments/grading/GradingPage'), 'GradingPage'),
 );
+// assignments (step 10): the builder, the grading screen and the rubrics are lazy chunks of their own; the learner's page is
+// part of the item page. The API decides who may do what (404 / 403).
+const assignmentBuilderRoute = child(
+  '/offerings/$id/items/$itemId/assignment',
+  lazyPage(() => import('../features/assignments/AssignmentBuilderPage'), 'AssignmentBuilderPage'),
+);
+const assignmentGradingRoute = child(
+  '/offerings/$id/items/$itemId/assignment/grading',
+  lazyPage(() => import('../features/assignments/AssignmentGradingPage'), 'AssignmentGradingPage'),
+);
+const rubricsRoute = child(
+  '/courses/$courseId/rubrics',
+  lazyPage(() => import('../features/assignments/RubricsPage'), 'RubricsPage'),
+);
 const bankRoute = child(
   '/courses/$courseId/questions',
   lazyPage(() => import('../features/assessments/bank/BankPage'), 'BankPage'),
@@ -313,6 +327,9 @@ function buildRouteTree() {
           resultRoute,
           assessmentBuilderRoute,
           gradingRoute,
+          assignmentBuilderRoute,
+          assignmentGradingRoute,
+          rubricsRoute,
           bankRoute,
           academicsRoute,
           importsRoute,

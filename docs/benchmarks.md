@@ -526,3 +526,54 @@ What the benchmark found and fixed (the CLAUDE.md "planner lesson" again):
 Laptop caveat, again: the figures are for one 2-core laptop where the API, PostgreSQL and the load generator compete. Confirm on
 Cloud SQL (a separate host) before promising a number; autosave scales with API instances and database cores, because a save is one
 2-statement request on a stateless API.
+
+
+## Step 10: assignments — 2026-11-11
+
+Reproduce with `pnpm --filter @lms/backend run bench:assignments` (a throwaway `bench-*` college in the dev database and its stored
+files, both deleted afterwards; `BENCH_LEARNERS`, `BENCH_QUEUE_LEARNERS`, `BENCH_CONNECTIONS`, `BENCH_PACED_SECONDS`,
+`BENCH_FILE_KB`, `BENCH_ZIP_FILE_KB`). 4 x i3-1005G1 @ 1.20 GHz (2 cores really busy), Windows, PostgreSQL 17 on the same machine
+as the API and the load generator (they share the CPU: **a laptop, so read every number as a floor, not as a Cloud Run + Cloud SQL
+figure**). **1,500 learners**, **no table statistics** (a college whose rows were just loaded) and autovacuum paused on the tables
+of the run. Requests go over HTTP through the real API with the real storage abstraction (signed URL, the local driver streams the
+bytes to disk; the API never holds a file in memory). Sessions are inserted directly (a login hashes a password).
+
+**The deadline burst**: 70% hand in ONE PDF of about 2 MB, 20% text only, 10% three files (700 KB each). Every file is four calls:
+upload request, PUT of the bytes, confirm (the server reads the bytes, checks type against content, hashes them), then the finalize.
+
+| what                                                                              | result                                                                                                                                       |
+| --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| **saturation**: all 1,500 at once, 64 in flight, 2.4 GB uploaded                  | all 1,500 handed in in **43 - 52 s** over four runs, 0 failed, 372 - 457 statements/s                                                        |
+| upload request / PUT / confirm / **finalize**                                     | p99 659 - 786 ms / 868 - 4,000 ms / 1,231 - 2,492 ms / **595 - 738 ms** (p50 of the finalize 276 - 298 ms)                                   |
+| the whole flow of one learner                                                     | p50 1.8 - 2.3 s, p99 4.4 - 6.1 s                                                                                                             |
+| **paced**: 1,500 arrivals over 180 s, the density rising to ~17/s at the end      | 0 failed; upload request p99 181 ms, PUT 180 ms, confirm 268 ms, **finalize p99 146 ms**; whole flow p99 633 ms                              |
+| **the same, squeezed into 60 s** (about 10x the density of "the last 10 minutes") | 593 of 1,500 FAILED with a 500 (below); after the fix: **0 failed**, 1,613 `503 busy` answers retried after Retry-After, whole flow p99 70 s |
+| queue, first open for 500 learners (makes the random keys, then reads)            | **281 ms**                                                                                                                                   |
+| queue page (50 rows) / 100 rows by time / `status=late`                           | p50 37 / 26 / 23 ms, p95 86 / 34 / 32 ms                                                                                                     |
+| class status (the summary, one row per status)                                    | p50 20 ms, p95 22 ms                                                                                                                         |
+| one learner for grading / save a grade (rubric summed in SQL, audited)            | p50 11 / 13 ms, p95 15 / 31 ms                                                                                                               |
+| release 500 grades in one statement (the penalty frozen on each)                  | **90 ms**                                                                                                                                    |
+| final scores of the offering (the gradebook interface), 500 learners              | 6 ms                                                                                                                                         |
+| **ZIP of 500 submissions** (500 x 2 MB = 1,000 MB), streamed                      | **6.8 s = 147 MB/s**; the API process RSS 188 MB before, **peak 252 MB (+63 MB)** while streaming 1 GB                                       |
+
+How to read it:
+- Finalizing is the cheap part: **2 round trips** (the session lookup and one definer call). What costs is the bytes: the PUT streams
+  2 MB to disk and the confirm reads and hashes it, both CPU and disk on this one shared laptop. With the burst squeezed into
+  seconds the 64 in-flight uploads dominate; in the paced run (the realistic shape) every step stays under 300 ms at the 99th percentile.
+- The load the product promises is "1,500 learners in the last 10 minutes": 2.5 arrivals per second on average and about 5 per
+  second at the peak. The paced run is 3.4 times denser than that at its peak and the squeezed one 10 times.
+- The ZIP is flat in memory: a 1 GB archive costs +63 MB of resident memory in the API (the writer holds one chunk and the central
+  directory, about 100 bytes per entry). Validated by `unzip -t` and Python's `zipfile`, also in the ZIP64 form.
+
+What the benchmark found and fixed (the CLAUDE.md "planner lesson", this time about back-pressure):
+1. **Under the 60 s burst 593 hand-ins failed with `500 internal_error`**, on every endpoint: the database pool (5 connections in
+   development, `connectionTimeoutMs` 5 s) had no free connection for longer than that, and pg-pool's "timeout exceeded when trying
+   to connect" was an unhandled error. It is now a **`503 busy` with `Retry-After: 2`** (central error handler, tested), which every
+   client of the hand-in flow can retry because each call is idempotent (the request key, the draft files, the confirm). With the
+   retry the same burst finishes with 0 failures. The same applies to the exam endpoints of Step 9.
+2. Nothing else: the learner calls were written as unique-key lookups from the start, the grading statements aggregate to one row
+   per learner before any join and were measured without statistics, and the queue's keys are made once per assignment.
+
+Laptop caveat, again: the figures are for one 2-core laptop where the API, PostgreSQL, the disk and the load generator compete.
+Confirm on Cloud Run + Cloud SQL + a bucket before promising a number: uploads then bypass the API entirely (signed URLs straight to
+the bucket) and the confirm reads object metadata instead of re-reading the bytes (GCP step).

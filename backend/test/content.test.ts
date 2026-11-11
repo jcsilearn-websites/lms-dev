@@ -565,7 +565,7 @@ describe('copying content from another offering', () => {
     const r = ok(
       await di.post(`/offerings/${dst.offering.id}/copy`, { sourceOfferingId: src.offering.id }),
     );
-    expect(r).toEqual({ status: 'done', modules: 2, items: 2 });
+    expect(r).toEqual({ status: 'done', modules: 2, items: 2, assessments: 0, assignments: 0 });
 
     const out = ok(await di.get(`/offerings/${dst.offering.id}/outline`));
     expect(out.modules.map((x: Json) => x.title)).toEqual(['Existing', 'Intro', 'Second']);

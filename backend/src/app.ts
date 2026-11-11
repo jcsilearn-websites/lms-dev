@@ -9,11 +9,12 @@ import { registerErrorHandling } from './core/error-handler';
 import type { Mailer } from './core/mailer';
 import { registerOpenApi } from './core/openapi';
 import { genReqId, registerRequestId } from './core/request-id';
-import { registerSecurity } from './core/security';
+import { createBadSessionLimiter, registerSecurity } from './core/security';
 import { registerUploads } from './core/uploads';
 import type { Database } from './db/client';
 import { createAcademicsRoutes } from './modules/academics';
 import { createAssessmentsRoutes } from './modules/assessments';
+import { createAssignmentsRoutes } from './modules/assignments';
 import { createAuditRoutes } from './modules/audit';
 import { createAuthRoutes } from './modules/auth';
 import { createContentRoutes } from './modules/content';
@@ -25,6 +26,7 @@ import { createMembershipsRoutes } from './modules/memberships';
 import { createProfilesRoutes } from './modules/profiles';
 import { createProgressRoutes } from './modules/progress';
 import { createQuestionsRoutes } from './modules/questions';
+import { createRubricsRoutes } from './modules/rubrics';
 import { createSessionsRoutes } from './modules/sessions';
 import { createTenantsRoutes } from './modules/tenants';
 import { createUsersRoutes } from './modules/users';
@@ -64,7 +66,7 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
   // resolution, then module routes.
   registerErrorHandling(app);
   registerRequestId(app);
-  registerSecurity(app, env);
+  registerSecurity(app, env, modules.config.cookie.name);
   registerCsrf(app);
   registerUploads(app, { maxBytes: env.IMPORT_MAX_BYTES });
   registerAuthContext(app, {
@@ -73,6 +75,10 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
     tenantResolver: modules.tenants.service,
     sessionResolver: modules.sessions.service,
     ...(modules.video.sessionCache ? { cachedSessions: modules.video.sessionCache } : {}),
+    badSessions: createBadSessionLimiter({
+      max: Math.max(60, Math.round(env.RATE_LIMIT_MAX / 2)),
+      windowMs: env.RATE_LIMIT_WINDOW_MS,
+    }),
   });
   registerRoutePolicy(app);
   registerOpenApi(app, env);
@@ -107,8 +113,12 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
         createAssessmentsRoutes({ assessmentsController: modules.assessments.controller }),
       );
       void api.register(
+        createAssignmentsRoutes({ assignmentsController: modules.assignments.controller }),
+      );
+      void api.register(
         createQuestionsRoutes({ questionsController: modules.questions.controller }),
       );
+      void api.register(createRubricsRoutes({ rubricsController: modules.rubrics.controller }));
       void api.register(createVideoRoutes({ videoController: modules.video.controller }));
       void api.register(
         createVideoUploadRoutes({

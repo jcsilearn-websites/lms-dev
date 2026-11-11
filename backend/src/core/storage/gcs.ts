@@ -14,6 +14,7 @@ export function createGcsStorage(_opts: { bucket: string }): StorageProvider {
     createUploadTarget: unavailable,
     createDownloadTarget: unavailable,
     inspect: async () => unavailable(),
+    read: async () => unavailable(),
     remove: async () => unavailable(),
   };
 }

@@ -160,7 +160,7 @@ describe('requesting and confirming an upload', () => {
     expect(res.headers['content-type']).toBe('text/csv');
     const cd = String(res.headers['content-disposition']);
     expect(cd).toMatch(
-      /^attachment; filename="a _quoted__ name _\.csv"; filename\*=UTF-8''a%20%22quoted%22%3B%20name%20%C3%A9\.csv$/,
+      /^attachment; filename="a _quoted__ name _\.csv"; filename\*=UTF-8''a%20_quoted_%3B%20name%20%C3%A9\.csv$/,
     );
   });
 

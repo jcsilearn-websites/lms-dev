@@ -193,6 +193,7 @@ const ROWS: Row[] = [
   offeringScoped('POST', `/offerings/${U}/items/${U}/move`, 400, {}),
   offeringScoped('DELETE', `/offerings/${U}/items/${U}`, 404),
   offeringScoped('POST', `/offerings/${U}/copy`, 400, {}),
+  offeringScoped('GET', `/offerings/${U}/copy-preview`, 400),
   offeringScoped('POST', `/offerings/${U}/files`, 400, {}),
   memberOnly('POST', `/files/${U}/confirm`, 404),
   // ---- video lessons (step 7): the same offering-scoped rules
@@ -272,6 +273,54 @@ const ROWS: Row[] = [
   offeringScoped('GET', `/offerings/${U}/items/${U}/assessment/regrades`, 404),
   offeringScoped('POST', `/offerings/${U}/items/${U}/assessment/release`, 404, {}),
   offeringScoped('GET', `/offerings/${U}/items/${U}/assessment/analysis`, 404),
+  // ---- rubrics (step 10): course scoped like the question bank
+  offeringScoped('GET', `/courses/${U}/rubrics`, 404),
+  offeringScoped('GET', `/courses/${U}/rubrics/${U}`, 404),
+  offeringScoped('POST', `/courses/${U}/rubrics`, 400, {}),
+  offeringScoped('PUT', `/courses/${U}/rubrics/${U}`, 400, {}),
+  offeringScoped('PATCH', `/courses/${U}/rubrics/${U}`, 404, { archived: true }),
+  // ---- assignments (step 10): offering scoped; the learner calls are decided by the database functions
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment`, 404),
+  offeringScoped('PUT', `/offerings/${U}/items/${U}/assignment`, 404, { maxPoints: 5 }),
+  offeringScoped('PUT', `/offerings/${U}/items/${U}/assignment/attachments`, 404, { fileIds: [] }),
+  offeringScoped('PUT', `/offerings/${U}/items/${U}/assignment/rubric`, 404, { rubricId: null }),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/extensions`, 404),
+  offeringScoped('PUT', `/offerings/${U}/items/${U}/assignment/extensions/${U}`, 404, {
+    extendedDueAt: '2030-01-01T00:00:00.000Z',
+  }),
+  offeringScoped('DELETE', `/offerings/${U}/items/${U}/assignment/extensions/${U}`, 404),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/me`, 404),
+  offeringScoped('POST', `/offerings/${U}/items/${U}/assignment/files`, 404, {
+    name: 'a.pdf',
+    size: 10,
+  }),
+  offeringScoped('POST', `/offerings/${U}/items/${U}/assignment/files/${U}/confirm`, 404),
+  offeringScoped('POST', `/offerings/${U}/items/${U}/assignment/submissions`, 404, {
+    requestKey: U,
+    fileIds: [],
+  }),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/files/${U}`, 404),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/grading/queue`, 404),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/grading/summary`, 404),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/grading/learners/${U}`, 404),
+  offeringScoped('PUT', `/offerings/${U}/items/${U}/assignment/grading/learners/${U}/grade`, 404, {
+    submissionId: U,
+    rawScore: 1,
+  }),
+  offeringScoped(
+    'PUT',
+    `/offerings/${U}/items/${U}/assignment/grading/learners/${U}/penalty-waiver`,
+    404,
+    { reason: 'because' },
+  ),
+  offeringScoped(
+    'DELETE',
+    `/offerings/${U}/items/${U}/assignment/grading/learners/${U}/penalty-waiver`,
+    404,
+  ),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/grading/files/${U}`, 404),
+  offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/submissions.zip`, 404),
+  offeringScoped('POST', `/offerings/${U}/items/${U}/assignment/release`, 404, {}),
   // the local video provider's playback files: the token in the path is the credential, the session says who
   // asks; a made-up token is 403 for every signed-in caller (on the admin host a platform admin has no college)
   {

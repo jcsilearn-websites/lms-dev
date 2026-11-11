@@ -2,6 +2,8 @@
 // first bytes (magic numbers) must agree with it, and the stored content type is OUR canonical one, never
 // what the browser claimed. Anything not listed here is refused (no html, svg, scripts or executables).
 
+import { safeFileName } from '../filenames';
+
 export interface FileKind {
   /** canonical media type stored and sent */
   mime: string;
@@ -124,7 +126,7 @@ export function cleanFileName(raw: string): string {
 
 /** Content-Disposition: inline only for the formats a browser renders without running code; the name is encoded. */
 export function contentDisposition(name: string, inline: boolean): string {
-  const safe = cleanFileName(name) || 'file';
+  const safe = safeFileName(name);
   const fallback = safe.replace(/[^\x20-\x7e]/g, '_').replace(/["\\;]/g, '_');
   const encoded = encodeURIComponent(safe).replace(
     /['()*]/g,

@@ -79,7 +79,8 @@ const failures = [];
 //   3. the editor chunk fits the route budget on top of what the builder and the login page already loaded.
 const editorKey = Object.keys(manifest).find((k) => /RichTextEditor\.tsx$/.test(k));
 // the question bank edits the stem of a question with the same editor
-const EDITOR_ALLOWED = /BuilderPage|ItemDialog|RichTextEditor|loadEditor|BankPage|QuestionDialog/;
+const EDITOR_ALLOWED =
+  /BuilderPage|ItemDialog|RichTextEditor|loadEditor|BankPage|QuestionDialog|AssignmentGradingPage|LearnerPanel/;
 let editorReport = null;
 if (!editorKey) {
   failures.push('the rich-text editor chunk (RichTextEditor.tsx) is not in the manifest');
@@ -89,7 +90,8 @@ if (!editorKey) {
    * entry lazily imports every route (the builder included), so reachability must stop at the builder's door.
    * If any chunk can still reach the editor, something outside the builder imports it.
    */
-  const BUILDER = /BuilderPage|ItemDialog|BankPage|QuestionDialog/;
+  const BUILDER =
+    /BuilderPage|ItemDialog|BankPage|QuestionDialog|AssignmentGradingPage|LearnerPanel/;
   const reachWithoutBuilder = (key, seen = new Set()) => {
     if (seen.has(key) || BUILDER.test(key)) return seen;
     seen.add(key);

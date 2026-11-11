@@ -5,13 +5,14 @@ const Id = Type.String({ format: 'uuid' });
 const DateTime = Type.String({ format: 'date-time' });
 const Nullable = <T extends ReturnType<typeof Type.String>>(t: T) => Type.Union([Type.Null(), t]);
 
-export const CONTENT_KINDS = ['text', 'file', 'link', 'video', 'assessment'] as const;
+export const CONTENT_KINDS = ['text', 'file', 'link', 'video', 'assessment', 'assignment'] as const;
 export const ContentKindSchema = Type.Union([
   Type.Literal('text'),
   Type.Literal('file'),
   Type.Literal('link'),
   Type.Literal('video'),
   Type.Literal('assessment'),
+  Type.Literal('assignment'),
 ]);
 export type ContentKind = Static<typeof ContentKindSchema>;
 
@@ -19,7 +20,7 @@ export const CompletionRuleSchema = Type.Union([
   Type.Literal('manual'),
   Type.Literal('on_view'),
   Type.Literal('watch'),
-  // an assessment item: done when the learner submits an attempt
+  // an assessment or assignment item: done when the learner submits
   Type.Literal('on_submit'),
 ]);
 export type CompletionRule = Static<typeof CompletionRuleSchema>;
@@ -166,7 +167,51 @@ export const UpdateItemRequestSchema = Type.Object({
   completion: Type.Optional(CompletionRuleSchema),
 });
 
-export const CopyContentRequestSchema = Type.Object({ sourceOfferingId: Id });
+export const CopyContentRequestSchema = Type.Object({
+  sourceOfferingId: Id,
+  /**
+   * Assessments and assignments are copied WITH their dates; every date moves by this many days. Omitted: the difference
+   * between the two terms' start dates (what the preview proposes). The instructor can change it.
+   */
+  shiftDays: Type.Optional(Type.Integer({ minimum: -3650, maximum: 3650 })),
+  /** copy the settings but no dates at all (they are set again by hand) */
+  clearDates: Type.Optional(Type.Boolean()),
+});
+export type CopyContentRequest = Static<typeof CopyContentRequestSchema>;
+
+export const CopyPreviewQuerySchema = Type.Object({ sourceOfferingId: Id });
+export const CopyPreviewItemSchema = Type.Object({
+  kind: Type.Union([Type.Literal('assessment'), Type.Literal('assignment')]),
+  title: Type.String(),
+  moduleTitle: Type.String(),
+  /** the dates as they are now (in the source) */
+  opensAt: Nullable(DateTime),
+  /** an assessment's close date, an assignment's due date */
+  endsAt: Nullable(DateTime),
+  /** an assignment's hard cutoff for late work */
+  lateCutoffAt: Nullable(DateTime),
+  /** the questions (assessment) or the rubric (assignment) come along: only when both offerings are of the SAME course */
+  copiesQuestions: Type.Boolean(),
+});
+export const CopyPreviewSchema = Type.Object({
+  source: Type.Object({
+    id: Id,
+    title: Type.String(),
+    termName: Type.String(),
+    termStart: Type.String(),
+  }),
+  target: Type.Object({
+    id: Id,
+    title: Type.String(),
+    termName: Type.String(),
+    termStart: Type.String(),
+  }),
+  /** target term start minus source term start, in days */
+  defaultShiftDays: Type.Integer(),
+  sameCourse: Type.Boolean(),
+  items: Type.Array(CopyPreviewItemSchema),
+});
+export type CopyPreview = Static<typeof CopyPreviewSchema>;
 export type ModuleDto = Static<typeof ModuleSchema>;
 
 export const CopyContentResponseSchema = Type.Object({
@@ -174,6 +219,9 @@ export const CopyContentResponseSchema = Type.Object({
   status: Type.Union([Type.Literal('done'), Type.Literal('queued')]),
   modules: Type.Integer(),
   items: Type.Integer(),
+  /** assessments and assignments copied with their settings (a queued copy reports 0: the job does it) */
+  assessments: Type.Optional(Type.Integer()),
+  assignments: Type.Optional(Type.Integer()),
 });
 
 export type CopyContentResponse = Static<typeof CopyContentResponseSchema>;

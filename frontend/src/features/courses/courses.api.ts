@@ -159,8 +159,15 @@ export const moveItem = (
 export const deleteItem = (id: string, itemId: string) =>
   api<OkResponse>(`/offerings/${id}/items/${itemId}`, { method: 'DELETE' });
 
-export const copyContent = (id: string, sourceOfferingId: string) =>
-  api<CopyContentResponse>(`/offerings/${id}/copy`, { method: 'POST', body: { sourceOfferingId } });
+export const copyContent = (
+  id: string,
+  sourceOfferingId: string,
+  options: { shiftDays?: number; clearDates?: boolean } = {},
+) =>
+  api<CopyContentResponse>(`/offerings/${id}/copy`, {
+    method: 'POST',
+    body: { sourceOfferingId, ...options },
+  });
 
 // ------------------------------------------------------------------ files
 export const requestUpload = (id: string, name: string, size: number) =>

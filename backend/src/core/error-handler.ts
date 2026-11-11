@@ -23,6 +23,16 @@ function body(
   return { error: { code, message, requestId, ...(details ? { details } : {}) } };
 }
 
+/** pg-pool's own error when no connection became free in time (it has no code; the message is stable). */
+export function isPoolExhausted(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && depth < 4; depth++) {
+    if (e instanceof Error && /timeout exceeded when trying to connect/i.test(e.message))
+      return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 function handleError(err: FastifyError, request: FastifyRequest, reply: FastifyReply) {
   if (err instanceof AppError) {
     if (err.statusCode >= 500) request.log.warn({ err }, 'request failed');
@@ -44,6 +54,17 @@ function handleError(err: FastifyError, request: FastifyRequest, reply: FastifyR
     const code = CLIENT_CODES[status] ?? 'bad_request';
     // Fastify/plugin 4xx messages are generic and safe to expose.
     return reply.status(status).send(body(request.id, code, err.message));
+  }
+
+  // The database pool had no free connection for `connectionTimeoutMs`: the service is saturated (a deadline burst), not
+  // broken. Say so with a Retry-After: the clients retry (every hand-in and save is idempotent), instead of a 500 that looks
+  // like a bug and is never retried.
+  if (isPoolExhausted(err)) {
+    request.log.warn({ err }, 'database pool exhausted');
+    return reply
+      .status(503)
+      .header('retry-after', '2')
+      .send(body(request.id, 'busy', 'The service is busy right now. Try again in a moment.'));
   }
 
   // Everything else is a bug or an infrastructure failure: log it, never leak it.

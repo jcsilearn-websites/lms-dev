@@ -75,6 +75,13 @@ jobs:
       - name: Install ffmpeg (pinned, checksum verified; development and CI only, never in a production image)
         run: bash .github/scripts/install-ffmpeg.sh
 
+      # The ZIP of assignment submissions is validated by tools that are NOT ours (unzip -t, Python's zipfile): the tests
+      # fail when they are missing in CI, so fail here with a clear message first.
+      - name: Check the independent ZIP validators exist
+        run: |
+          unzip -v | head -1
+          python3 -I -c 'import zipfile; print("python zipfile ok")'
+
       - run: pnpm lint
       # docs/permissions.md is generated from the code; fail when the committed file is stale
       - run: pnpm docs:permissions --check

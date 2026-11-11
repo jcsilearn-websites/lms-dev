@@ -1073,7 +1073,7 @@ describe('assessment items in the course content', () => {
     ).toBe(400);
   });
 
-  it('copying the content of an offering brings the assessment item (with default settings: dates and slots are set again)', async () => {
+  it('copying the content of an offering brings the assessment item with its settings and questions (Step 10)', async () => {
     const e = await exam(owner, t, A, admin, st, 1);
     const { item } = await quiz(e, { timeLimitMinutes: 20 });
     const sister = ok(
@@ -1099,8 +1099,8 @@ describe('assessment items in the course content', () => {
     const config = ok(
       await e.instructor.client.get(`/offerings/${sister.id}/items/${copied.id}/assessment`),
     );
-    expect(config.settings.kind).toBe('practice');
-    expect(config.slots).toEqual([]);
+    expect(config.settings.timeLimitMinutes).toBe(20);
+    expect(config.slots).toHaveLength(4);
     expect(config.courseId).toBe(e.courseId);
   });
 });

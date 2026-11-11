@@ -8,6 +8,7 @@ import { Badge, Card, PageHeader } from '../../shared/ui/layout';
 import { ErrorState, ListSkeleton } from '../../shared/ui/states';
 import { toast } from '../../shared/ui/toast';
 import { AssessmentItemView } from '../assessments/AssessmentItemView';
+import { AssignmentItemView } from '../assignments/AssignmentItemView';
 import { ItemStatusBadge } from '../progress/ProgressBar';
 import {
   getMyProgress,
@@ -143,6 +144,7 @@ export function ItemPage() {
           )}
           {it.kind === 'video' && <VideoItemView offeringId={id} item={it} learner={learner} />}
           {it.kind === 'assessment' && <AssessmentItemView offeringId={id} itemId={itemId} />}
+          {it.kind === 'assignment' && <AssignmentItemView offeringId={id} itemId={itemId} />}
           {learner && it.completion === 'manual' && status && (
             <Card>
               {status === 'completed' ? (

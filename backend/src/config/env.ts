@@ -153,6 +153,8 @@ const storageFields = {
   ASSESSMENT_SAVE_GRACE_SECONDS: Type.Integer({ minimum: 0, maximum: 300, default: 30 }),
   ASSESSMENT_SWEEP_SECONDS: Type.Integer({ minimum: 1, maximum: 3600, default: 15 }),
   ASSESSMENT_SWEEP_BATCH: Type.Integer({ minimum: 1, maximum: 1000, default: 200 }),
+  // assignments (step 10): a file upload begun before the due date and handed in within this many minutes counts on time
+  ASSIGNMENT_UPLOAD_GRACE_MINUTES: Type.Integer({ minimum: 0, maximum: 120, default: 10 }),
 };
 
 /**

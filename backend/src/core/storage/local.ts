@@ -58,8 +58,6 @@ export interface LocalStorage extends StorageProvider {
   verify(token: string, action: 'put' | 'get'): UrlClaims | null;
   /** Streams an upload into the object, never keeping more than `maxBytes`; throws TooLargeError. */
   write(key: string, body: Readable, maxBytes: number): Promise<number>;
-  /** The object as a stream with its size; null when it does not exist. */
-  read(key: string): Promise<{ stream: Readable; size: number } | null>;
 
   // ---- object-level operations used by the video provider (keys: see OBJECT_KEY)
   /**

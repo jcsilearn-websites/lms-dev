@@ -20,6 +20,12 @@ beforeAll(async () => {
     // a REAL database error (missing relation) must not reach the client
     db.withTenant(newId(), (tx) => tx.execute(sql`select * from lms.table_that_does_not_exist`)),
   );
+  app.get('/t/pool-timeout', { config: { public: true } }, async () => {
+    // what pg-pool throws when no connection became free in time (wrapped the way drizzle wraps driver errors)
+    throw Object.assign(new Error('Failed query'), {
+      cause: new Error('timeout exceeded when trying to connect'),
+    });
+  });
   app.get('/t/app-error', { config: { public: true } }, async () => {
     throw new AppError(409, 'conflict', 'Already exists');
   });
@@ -76,6 +82,14 @@ describe('error handler', () => {
     expect(res.statusCode).toBe(500);
     errorShape(res.json());
     expect(res.body).not.toMatch(/table_that_does_not_exist|relation|lms\.|42P01|select/i);
+  });
+
+  it('a saturated database pool is a 503 busy with Retry-After (clients retry), never a 500', async () => {
+    const res = await t.app.inject({ method: 'GET', url: '/t/pool-timeout' });
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['retry-after']).toBe('2');
+    errorShape(res.json());
+    expect(res.json().error.code).toBe('busy');
   });
 
   it('maps AppError to its status, code and message', async () => {

@@ -2,6 +2,7 @@ import type { Static } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import type {
   CopyContentRequestSchema,
+  CopyPreviewQuerySchema,
   CreateItemRequestSchema,
   CreateModuleRequestSchema,
   MoveItemRequestSchema,
@@ -145,9 +146,19 @@ export function createContentController(deps: { contentService: ContentService }
         contextFrom(request),
         request.params.id,
         request.body.sourceOfferingId,
+        { shiftDays: request.body.shiftDays, clearDates: request.body.clearDates },
       );
       return reply.code(r.status === 'queued' ? 202 : 200).send(r);
     },
+
+    copyPreview: async (
+      request: FastifyRequest<Off & { Querystring: Static<typeof CopyPreviewQuerySchema> }>,
+    ) =>
+      (await svc.copyPreview(
+        contextFrom(request),
+        request.params.id,
+        request.query.sourceOfferingId,
+      )) as never,
   };
 }
 export type ContentController = ReturnType<typeof createContentController>;

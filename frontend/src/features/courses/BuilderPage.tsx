@@ -78,6 +78,7 @@ const KIND_LABEL: Record<string, string> = {
   link: 'Link',
   video: 'Video',
   assessment: 'Quiz / exam',
+  assignment: 'Assignment',
 };
 
 export function BuilderPage() {
@@ -475,7 +476,7 @@ function ModuleCard({
           </DndContext>
         )}
         <div className="mt-3 flex flex-wrap gap-2">
-          {(['text', 'file', 'link', 'video', 'assessment'] as const).map((k) => (
+          {(['text', 'file', 'link', 'video', 'assessment', 'assignment'] as const).map((k) => (
             <Button
               key={k}
               variant="secondary"
@@ -502,6 +503,23 @@ function AssessmentLinks({ itemId }: { itemId: string }) {
       </Link>
       <Link to={`/offerings/${id}/items/${itemId}/grading` as '/'} className={cls}>
         Grading and results
+      </Link>
+    </>
+  );
+}
+
+/** The tools of an assignment item: its settings, and the grading. */
+function AssignmentLinks({ itemId }: { itemId: string }) {
+  const { id } = useParams({ strict: false }) as { id: string };
+  const cls =
+    'inline-flex min-h-11 items-center rounded-md border border-input px-3 text-sm hover:bg-muted sm:min-h-9';
+  return (
+    <>
+      <Link to={`/offerings/${id}/items/${itemId}/assignment` as '/'} className={cls}>
+        Settings
+      </Link>
+      <Link to={`/offerings/${id}/items/${itemId}/assignment/grading` as '/'} className={cls}>
+        Grading
       </Link>
     </>
   );
@@ -548,6 +566,7 @@ function ItemRow({
       <Badge>{KIND_LABEL[item.kind] ?? item.kind}</Badge>
       <span className="min-w-0 flex-1 break-words font-medium">{item.title}</span>
       {item.kind === 'assessment' && <AssessmentLinks itemId={item.id} />}
+      {item.kind === 'assignment' && <AssignmentLinks itemId={item.id} />}
       {item.video?.status === 'processing' && (
         <Badge tone="warning">Processing {item.video.progress}%</Badge>
       )}

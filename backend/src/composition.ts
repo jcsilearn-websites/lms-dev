@@ -43,6 +43,11 @@ import {
   createAssessmentsService,
 } from './modules/assessments';
 import {
+  createAssignmentsController,
+  createAssignmentsRepository,
+  createAssignmentsService,
+} from './modules/assignments';
+import {
   createAuditController,
   createAuditHandlers,
   createAuditRepository,
@@ -120,6 +125,11 @@ import {
   createQuestionsService,
 } from './modules/questions';
 import {
+  createRubricsController,
+  createRubricsRepository,
+  createRubricsService,
+} from './modules/rubrics';
+import {
   createSessionsController,
   createSessionsHandlers,
   createSessionsRepository,
@@ -165,6 +175,7 @@ export interface ModulesConfig {
   imports: ImportsConfig;
   storage: StorageConfig;
   assessments: AssessmentsModuleConfig;
+  assignments: AssignmentsModuleConfig;
   video: VideoModuleConfig;
   /** port of the web app for links in queued emails (development only) */
   publicPort: number | undefined;
@@ -181,6 +192,10 @@ export interface StorageConfig {
   urlTtlSeconds: number;
   purgeGraceHours: number;
   purgeEveryMs: number;
+}
+
+export interface AssignmentsModuleConfig {
+  graceSeconds: number;
 }
 
 export interface AssessmentsModuleConfig {
@@ -264,6 +279,7 @@ export function modulesConfigFromEnv(
     | 'ASSESSMENT_SAVE_GRACE_SECONDS'
     | 'ASSESSMENT_SWEEP_SECONDS'
     | 'ASSESSMENT_SWEEP_BATCH'
+    | 'ASSIGNMENT_UPLOAD_GRACE_MINUTES'
     | 'VIDEO_PROVIDER'
     | 'VIDEO_SIGNING_SECRET'
     | 'VIDEO_MAX_BYTES'
@@ -344,6 +360,7 @@ export function modulesConfigFromEnv(
       sweepEveryMs: env.ASSESSMENT_SWEEP_SECONDS * 1000,
       sweepBatch: env.ASSESSMENT_SWEEP_BATCH,
     },
+    assignments: { graceSeconds: env.ASSIGNMENT_UPLOAD_GRACE_MINUTES * 60 },
     video: {
       provider: env.VIDEO_PROVIDER,
       signingSecret: env.VIDEO_SIGNING_SECRET,
@@ -535,6 +552,18 @@ export function createModules(db: Database, config: ModulesConfig) {
     questionsRepo: createQuestionsRepository(),
   });
 
+  const assignmentsService = createAssignmentsService({
+    db,
+    assignmentsRepo: createAssignmentsRepository(),
+    filesService,
+    storage,
+    config: {
+      graceSeconds: config.assignments.graceSeconds,
+      maxFileBytes: config.storage.maxBytes,
+    },
+  });
+  const rubricsService = createRubricsService({ db, rubricsRepo: createRubricsRepository() });
+
   const handlers: HandlerMap = {
     ...createHealthHandlers({ healthService }),
     ...createTenantsHandlers({ tenantsService }),
@@ -590,6 +619,14 @@ export function createModules(db: Database, config: ModulesConfig) {
     assessments: {
       service: assessmentsService,
       controller: createAssessmentsController({ assessmentsService }),
+    },
+    assignments: {
+      service: assignmentsService,
+      controller: createAssignmentsController({ assignmentsService }),
+    },
+    rubrics: {
+      service: rubricsService,
+      controller: createRubricsController({ rubricsService }),
     },
     questions: {
       service: questionsService,

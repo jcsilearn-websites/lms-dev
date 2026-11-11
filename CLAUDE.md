@@ -5,9 +5,10 @@ Steps 1 (foundation), 1b (module-based restructure), 2 (authentication + tenant 
 budget + cleanup jobs), 4 (permission system + member and tenant management), 5 (academic structure, member
 profiles, bulk CSV import, Postgres job queue), 5b (the frontend for all of them) and 6 (courses, offerings,
 participation, course content, file storage; backend + frontend), 6b (soft removal, PostgreSQL 17 everywhere), 7 (video
-lessons behind provider interfaces; backend + frontend), 8 (learning progress tracking; backend + frontend) and 9 (quizzes and
-exams: question bank, assessments, attempt engine, grading; backend + frontend) are built. Do not build features beyond the current step without
-being asked.
+lessons behind provider interfaces; backend + frontend), 8 (learning progress tracking; backend + frontend), 9 (quizzes and
+exams: question bank, assessments, attempt engine, grading; backend + frontend) and 10 (assignments: submissions, rubrics, grading,
+blind grading, late penalties, bulk ZIP, and the offering copy of assessments and assignments; backend + frontend) are built. Do not
+build features beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
 
@@ -48,17 +49,19 @@ backend/
                     OpenAPI, pagination helpers, uuid, tenant log binding, job-handler types
     contracts/      shared TypeBox schemas + types exported to the frontend (leaf folder)
     core/storage/   StorageProvider (local signed-URL driver, GCS stub), file types + magic bytes
+    core/zip.ts     streaming store-only ZIP writer (ZIP64, data descriptors); core/filenames.ts safeFileName (zip-slip, device names)
     core/video/     VideoProvider (local = ffmpeg + HLS served by the API; gcp / bunny stubs), playback tokens, ffmpeg/ffprobe runner
     modules/<module>/   health, tenants (+tenant_settings), users, memberships, audit, sessions, auth,
                         jobs (queue), academics, profiles, imports, courses, content, files, video, progress,
-                        questions (bank, versions, CSV import), assessments (settings, attempts, grading, regrade)
+                        questions (bank, versions, CSV import), assessments (settings, attempts, grading, regrade),
+                        rubrics (per course, versioned), assignments (settings, submissions, grading, blind keys, ZIP, extensions)
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
 frontend/src/
   app/              app shell, root layout (branding, 404 college), providers, router (one route tree per host kind), theme
   features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses, video, progress,
-                       assessments (bank/, builder/, grading/, exam/ + results):
+                       assessments (bank/, builder/, grading/, exam/ + results), assignments (learner page, builder, grading, rubrics):
                        <feature>.api.ts (typed with backend contracts), pages, hooks
   shared/           ui/ (button, field, select, dialog, data-table, toast, states), api/ (client, errors), forms/, utils/
 frontend/e2e/       Playwright specs + helpers   frontend/scripts/  stack, e2e, serve, bundle check, lighthouse, screenshots
@@ -411,6 +414,56 @@ Full reasoning, the leakage and integrity story: `docs/adr/0017-assessments.md`.
   the API is unreachable still opens the exam. The countdown uses the monotonic clock from the server time it last received.
   `check-bundle-size.mjs` allows the editor chunk from the question bank as well as the builder.
 
+## Assignments (step 10)
+
+Full reasoning: `docs/adr/0018-assignments.md`. Numbers: `docs/benchmarks.md` (Step 10).
+- **Submissions are history**: every hand-in is a new immutable VERSION (`submissions`; `lms_app` cannot update or delete it; the highest
+  number counts; foreign keys into submissions / grades are `ON DELETE RESTRICT`). Files: `POST .../assignment/files` (a pending file and a
+  DRAFT entry, `assignment_uploads`, ephemeral) -> the browser PUTs to the signed URL (the API streams to disk) -> `.../files/:id/confirm`
+  (reads the bytes, checks type against content; **8 round trips, one more than the files confirm: the learner gate**) -> `POST
+  .../submissions` (ONE definer call `assignment_submit`: 2 round trips). `request_key` makes a repeated finalize ONE version.
+- **Learner calls are definer functions** (`assignment_me`, `assignment_upload_begin`, `assignment_submit`, `assignment_file_access`,
+  `assignment_upload_check`, all via `progress_gate`): a non-participant gets 404 `offering_not_found`, a participant who is not a learner
+  403, like every offering route (`offering-scope.test.ts` enforces it).
+- **Deadline = the server clock.** An upload that BEGAN before the due date and is finalized within `ASSIGNMENT_UPLOAD_GRACE_MINUTES`
+  (10) counts on time (`on_grace` on the version). `late_policy` `none` | `allowed` until a hard cutoff; penalty = percent of the MAXIMUM
+  points, per started day or once, capped (`assignment_penalty_percent`); stored as `late_seconds`, computed from the policy until the grade
+  is RELEASED, then frozen on the grade. Raw, penalty and final are always shown separately; the penalty can be waived with a reason
+  (`grade.finalize`, audited WITH the reason). A LATE version replacing an ON-TIME one answers `confirm_late` with the exact figures and
+  writes nothing until the same request is repeated with `confirmLate`.
+- **Extensions** (`assignment_extensions`) move the due date and the cutoff of one learner; the reason is private like an accommodation's
+  (`assignment.view_extensions`: instructors and institution admins, NOT assistants; never in a list, export or audit entry).
+- **Rubrics** (`rubrics` module, `/courses/:id/rubrics`, `scope: 'course'`, permissions `rubric.read` / `rubric.manage`): criteria x levels x
+  points, versioned (`rubric_versions` immutable, random ids kept through edits). An assignment PINS the version when the rubric is attached
+  and cannot swap rubrics once graded. The grade statement checks and sums the selection IN SQL (no read first): 4 round trips. An override
+  of the rubric's score needs a reason.
+- **Blind grading** (`anonymous_grading`): name, e-mail and register number are NULL in the rows that leave the database (queue, learner, ZIP
+  index) until THAT learner's grade is released or the setting is switched off (audited). Learners are addressed by a random `learner_key`
+  (`gen_random_uuid()` on purpose: a UUIDv7 would reveal creation order) and show a `anon_code`; the queue is ordered by code or submission time,
+  ordering by name is 400 `sort_not_allowed`; a grader's download name is neutral. `assignments.blind.test.ts` is the sentinel test. The first
+  open of the queue makes the keys (one more statement, once).
+- **Grading** (`/offerings/:id/items/:itemId/assignment/...`, `scope: 'offering'`, `submission.grade` = instructors and assistants; waive and
+  release need `grade.finalize`): keyset queue (status not_submitted | submitted | late | graded | released, section, sort), summary, learner,
+  grade, release (all or listed keys; only the latest version's grade), staff file download (attachment except PDF / PNG / JPEG).
+  `assignmentsService.finalScores()` / `lms.assignment_final_scores` is the interface for step 11 (NO gradebook is built).
+- **ZIP**: `GET .../submissions.zip` streams every learner's latest version (`core/zip.ts`, store-only, ZIP64, flat memory) with a formula-safe
+  `index.csv`; folders by register number, the anonymous code while blind; every name goes through `safeFileName`, the writer THROWS on an unsafe
+  name. Archives are validated by `unzip -t` and Python's `zipfile` (CI requires both; locally they are skipped when missing).
+- **Programs and scripts are refused** at the upload of an assignment file (`BLOCKED_EXTENSIONS` on top of the allowlist). **Assignment files
+  are the highest-risk path for malware: scanning is NOT built** (see TODO).
+- **Copy** (`POST /offerings/:id/copy`, preview `GET /offerings/:id/copy-preview?sourceOfferingId=`): assessments (settings; the questions within
+  the SAME course) and assignments (settings, instructions, attachments as shared files; the rubric within the same course) come along with their
+  dates moved by `shiftDays` (default: the difference of the two terms' start dates; adjustable) or cleared (`clearDates`, "after close" visibility
+  falls back to manual). NEVER copied: attempts, submissions, grades, extensions, accommodations, drafts, blind keys, progress. The default-row
+  triggers are `ON CONFLICT DO NOTHING` fallbacks; the job payload of a large copy carries the shift.
+- **Rate limits are per SESSION** (`core/security.ts` `rateLimitKey`: a hash of the cookie), per address only for anonymous requests; a cookie
+  that resolves to no session counts against the address in a second limiter (`createBadSessionLimiter`), so forged cookies buy nothing
+  (`rate-limit.test.ts`, 60 users behind one address). A saturated database pool is **503 `busy` + `Retry-After: 2`** (not a 500).
+- **Frontend**: the learner page is part of the item page chunk (countdown by the server's clock, the late-confirmation dialog, history, grade
+  with the penalty on its own line); the builder, the rubrics page and the grading page are lazy chunks (`?learner=<key>` opens one learner; j / k
+  move through the queue). A PDF opens in the browser's own viewer in a new tab (`FilePreview`); images and plain text are shown inline; everything
+  else is a download. The editor chunk may be reached from the builder and the grading page (`check-bundle-size.mjs`).
+
 ## Tenant-isolation rules (most important rules in the repo)
 
 1. Tenant data is touched ONLY through `db.withTenant(tenantId, async (tx) => …)` (opened by services). It opens a
@@ -589,6 +642,9 @@ every extra statement also holds a pooled connection longer. So round trips are 
   Step 9: every learner exam call (start, read, autosave, submit, my page, result) **2** (session lookup + one definer call); every
   question-bank, builder, grading, regrade, release, analysis and accommodation call 4 (a new question VERSION 5: it reads the kept
   option ids and writes in one transaction); the worker's sweeper closes a batch of 200 attempts in 1 statement.
+  Step 10: learner calls (assignment page, upload request, hand-in, file link) **2**; the confirm of an upload **8** (gate + two short
+  transactions around the storage read); every rubric, builder, extension, grading (queue, summary, learner, grade, waiver, release, file)
+  and ZIP-manifest call 4 (the first open of the queue also makes the keys: 6, once); the ZIP streams its bytes after the manifest transaction.
   Step 5: academics reads 4, every academic change 4 (one fused statement), profile read / upsert / section moves 4,
   `GET /members` with profile filters 4, `GET /imports*` 4 (`/rows` and `/errors.csv` 5: the import and its page share a
   transaction), confirm / cancel 4, `POST /imports` = 7 + 1 per 1,000 rows staged (10,000 rows: 16 statements). The worker
@@ -651,6 +707,7 @@ pnpm --filter @lms/backend run bench:courses   learner outline, my courses, one 
 pnpm --filter @lms/backend run bench:search    EXPLAIN experiment for member search, throwaway schema, self-cleaning
 pnpm --filter @lms/backend run bench:progress  heartbeat throughput, class view 500 x 100, aggregation vs counters (throwaway college, no statistics)
 pnpm --filter @lms/backend run bench:assessments  1,500 learners start / autosave / submit / auto-submit one exam, grading time (throwaway college)
+pnpm --filter @lms/backend run bench:assignments  1,500 learners in the deadline burst (2 MB PDFs, text, 3 files), grading queue for 500, ZIP of 500 (peak memory)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
@@ -676,7 +733,10 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - The invite email of an import uses the college's origin built from `APP_BASE_DOMAIN` (+ `APP_PUBLIC_PORT` in development).
 - A phone number is the only numeric-kind import column today; add new numeric columns in `imports.csv.ts` with `kind: 'numeric'`.
 - **Malware / virus scanning of uploaded files before they become `ready` is NOT built** (GCS pipeline step: scan, then
-  verdict checked in `POST /files/:id/confirm`). Not needed for the local development driver.
+  verdict checked in `POST /files/:id/confirm` and `POST .../assignment/files/:id/confirm`). Not needed for the local development driver.
+  **Assignment files (learner uploads that an instructor downloads and opens) are the HIGHEST-RISK path: a ZIP in a submission is accepted and
+  never opened by the server, the instructor's download is an attachment, programs and scripts are refused by name and content, but nothing
+  scans the bytes. Close this before the first production college hands in work.**
 - The GCS storage driver is a stub (503); signed URLs, object metadata instead of re-reading bytes, lifecycle rule for abandoned
   uploads are GCP-step work. Object deletion after the purge removed the row is best effort (a crash in between leaves an orphan
   object; list-and-compare job later).
@@ -692,10 +752,15 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - Re-run the full suite on Node 24 (local machine was on 22).
 - Upgrade TypeScript to 7.x once dependency-cruiser supports it.
 - **Assessments (step 9)**: no proctoring (the integrity log is information, not proof); no per-question time limits; the question bank is
-  per course (no sharing across courses); copying an offering gives assessment items DEFAULT settings (set the dates and questions
-  again); no gradebook (step 11 reads `assessmentsService.finalScores()`); no notification when results are released; an offline
+  per course (no sharing across courses); copying an offering now brings the settings (dates moved) and, within the same course, the
+  questions (Step 10); no gradebook (step 11 reads `assessmentsService.finalScores()`); no notification when results are released; an offline
   reload needs the page assets in the browser cache (no service worker); the exam endpoints' rate limit is per instance (a college lab
   shares one address: 120,000 saves/min); grading-queue "by student" is the script dialog of an attempt.
+- **Assignments (step 10)**: no malware scanning (above); one late policy per assignment (no per-learner policies, only extensions); no group
+  submissions, peer review or plagiarism check; no notification when a grade is released; a grade has no history beyond the audit log;
+  the copy moves ALL dates by one shift (no per-item overrides); the confirm of an upload re-reads the bytes (object metadata on GCS);
+  the 60 s squeeze of the deadline burst needs retries (503 `busy`): the SPA's hand-in shows the error and keeps the form, a retry is
+  idempotent, but there is no automatic retry in the SPA yet; blind grading cannot scrub a name a learner typed INSIDE their work.
 - **Open for the GCP step** (collected here so nothing is lost): the real mail provider; the GCS storage driver and the GCP
   Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
   Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s
@@ -704,10 +769,10 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 ## Current state / handoff (read after the sections above)
 
 Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/benchmarks.md` or the code.
-- **Where we are**: steps 1-9 are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are**: steps 1-10 are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
-  removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
-  205, E2E 41, lint, typecheck, `bundle:check`, Lighthouse, gitleaks. **Step 9 is verified: see the end of this section. Do not start step 10 unasked.**
+  removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
+  205, E2E 41, lint, typecheck, `bundle:check`, Lighthouse, gitleaks. **Steps 9 and 10 are verified: see the end of this section. Do not start step 11 (the gradebook) unasked.**
 - **Working agreement**: the owner commits and pushes. Never stage, commit, push or rewrite history. At the end of a step give a
   commit plan with EXACT `git add` commands per commit (full paths or directories, every changed file covered exactly once, checked
   with a script against `git status`) and the commit messages; a file that mixes two commits (e.g. CLAUDE.md) is split with a patch
@@ -727,6 +792,9 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
 - **Step 9 verification** (once, at the end of the step): see the final report of the step; the exam-time numbers are in `docs/benchmarks.md`.
 - **Migrations of step 9** are 0028 (bank), 0029 (assessments + engine), 0030 (grants, purge), 0031 (helper grants), 0032 (FK of a
   question's current version): they are applied to the dev DB, so a fix is a NEW migration.
+- **Step 10 verification** (once, at the end of the step): see the final report of the step; the burst, queue and ZIP numbers are in `docs/benchmarks.md`.
+- **Migrations of step 10** are 0033 (rubrics, assignments, submissions, grades, learner functions), 0034 (position grants), 0035 (gate verdicts of
+  the file calls), 0036 (helper grants), 0037 (INSERT on `assessments` for the copy): applied to the dev DB, so a fix is a NEW migration.
 - **Known cosmetic issues**: the demo learners (Lighthouse / screenshots / E2E data) have no member profile,
   so the Section column of the class table shows "—"; My courses can show two links to the same course (the resume card and the
   course card), so scripts and tests use `.first()`.

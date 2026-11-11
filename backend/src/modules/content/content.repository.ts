@@ -508,7 +508,15 @@ export function createContentRepository() {
      */
     async copy(
       tx: Executor,
-      v: { tenantId: string; sourceId: string; targetId: string; actorUserId: string },
+      v: {
+        tenantId: string;
+        sourceId: string;
+        targetId: string;
+        actorUserId: string;
+        /** days to move the dates of assessments and assignments; null = the difference of the term start dates */
+        shiftDays?: number | null;
+        clearDates?: boolean;
+      },
       gates?: { target: AccessSpec; source: AccessSpec; inlineLimit: number },
     ): Promise<{
       targetAcc: AccessRow | null;
@@ -517,8 +525,13 @@ export function createContentRepository() {
       mode: 'done' | 'queued' | null;
       modules: number;
       items: number;
+      assessments: number;
+      assignments: number;
     }> {
       const t = sql`${v.tenantId}::uuid`;
+      const target = sql`${v.targetId}::uuid`;
+      const sh = (col: string) =>
+        sql`(CASE WHEN (SELECT clear FROM sh) THEN NULL ELSE ${sql.raw(col)} + make_interval(days => (SELECT d FROM sh)) END)`;
       const inlineOk = gates ? sql`(SELECT n FROM cnt) <= ${gates.inlineLimit}` : sql`TRUE`;
       const allowed = gates
         ? sql`EXISTS (SELECT 1 FROM acc WHERE ${may}) AND EXISTS (SELECT 1 FROM src WHERE src.visible AND src.allowed)
@@ -536,6 +549,16 @@ export function createContentRepository() {
         go AS (SELECT (${allowed}) AS ok, (${inlineOk}) AS inline),
         base AS (SELECT coalesce((SELECT max(position) FROM lms.content_modules
                                    WHERE tenant_id = ${t} AND offering_id = ${v.targetId}::uuid), '') AS prefix),
+        sh AS (
+          SELECT coalesce(${v.shiftDays ?? null}::int, (tt.start_date - st.start_date)) AS d,
+                 ${v.clearDates === true}::boolean AS clear
+            FROM lms.course_offerings so JOIN lms.terms st ON st.tenant_id = so.tenant_id AND st.id = so.term_id,
+                 lms.course_offerings tg JOIN lms.terms tt ON tt.tenant_id = tg.tenant_id AND tt.id = tg.term_id
+           WHERE so.tenant_id = ${t} AND so.id = ${v.sourceId}::uuid AND tg.tenant_id = ${t} AND tg.id = ${target}),
+        same AS (
+          SELECT (a.course_id = b.course_id) AS ok, b.course_id AS target_course
+            FROM lms.course_offerings a, lms.course_offerings b
+           WHERE a.tenant_id = ${t} AND a.id = ${v.sourceId}::uuid AND b.tenant_id = ${t} AND b.id = ${target}),
         mm AS (
           SELECT m.id AS old_id, lms.uuid_v7() AS new_id, m.title, base.prefix || m.position AS position
             FROM lms.content_modules m, base, go
@@ -545,15 +568,61 @@ export function createContentRepository() {
           INSERT INTO lms.content_modules (id, tenant_id, offering_id, title, position, published, available_from)
           SELECT new_id, ${t}, ${v.targetId}::uuid, title, position, false, NULL FROM mm
           RETURNING id),
+        mi AS (
+          SELECT i.id AS old_id, lms.uuid_v7() AS new_id, mm.new_id AS module_id, i.kind, i.title, i.position, i.body,
+                 i.file_id, i.video_asset_id, i.url, i.required, i.completion
+            FROM lms.content_items i JOIN mm ON mm.old_id = i.module_id
+           WHERE i.tenant_id = ${t} AND i.deleted_at IS NULL),
         ni AS (
           INSERT INTO lms.content_items
             (id, tenant_id, offering_id, module_id, kind, title, position, body, file_id, video_asset_id, url,
              published, available_from, required, completion, created_by)
-          SELECT lms.uuid_v7(), ${t}, ${v.targetId}::uuid, mm.new_id, i.kind, i.title, i.position, i.body, i.file_id,
-                 i.video_asset_id, i.url, false, NULL, i.required, i.completion, ${v.actorUserId}::uuid
-            FROM lms.content_items i JOIN mm ON mm.old_id = i.module_id
-           WHERE i.tenant_id = ${t} AND i.deleted_at IS NULL
+          SELECT mi.new_id, ${t}, ${target}, mi.module_id, mi.kind, mi.title, mi.position, mi.body, mi.file_id,
+                 mi.video_asset_id, mi.url, false, NULL, mi.required, mi.completion, ${v.actorUserId}::uuid
+            FROM mi
           RETURNING id),
+        -- assessments: the settings (dates moved) and, within the SAME course, the questions. Never attempts, grades or
+        -- accommodations. The database also makes a default settings row for every assessment item (ON CONFLICT DO NOTHING).
+        na AS (
+          INSERT INTO lms.assessments
+            (tenant_id, item_id, offering_id, course_id, kind, opens_at, closes_at, time_limit_minutes, attempts_allowed,
+             scoring, shuffle_questions, shuffle_options, passing_score, results_visibility, answers_visibility)
+          SELECT ${t}, mi.new_id, ${target}, (SELECT target_course FROM same), s.kind, ${sh('s.opens_at')}, ${sh('s.closes_at')},
+                 s.time_limit_minutes, s.attempts_allowed, s.scoring, s.shuffle_questions, s.shuffle_options, s.passing_score,
+                 CASE WHEN (SELECT clear FROM sh) AND s.results_visibility = 'after_close' THEN 'manual' ELSE s.results_visibility END,
+                 CASE WHEN (SELECT clear FROM sh) AND s.answers_visibility = 'after_close' THEN 'after_release' ELSE s.answers_visibility END
+            FROM mi JOIN lms.assessments s ON s.tenant_id = ${t} AND s.item_id = mi.old_id
+           WHERE mi.kind = 'assessment'
+          RETURNING item_id),
+        ns AS (
+          INSERT INTO lms.assessment_slots
+            (tenant_id, assessment_item_id, position, kind, question_id, tag, difficulty, count, points)
+          SELECT ${t}, mi.new_id, sl.position, sl.kind, sl.question_id, sl.tag, sl.difficulty, sl.count, sl.points
+            FROM mi JOIN lms.assessment_slots sl ON sl.tenant_id = ${t} AND sl.assessment_item_id = mi.old_id
+           WHERE mi.kind = 'assessment' AND (SELECT ok FROM same)
+          RETURNING 1),
+        -- assignments: settings (dates moved), instructions, attachments (the file rows are shared) and, within the SAME
+        -- course, the rubric. Never submissions, grades, extensions, drafts or the blind keys.
+        nas AS (
+          INSERT INTO lms.assignments
+            (tenant_id, item_id, offering_id, course_id, instructions, opens_at, due_at, late_policy, late_cutoff_at,
+             penalty_kind, penalty_value, penalty_cap, max_points, passing_score, allow_file, allow_text, allow_link,
+             max_files, max_file_mb, resubmission_allowed, anonymous_grading, release_mode, rubric_id, rubric_version_id)
+          SELECT ${t}, mi.new_id, ${target}, (SELECT target_course FROM same), s.instructions, ${sh('s.opens_at')}, ${sh('s.due_at')},
+                 CASE WHEN (SELECT clear FROM sh) THEN 'none' ELSE s.late_policy END, ${sh('s.late_cutoff_at')},
+                 s.penalty_kind, s.penalty_value, s.penalty_cap, s.max_points, s.passing_score, s.allow_file, s.allow_text,
+                 s.allow_link, s.max_files, s.max_file_mb, s.resubmission_allowed, s.anonymous_grading, s.release_mode,
+                 CASE WHEN (SELECT ok FROM same) THEN s.rubric_id END,
+                 CASE WHEN (SELECT ok FROM same) THEN s.rubric_version_id END
+            FROM mi JOIN lms.assignments s ON s.tenant_id = ${t} AND s.item_id = mi.old_id
+           WHERE mi.kind = 'assignment'
+          RETURNING item_id),
+        nat AS (
+          INSERT INTO lms.assignment_attachments (tenant_id, assignment_item_id, file_id, position)
+          SELECT ${t}, mi.new_id, x.file_id, x.position
+            FROM mi JOIN lms.assignment_attachments x ON x.tenant_id = ${t} AND x.assignment_item_id = mi.old_id
+           WHERE mi.kind = 'assignment'
+          RETURNING 1),
         queued AS (
           UPDATE lms.course_offerings SET copy_status = 'running', updated_at = now()
            WHERE tenant_id = ${t} AND id = ${v.targetId}::uuid AND (SELECT ok AND NOT inline FROM go)
@@ -566,7 +635,8 @@ export function createContentRepository() {
           INSERT INTO lms.jobs (id, queue, tenant_id, payload, max_attempts)
           SELECT lms.uuid_v7(), 'content.copy', ${t},
                  jsonb_build_object('sourceId', ${v.sourceId}::text, 'targetId', ${v.targetId}::text,
-                                    'actorUserId', ${v.actorUserId}::text), 3
+                                    'actorUserId', ${v.actorUserId}::text, 'shiftDays', (SELECT d FROM sh),
+                                    'clearDates', (SELECT clear FROM sh)), 3
             FROM queued
           RETURNING id)
         SELECT ${gates ? sql`(SELECT to_jsonb(acc) FROM acc)` : sql`NULL::jsonb`} AS target_acc,
@@ -574,7 +644,9 @@ export function createContentRepository() {
                coalesce((SELECT busy FROM tgt), false) AS busy,
                CASE WHEN EXISTS (SELECT 1 FROM queued) THEN 'queued'
                     WHEN EXISTS (SELECT 1 FROM nm) OR (SELECT ok AND inline FROM go) THEN 'done' END AS mode,
-               (SELECT count(*) FROM nm)::int AS modules, (SELECT count(*) FROM ni)::int AS items`);
+               (SELECT count(*) FROM nm)::int AS modules, (SELECT count(*) FROM ni)::int AS items,
+               (SELECT count(*) FROM na)::int AS assessments, (SELECT count(*) FROM nas)::int AS assignments,
+               (SELECT count(*) FROM ns)::int + (SELECT count(*) FROM nat)::int AS extras`);
       const r = res.rows[0];
       return {
         targetAcc: asAcc(r?.target_acc),
@@ -583,6 +655,60 @@ export function createContentRepository() {
         mode: (r?.mode as 'done' | 'queued' | null) ?? null,
         modules: Number(r?.modules ?? 0),
         items: Number(r?.items ?? 0),
+        assessments: Number(r?.assessments ?? 0),
+        assignments: Number(r?.assignments ?? 0),
+      };
+    },
+
+    /**
+     * What a copy would do, without doing it: both offerings' terms, the proposed shift, and the assessments and
+     * assignments with their current dates. Same gates as the copy.
+     */
+    async copyPreview(
+      tx: Executor,
+      v: { tenantId: string; sourceId: string; targetId: string },
+      gates: { target: AccessSpec; source: AccessSpec },
+    ): Promise<{
+      targetAcc: AccessRow | null;
+      sourceAcc: AccessRow | null;
+      row: Record<string, unknown> | null;
+    }> {
+      const t = sql`${v.tenantId}::uuid`;
+      const info = (alias: string, id: string) => sql`${sql.raw(alias)} AS (
+        SELECT o.id, o.course_id, coalesce(o.title_override, c.title) AS title, tm.name AS term_name, tm.start_date
+          FROM lms.course_offerings o
+          JOIN lms.courses c ON c.tenant_id = o.tenant_id AND c.id = o.course_id
+          JOIN lms.terms tm ON tm.tenant_id = o.tenant_id AND tm.id = o.term_id
+         WHERE o.tenant_id = ${t} AND o.id = ${id}::uuid)`;
+      const res = await tx.execute(sql`
+        WITH ${accessCte(gates.target)}, ${accessCte({ ...gates.source, name: 'src' })},
+        ${info('si', v.sourceId)}, ${info('ti', v.targetId)}
+        SELECT (SELECT to_jsonb(acc) FROM acc) AS target_acc, (SELECT to_jsonb(src) FROM src) AS source_acc,
+               (SELECT jsonb_build_object(
+                  'source', jsonb_build_object('id', si.id, 'title', si.title, 'termName', si.term_name, 'termStart', si.start_date),
+                  'target', jsonb_build_object('id', ti.id, 'title', ti.title, 'termName', ti.term_name, 'termStart', ti.start_date),
+                  'defaultShiftDays', (ti.start_date - si.start_date), 'sameCourse', si.course_id = ti.course_id,
+                  'items', coalesce((
+                    SELECT jsonb_agg(jsonb_build_object(
+                             'kind', i.kind, 'title', i.title, 'moduleTitle', m.title,
+                             'opensAt', CASE i.kind WHEN 'assessment' THEN a.opens_at ELSE g.opens_at END,
+                             'endsAt', CASE i.kind WHEN 'assessment' THEN a.closes_at ELSE g.due_at END,
+                             'lateCutoffAt', g.late_cutoff_at,
+                             'copiesQuestions', si.course_id = ti.course_id)
+                             ORDER BY m.position, i.position)
+                      FROM lms.content_items i
+                      JOIN lms.content_modules m ON m.tenant_id = i.tenant_id AND m.id = i.module_id
+                      LEFT JOIN lms.assessments a ON a.tenant_id = i.tenant_id AND a.item_id = i.id AND i.kind = 'assessment'
+                      LEFT JOIN lms.assignments g ON g.tenant_id = i.tenant_id AND g.item_id = i.id AND i.kind = 'assignment'
+                     WHERE i.tenant_id = ${t} AND i.offering_id = ${v.sourceId}::uuid AND i.deleted_at IS NULL
+                       AND m.deleted_at IS NULL AND i.kind IN ('assessment', 'assignment')
+                       AND EXISTS (SELECT 1 FROM src WHERE src.visible AND src.allowed)), '[]'::jsonb))
+                  FROM si, ti) AS row`);
+      const r = res.rows[0];
+      return {
+        targetAcc: asAcc(r?.target_acc),
+        sourceAcc: asAcc(r?.source_acc),
+        row: (r?.row as Record<string, unknown> | null) ?? null,
       };
     },
 

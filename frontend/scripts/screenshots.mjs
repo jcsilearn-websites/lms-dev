@@ -247,6 +247,12 @@ await withStack(
             );
             await l.pg.getByTestId('score').waitFor();
             await l.snap('exam-result');
+            // an assignment as a learner sees it, with the versions they handed in
+            await l.pg.goto(
+              `${origin('e2e-one')}/offerings/${demo.offeringId}/items/${demo.assignmentItemId}`,
+            );
+            await l.pg.getByTestId('late-policy').waitFor();
+            await l.snap('assignment');
             await l.c.close();
             const t2 = await signedIn(demo.instructorEmail);
             await t2.pg.goto(`${origin('e2e-one')}/courses/${demo.courseId}/questions`);
@@ -262,6 +268,19 @@ await withStack(
             );
             await t2.pg.getByRole('row', { name: /Lena Learner/ }).waitFor();
             await t2.snap('grading');
+            await t2.pg.goto(
+              `${origin('e2e-one')}/offerings/${demo.offeringId}/items/${demo.assignmentItemId}/assignment`,
+            );
+            await t2.pg.getByRole('button', { name: 'Save settings' }).waitFor();
+            await t2.snap('assignment-builder');
+            await t2.pg.goto(`${origin('e2e-one')}/courses/${demo.courseId}/rubrics`);
+            await t2.pg.getByText('Essay rubric').first().waitFor();
+            await t2.snap('rubrics');
+            await t2.pg.goto(
+              `${origin('e2e-one')}/offerings/${demo.offeringId}/items/${demo.assignmentItemId}/assignment/grading?learner=${demo.gradingLearnerKey}`,
+            );
+            await t2.pg.getByTestId('learner-panel').waitFor();
+            await t2.snap('assignment-grading');
             await t2.c.close();
           }
 

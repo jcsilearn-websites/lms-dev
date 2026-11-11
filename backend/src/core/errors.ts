@@ -55,3 +55,12 @@ export class ForbiddenError extends AppError {
     super(403, code, message);
   }
 }
+
+export class TooManyRequestsError extends AppError {
+  constructor(
+    code = 'rate_limited',
+    message = 'Too many requests: slow down and try again shortly',
+  ) {
+    super(429, code, message);
+  }
+}

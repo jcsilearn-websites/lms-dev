@@ -41,7 +41,7 @@ interface Values {
   completion: string;
 }
 
-export type ItemKindChoice = 'text' | 'file' | 'link' | 'video' | 'assessment';
+export type ItemKindChoice = 'text' | 'file' | 'link' | 'video' | 'assessment' | 'assignment';
 
 export { toLocalInput };
 
@@ -110,7 +110,9 @@ export function ItemDialog({
         availableFrom: fromLocalInput(v.availableFrom),
         required: v.required,
         // a video is completed by watching it: the server sets that rule
-        ...(kind === 'video' || kind === 'assessment' ? {} : { completion: v.completion }),
+        ...(kind === 'video' || kind === 'assessment' || kind === 'assignment'
+          ? {}
+          : { completion: v.completion }),
       };
       const extra =
         kind === 'link'
@@ -123,7 +125,7 @@ export function ItemDialog({
               ? videoId && videoId !== item?.video?.id
                 ? { videoId }
                 : {}
-              : kind === 'assessment'
+              : kind === 'assessment' || kind === 'assignment'
                 ? {}
                 : bodyTouched || !editing
                   ? { body: body ?? { type: 'doc', content: [] } }
@@ -182,6 +184,7 @@ export function ItemDialog({
     link: 'link',
     video: 'video',
     assessment: 'quiz or exam',
+    assignment: 'assignment',
   }[kind];
   return (
     <Dialog open onClose={onClose} title={`${editing ? 'Edit' : 'Add'} ${label}`}>
@@ -313,6 +316,11 @@ export function ItemDialog({
             <p className="text-sm text-muted-foreground">
               Completed when the learner hands in an attempt. Set the questions, time limit and
               dates on the assessment page after adding it.
+            </p>
+          ) : kind === 'assignment' ? (
+            <p className="text-sm text-muted-foreground">
+              Completed when the learner hands in their work. Set the instructions, due date, late
+              policy and rubric on the assignment page after adding it.
             </p>
           ) : (
             <Select label="Completed when" {...form.register('completion')}>
