@@ -5,6 +5,12 @@ import type { ApiEnv } from './config/env';
 import { registerAuthContext } from './core/auth-context';
 import { registerRoutePolicy } from './core/authz';
 import { registerCsrf } from './core/csrf';
+import {
+  createReceiptSigner,
+  receiptKey,
+  registerArrivalClock,
+  registerReceipts,
+} from './core/deadline';
 import { registerErrorHandling } from './core/error-handler';
 import type { Mailer } from './core/mailer';
 import { registerOpenApi } from './core/openapi';
@@ -64,6 +70,8 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
 
   // Order matters: error handling, cross-cutting plugins (rate limit, CSRF), tenant + session
   // resolution, then module routes.
+  // the arrival time is taken before anything can wait for the database pool
+  registerArrivalClock(app, { queueWaitSeconds: env.ARRIVAL_QUEUE_WAIT_SECONDS });
   registerErrorHandling(app);
   registerRequestId(app);
   registerSecurity(app, env, modules.config.cookie.name);
@@ -79,6 +87,16 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
       max: Math.max(60, Math.round(env.RATE_LIMIT_MAX / 2)),
       windowMs: env.RATE_LIMIT_WINDOW_MS,
     }),
+  });
+  registerReceipts(app, {
+    signer: createReceiptSigner({
+      key: receiptKey({
+        secret: env.DEADLINE_RECEIPT_SECRET,
+        storageSecret: env.STORAGE_SIGNING_SECRET,
+      }),
+      windowSeconds: env.DEADLINE_RECEIPT_WINDOW_SECONDS,
+    }),
+    cookieName: modules.config.cookie.name,
   });
   registerRoutePolicy(app);
   registerOpenApi(app, env);

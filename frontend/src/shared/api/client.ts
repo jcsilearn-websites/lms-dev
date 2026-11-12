@@ -15,6 +15,10 @@ export class ApiError extends Error {
     message: string,
     readonly requestId: string | null = null,
     readonly details: { path: string; message: string }[] = [],
+    /** `Retry-After` of a 503 busy, in seconds */
+    readonly retryAfterSeconds: number | null = null,
+    /** the signed receipt of WHEN a deadline-sensitive request arrived (`Deadline-Receipt` of a 503 busy) */
+    readonly receipt: string | null = null,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -35,6 +39,38 @@ export interface ApiOptions {
    * do not clear the cache and redirect.
    */
   anonymousOk?: boolean;
+  /** Sent as `X-Deadline-Receipt`: the proof of when an earlier, refused attempt of this request arrived. */
+  receipt?: string | null | undefined;
+  /**
+   * An IDEMPOTENT request (a hand-in with its request key, an autosave with its revisions): when the server answers 503 busy
+   * it is sent again after Retry-After with growing, jittered waits, carrying the receipt of its first arrival.
+   */
+  retryBusy?: BusyRetry;
+}
+
+/** What a busy retry reports, so a screen can say "Server busy: retrying, your time is protected". null = over. */
+export interface BusyRetry {
+  onBusy?: (state: { attempt: number; delayMs: number } | null) => void;
+  /** default 12 attempts (about 2 minutes) */
+  maxAttempts?: number;
+  signal?: AbortSignal | undefined;
+  /** tests */
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+}
+
+/**
+ * The wait before retry number `attempt` (1 = the first retry): never less than the server's Retry-After, growing
+ * exponentially from 1 s up to 15 s, plus up to one second of jitter per attempt so a whole class does not return together.
+ */
+export function busyDelayMs(
+  attempt: number,
+  retryAfterSeconds: number | null,
+  random = Math.random,
+): number {
+  const grown = Math.min(15_000, 1000 * 2 ** (attempt - 1));
+  const base = Math.max((retryAfterSeconds ?? 0) * 1000, grown);
+  return Math.round(base + random() * 1000 * Math.min(attempt, 5));
 }
 
 let onUnauthorized: (() => void) | null = null;
@@ -66,11 +102,38 @@ function isErrorBody(body: unknown): body is ErrorResponse {
 
 /** The one place that sends a request: credentials, the CSRF header, JSON, error mapping, 401 handling. */
 export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
+  const retry = opts.retryBusy;
+  if (!retry) return once<T>(path, opts);
+  const sleep = retry.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const max = retry.maxAttempts ?? 12;
+  // the FIRST receipt is the one that counts: a later refusal hands back the same one
+  let receipt = opts.receipt ?? null;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const result = await once<T>(path, { ...opts, receipt });
+      retry.onBusy?.(null);
+      return result;
+    } catch (err) {
+      const busy = err instanceof ApiError && err.status === 503 && err.code === 'busy';
+      if (!busy || attempt > max || retry.signal?.aborted) {
+        retry.onBusy?.(null);
+        throw err;
+      }
+      receipt = receipt ?? err.receipt;
+      const delayMs = busyDelayMs(attempt, err.retryAfterSeconds, retry.random);
+      retry.onBusy?.({ attempt, delayMs });
+      await sleep(delayMs);
+    }
+  }
+}
+
+async function once<T>(path: string, opts: ApiOptions): Promise<T> {
   const headers: Record<string, string> = {
     accept: 'application/json',
     // required by the backend on every POST/PUT/PATCH/DELETE (CSRF); harmless on GET
     'x-requested-with': 'lms',
   };
+  if (opts.receipt) headers['x-deadline-receipt'] = opts.receipt;
   let body: BodyInit | undefined;
   if (opts.body instanceof FormData) {
     body = opts.body;
@@ -109,6 +172,8 @@ export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
         parsed.error.message,
         parsed.error.requestId,
         parsed.error.details,
+        Number(res.headers.get('retry-after')) || null,
+        res.headers.get('deadline-receipt'),
       )
     : new ApiError(res.status, 'unknown_error', res.statusText || 'Request failed');
   if (res.status === 401 && !opts.anonymousOk) onUnauthorized?.();

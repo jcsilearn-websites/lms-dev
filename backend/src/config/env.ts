@@ -155,6 +155,12 @@ const storageFields = {
   ASSESSMENT_SWEEP_BATCH: Type.Integer({ minimum: 1, maximum: 1000, default: 200 }),
   // assignments (step 10): a file upload begun before the due date and handed in within this many minutes counts on time
   ASSIGNMENT_UPLOAD_GRACE_MINUTES: Type.Integer({ minimum: 0, maximum: 120, default: 10 }),
+  // deadline fairness under load (core/deadline.ts): the arrival time of a request is believed for at most this long a wait; a
+  // signed receipt (given with 503 busy) is honoured for the window. The key is >= 32 characters; absent it is derived (HKDF,
+  // own label) from STORAGE_SIGNING_SECRET, so a deployment with the GCS driver must set it.
+  ARRIVAL_QUEUE_WAIT_SECONDS: Type.Integer({ minimum: 1, maximum: 300, default: 30 }),
+  DEADLINE_RECEIPT_WINDOW_SECONDS: Type.Integer({ minimum: 10, maximum: 3600, default: 600 }),
+  DEADLINE_RECEIPT_SECRET: Type.Optional(Type.String({ minLength: 32 })),
 };
 
 /**
@@ -319,6 +325,7 @@ export function assertStoragePolicy(env: {
   STORAGE_DRIVER: string;
   STORAGE_SIGNING_SECRET?: string | undefined;
   STORAGE_GCS_BUCKET?: string | undefined;
+  DEADLINE_RECEIPT_SECRET?: string | undefined;
 }): void {
   const issues: string[] = [];
   if (env.STORAGE_DRIVER === 'local') {
@@ -332,6 +339,12 @@ export function assertStoragePolicy(env: {
     }
   } else if (!env.STORAGE_GCS_BUCKET) {
     issues.push('STORAGE_GCS_BUCKET: required when STORAGE_DRIVER=gcs');
+  }
+  // the receipts of deadline fairness are signed with their own key, or one derived from the storage key (local driver)
+  if (!env.DEADLINE_RECEIPT_SECRET && !env.STORAGE_SIGNING_SECRET) {
+    issues.push(
+      'DEADLINE_RECEIPT_SECRET: required (32+ characters) when there is no STORAGE_SIGNING_SECRET',
+    );
   }
   if (issues.length > 0) throw new EnvError(issues);
 }

@@ -52,13 +52,14 @@ export function OfferingPage() {
   const statusOf = new Map<string, ItemStatus>(mine?.items.map((i) => [i.itemId, i.status]));
   const moduleOf = new Map(mine?.modules.map((m) => [m.moduleId, m]));
 
-  if (offering.isLoading || outline.isLoading)
-    return <ListSkeleton rows={6} label="Loading the course" />;
-  if (offering.isError || outline.isError || !offering.data || !outline.data) {
+  // The title and the header do not wait for the outline (the slower of the two requests): the heading is what the page is
+  // painted for (Largest Contentful Paint), and the outline below it has its own skeleton.
+  if (offering.isLoading) return <ListSkeleton rows={6} label="Loading the course" />;
+  if (offering.isError || !offering.data) {
     return (
       <ErrorState
         title="Could not open this course"
-        error={offering.error ?? outline.error}
+        error={offering.error}
         onRetry={() => {
           void offering.refetch();
           void outline.refetch();
@@ -72,7 +73,7 @@ export function OfferingPage() {
     o.myParticipation === 'instructor' ||
     o.myParticipation === 'assistant' ||
     has('participant.read');
-  const total = data.modules.reduce((n, m) => n + m.items.length, 0);
+  const total = data?.modules.reduce((n, m) => n + m.items.length, 0) ?? 0;
 
   return (
     <div className="space-y-6">
@@ -81,7 +82,7 @@ export function OfferingPage() {
         description={`${o.courseCode} · ${o.termName}${o.label ? ` · ${o.label}` : ''}`}
         actions={
           <>
-            {data.canEdit && (
+            {data?.canEdit && (
               <Link to={`/offerings/${id}/build` as '/'} className={linkBtn}>
                 Edit content
               </Link>
@@ -118,6 +119,10 @@ export function OfferingPage() {
         )}
       </p>
 
+      {!mine && progress.isLoading && o.myParticipation === 'learner' && (
+        // the room the progress bar will take: nothing below it moves when it arrives
+        <div aria-hidden="true" className="h-[74px] rounded-md border border-border bg-surface" />
+      )}
       {mine && (
         <section
           aria-label="Your progress"
@@ -135,7 +140,15 @@ export function OfferingPage() {
         </section>
       )}
 
-      {data.modules.length === 0 ? (
+      {outline.isError || (!data && !outline.isLoading) ? (
+        <ErrorState
+          title="Could not load the content of this course"
+          error={outline.error}
+          onRetry={() => void outline.refetch()}
+        />
+      ) : !data ? (
+        <ListSkeleton rows={6} label="Loading the course content" />
+      ) : data.modules.length === 0 ? (
         <EmptyState
           title="Nothing here yet"
           description={

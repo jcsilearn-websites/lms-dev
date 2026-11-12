@@ -13,6 +13,11 @@ export interface RequestContext {
   displayName: string;
   ip: string | null;
   userAgent: string | null;
+  /**
+   * When the request reached the server (taken before it waited for a database connection) or, with a valid receipt, when the
+   * refused first attempt did. The deadline-sensitive calls pass it to the database (core/deadline.ts).
+   */
+  arrival?: { atMs: number; maxAgeSeconds: number };
 }
 
 export interface ClientInfo {
@@ -37,5 +42,8 @@ export function contextFrom(request: FastifyRequest): RequestContext {
     email: a.email,
     displayName: a.displayName,
     ...clientInfo(request),
+    ...(request.arrival
+      ? { arrival: { atMs: request.arrival.atMs, maxAgeSeconds: request.arrival.maxAgeSeconds } }
+      : {}),
   };
 }

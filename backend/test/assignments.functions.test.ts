@@ -49,6 +49,7 @@ const HELPERS = [
   'assignment_default_row',
   'assignment_final_scores',
   'anon_code',
+  'effective_arrival',
 ];
 
 describe('the definer functions of step 10', () => {

@@ -48,13 +48,27 @@ export function createAssignmentsRoutes(deps: {
 
     // ---- the learner
     app.get(`${A}/me`, { config: take, schema: s.meRouteSchema }, c.me);
-    app.post(`${A}/files`, { config: take, schema: s.requestUploadRouteSchema }, c.requestUpload);
+    app.post(
+      `${A}/files`,
+      {
+        config: { ...take, deadline: { operation: 'assignment.upload', param: 'itemId' } },
+        schema: s.requestUploadRouteSchema,
+      },
+      c.requestUpload,
+    );
     app.post(
       `${A}/files/:fileId/confirm`,
       { config: take, schema: s.confirmUploadRouteSchema },
       c.confirmUpload,
     );
-    app.post(`${A}/submissions`, { config: take, schema: s.submitRouteSchema }, c.submit);
+    app.post(
+      `${A}/submissions`,
+      {
+        config: { ...take, deadline: { operation: 'assignment.submit', param: 'itemId' } },
+        schema: s.submitRouteSchema,
+      },
+      c.submit,
+    );
     app.get(
       `${A}/files/:fileId`,
       { config: take, schema: s.learnerFileRouteSchema },

@@ -541,13 +541,19 @@ test("a PDF opens in the browser's own viewer from the grading screen; a sandbox
   const queue = (await (
     await q.get(`offerings/${offeringId}/items/${itemId}/assignment/grading/queue?limit=10`)
   ).json()) as { items: { learnerKey: string; versionNo: number | null }[] };
-  const key = queue.items.find((i) => i.versionNo !== null)?.learnerKey;
-  const detail = (await (
-    await q.get(`offerings/${offeringId}/items/${itemId}/assignment/grading/learners/${key}`)
-  ).json()) as { submissions: { files: { fileId: string; contentType: string }[] }[] };
-  const file = detail.submissions
-    .flatMap((s) => s.files)
-    .find((f) => f.contentType === 'application/pdf');
+  // the queue is ordered by the random anonymous code, so look for the learner whose hand-in has a PDF (the text one has none)
+  let file: { fileId: string; contentType: string } | undefined;
+  for (const i of queue.items.filter((x) => x.versionNo !== null)) {
+    const detail = (await (
+      await q.get(
+        `offerings/${offeringId}/items/${itemId}/assignment/grading/learners/${i.learnerKey}`,
+      )
+    ).json()) as { submissions: { files: { fileId: string; contentType: string }[] }[] };
+    file = detail.submissions
+      .flatMap((x) => x.files)
+      .find((f) => f.contentType === 'application/pdf');
+    if (file) break;
+  }
   const target = (await (
     await q.get(`offerings/${offeringId}/items/${itemId}/assignment/grading/files/${file?.fileId}`)
   ).json()) as { url: string; inline: boolean };

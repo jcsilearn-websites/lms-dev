@@ -17,7 +17,7 @@ import type {
   SubmitAssignmentRequest,
   SubmitAssignmentResponse,
 } from '@lms/backend/contracts';
-import { API_BASE, ApiError, api } from '../../shared/api/client';
+import { API_BASE, ApiError, api, type BusyRetry } from '../../shared/api/client';
 
 // Typed with the backend contracts (type-only imports: no backend code lands in the browser bundle).
 
@@ -79,16 +79,44 @@ export const removeExtension = (offeringId: string, itemId: string, participantI
 // ------------------------------------------------------------------ the learner
 export const getMe = (offeringId: string, itemId: string, signal?: AbortSignal) =>
   api<AssignmentMe>(`${A(offeringId, itemId)}/me`, { signal });
-export const requestUpload = (offeringId: string, itemId: string, name: string, size: number) =>
+export const requestUpload = (
+  offeringId: string,
+  itemId: string,
+  name: string,
+  size: number,
+  retry?: BusyRetry,
+) =>
   api<{
     fileId: string;
     upload: { url: string; method: 'PUT'; headers: Record<string, string>; expiresAt: string };
     maxBytes: number;
-  }>(`${A(offeringId, itemId)}/files`, { method: 'POST', body: { name, size } });
-export const confirmUpload = (offeringId: string, itemId: string, fileId: string) =>
-  api<AssignmentFile>(`${A(offeringId, itemId)}/files/${fileId}/confirm`, { method: 'POST' });
-export const submit = (offeringId: string, itemId: string, body: SubmitAssignmentRequest) =>
-  api<SubmitAssignmentResponse>(`${A(offeringId, itemId)}/submissions`, { method: 'POST', body });
+  }>(`${A(offeringId, itemId)}/files`, {
+    method: 'POST',
+    body: { name, size },
+    ...(retry ? { retryBusy: retry } : {}),
+  });
+export const confirmUpload = (
+  offeringId: string,
+  itemId: string,
+  fileId: string,
+  retry?: BusyRetry,
+) =>
+  api<AssignmentFile>(`${A(offeringId, itemId)}/files/${fileId}/confirm`, {
+    method: 'POST',
+    ...(retry ? { retryBusy: retry } : {}),
+  });
+/** Idempotent (the request key): a 503 busy is sent again with the receipt of the first arrival, see `BusyRetry`. */
+export const submit = (
+  offeringId: string,
+  itemId: string,
+  body: SubmitAssignmentRequest,
+  retry?: BusyRetry,
+) =>
+  api<SubmitAssignmentResponse>(`${A(offeringId, itemId)}/submissions`, {
+    method: 'POST',
+    body,
+    ...(retry ? { retryBusy: retry } : {}),
+  });
 export const learnerFile = (offeringId: string, itemId: string, fileId: string) =>
   api<DownloadTargetDto>(`${A(offeringId, itemId)}/files/${fileId}`);
 
@@ -171,8 +199,9 @@ export async function uploadHandInFile(
   file: File,
   onProgress: (fraction: number) => void,
   signal?: AbortSignal,
+  retry?: BusyRetry,
 ): Promise<AssignmentFile> {
-  const req = await requestUpload(offeringId, itemId, file.name, file.size);
+  const req = await requestUpload(offeringId, itemId, file.name, file.size, retry);
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', req.upload.url);
@@ -206,5 +235,5 @@ export async function uploadHandInFile(
     xhr.send(file);
   });
   onProgress(1);
-  return confirmUpload(offeringId, itemId, req.fileId);
+  return confirmUpload(offeringId, itemId, req.fileId, retry);
 }

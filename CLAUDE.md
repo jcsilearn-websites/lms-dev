@@ -464,6 +464,24 @@ Full reasoning: `docs/adr/0018-assignments.md`. Numbers: `docs/benchmarks.md` (S
   move through the queue). A PDF opens in the browser's own viewer in a new tab (`FilePreview`); images and plain text are shown inline; everything
   else is a download. The editor chunk may be reached from the builder and the grading page (`check-bundle-size.mjs`).
 
+## Deadline fairness under load (step 10b)
+
+Full reasoning: `docs/adr/0018-assignments.md` ("Deadline fairness under load"). Numbers: `docs/benchmarks.md` (Step 10b).
+- **The deadline is judged by ARRIVAL, not by service time.** `core/deadline.ts` stamps `request.arrival` in the FIRST `onRequest` hook
+  (before tenant / session lookups wait for the pool) and `contextFrom` puts it on `RequestContext.arrival`. The deadline-sensitive definer
+  functions (`assignment_submit`, `assignment_upload_begin`, `attempt_save`, `attempt_submit`, migration 0038) take `p_arrival` / `p_max_age`
+  and use `lms.effective_arrival` (never future, never older than the bounded wait) instead of `now()`. A NEW deadline-sensitive function
+  must do the same; never compare a deadline with `now()` there.
+- **Receipts**: a 503 `busy` on a route with `config: { deadline: { operation, param } }` carries `Deadline-Receipt` (HMAC, computed without
+  the database; bound to session/user, college, resource, operation, arrival, expiry). The retry sends `X-Deadline-Receipt`; a valid one
+  gives the retry the receipt's arrival (at most `DEADLINE_RECEIPT_WINDOW_SECONDS`, 600); anything else is ignored. Env:
+  `ARRIVAL_QUEUE_WAIT_SECONDS` (30), `DEADLINE_RECEIPT_WINDOW_SECONDS`, `DEADLINE_RECEIPT_SECRET` (or derived from `STORAGE_SIGNING_SECRET`).
+  Known limit (documented in the ADR): a receipt is not bound to the payload.
+- **Frontend**: `api()` takes `retryBusy` (exponential backoff + jitter honouring Retry-After, first receipt kept); the hand-in page and the
+  exam page show "Server busy - retrying, your submission time is protected"; the durable exam queue (`answerQueue.ts`) keeps the receipt
+  with its queued answers. Every such call must stay idempotent.
+- **Migrations of step 10b**: 0038 (applied to the dev DB: a fix is a NEW migration).
+
 ## Tenant-isolation rules (most important rules in the repo)
 
 1. Tenant data is touched ONLY through `db.withTenant(tenantId, async (tx) => …)` (opened by services). It opens a
@@ -759,8 +777,8 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - **Assignments (step 10)**: no malware scanning (above); one late policy per assignment (no per-learner policies, only extensions); no group
   submissions, peer review or plagiarism check; no notification when a grade is released; a grade has no history beyond the audit log;
   the copy moves ALL dates by one shift (no per-item overrides); the confirm of an upload re-reads the bytes (object metadata on GCS);
-  the 60 s squeeze of the deadline burst needs retries (503 `busy`): the SPA's hand-in shows the error and keeps the form, a retry is
-  idempotent, but there is no automatic retry in the SPA yet; blind grading cannot scrub a name a learner typed INSIDE their work.
+  the 60 s squeeze of the deadline burst answers 503 `busy` to some calls: the SPA retries them by itself and the deadline counts from the
+  arrival (step 10b, above), but a receipt is not bound to the payload; blind grading cannot scrub a name a learner typed INSIDE their work.
 - **Open for the GCP step** (collected here so nothing is lost): the real mail provider; the GCS storage driver and the GCP
   Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
   Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s

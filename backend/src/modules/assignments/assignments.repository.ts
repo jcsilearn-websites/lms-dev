@@ -515,12 +515,14 @@ export function createAssignmentsRepository() {
         contentType: string;
         size: number;
         grace: number;
+        arrival: { at: Date; maxAgeSeconds: number } | null;
       },
     ): Promise<Row> {
       const res =
         await conn.execute(sql`SELECT lms.assignment_upload_begin(${p.tenantId}::uuid, ${p.userId}::uuid,
         ${p.offeringId}::uuid, ${p.itemId}::uuid, ${p.fileId}::uuid, ${p.storageKey}, ${p.name}, ${p.contentType},
-        ${p.size}::bigint, ${p.grace}::integer) AS r`);
+        ${p.size}::bigint, ${p.grace}::integer, ${p.arrival?.at.toISOString() ?? null}::timestamptz,
+        ${p.arrival?.maxAgeSeconds ?? 30}::integer) AS r`);
       return res.rows[0]?.r as Row;
     },
     async submit(
@@ -536,12 +538,14 @@ export function createAssignmentsRepository() {
         fileIds: string[];
         confirmLate: boolean;
         grace: number;
+        arrival: { at: Date; maxAgeSeconds: number } | null;
       },
     ): Promise<Row> {
       const res =
         await conn.execute(sql`SELECT lms.assignment_submit(${p.tenantId}::uuid, ${p.userId}::uuid,
         ${p.offeringId}::uuid, ${p.itemId}::uuid, ${p.requestKey}::uuid, ${p.text}, ${p.link},
-        ${pgArray(p.fileIds)}::uuid[], ${p.confirmLate}::boolean, ${p.grace}::integer) AS r`);
+        ${pgArray(p.fileIds)}::uuid[], ${p.confirmLate}::boolean, ${p.grace}::integer,
+        ${p.arrival?.at.toISOString() ?? null}::timestamptz, ${p.arrival?.maxAgeSeconds ?? 30}::integer) AS r`);
       return res.rows[0]?.r as Row;
     },
     /** The row of the function: `result` is the gate's verdict, 'ok', or 'not_found'. */

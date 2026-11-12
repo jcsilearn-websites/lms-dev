@@ -1,5 +1,6 @@
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ErrorResponse } from '../contracts';
+import { issueReceipt } from './deadline';
 import { AppError } from './errors';
 
 const CLIENT_CODES: Record<number, string> = {
@@ -61,6 +62,9 @@ function handleError(err: FastifyError, request: FastifyRequest, reply: FastifyR
   // like a bug and is never retried.
   if (isPoolExhausted(err)) {
     request.log.warn({ err }, 'database pool exhausted');
+    // a deadline-sensitive request gets a signed receipt of WHEN it arrived (no database access): the retry sends it back
+    const receipt = issueReceipt(request);
+    if (receipt) void reply.header('deadline-receipt', receipt);
     return reply
       .status(503)
       .header('retry-after', '2')

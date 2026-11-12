@@ -58,14 +58,21 @@ export function createAssessmentsRoutes(deps: {
       '/offerings/:id/attempts/:attemptId/answers',
       {
         // per SESSION (never per address: a college lab shares one): a learner saves every few seconds, bursts on reconnect
-        config: { ...take, rateLimit: { max: 900, timeWindow: '1 minute' } },
+        config: {
+          ...take,
+          rateLimit: { max: 900, timeWindow: '1 minute' },
+          deadline: { operation: 'attempt.save', param: 'attemptId' },
+        },
         schema: s.saveRouteSchema,
       },
       c.save,
     );
     app.post(
       '/offerings/:id/attempts/:attemptId/submit',
-      { config: take, schema: s.submitRouteSchema },
+      {
+        config: { ...take, deadline: { operation: 'attempt.submit', param: 'attemptId' } },
+        schema: s.submitRouteSchema,
+      },
       c.submit,
     );
     app.get(

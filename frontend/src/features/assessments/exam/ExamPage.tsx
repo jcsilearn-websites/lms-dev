@@ -42,6 +42,7 @@ type Question = AttemptDto['questions'][number];
 const SAVE_TEXT: Record<SaveStatus, string> = {
   saved: 'Saved',
   saving: 'Saving…',
+  busy: 'Server busy — retrying',
   offline: 'Offline — answers will sync',
   stopped: 'Not saved — sign in again',
 };
@@ -120,6 +121,7 @@ function Exam({
   const [warning, setWarning] = useState<WarningMinutes | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [submitBusy, setSubmitBusy] = useState<{ attempt: number; delayMs: number } | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const enteredAt = useRef(performance.now());
   const shown = useRef(new Set<WarningMinutes>());
@@ -202,7 +204,7 @@ function Exam({
       setProblem(null);
       try {
         await queue.flushNow();
-        const r = await submitAttempt(offeringId, attemptId);
+        const r = await submitAttempt(offeringId, attemptId, { onBusy: setSubmitBusy });
         finished.current = true;
         queue.discard();
         clearPaper(attemptId);
@@ -294,6 +296,16 @@ function Exam({
         <p role="alert" className="rounded-md border border-warning p-3 text-sm font-medium">
           {warning} {warning === 1 ? 'minute' : 'minutes'} left. Your answers are saved as you go;
           submit when you are done.
+        </p>
+      )}
+      {(status === 'busy' || submitBusy) && (
+        <p
+          role="status"
+          className="rounded-md border border-warning p-3 text-sm"
+          data-testid="busy"
+        >
+          Server busy — retrying, your submission time is protected. Keep this page open: the moment
+          your answers reached the server is what counts, not the moment they were finally accepted.
         </p>
       )}
       {status === 'offline' && (

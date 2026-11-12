@@ -159,6 +159,9 @@ function LearnerView({
   const [picked, setPicked] = useState<Picked[]>([]);
   const [text, setText] = useState('');
   const [link, setLink] = useState('');
+  // the server is busy and the request is being sent again: the learner is told their time is protected
+  const [busy, setBusy] = useState<{ attempt: number; delayMs: number } | null>(null);
+  const retry = { onBusy: setBusy };
   const [ask, setAsk] = useState<Extract<
     SubmitAssignmentResponse,
     { result: 'confirm_late' }
@@ -180,13 +183,18 @@ function LearnerView({
 
   const send = useMutation({
     mutationFn: (confirmLate: boolean) =>
-      submit(offeringId, itemId, {
-        requestKey: requestKey.current,
-        fileIds: chosenIds,
-        ...(text.trim() ? { text: text.trim() } : {}),
-        ...(link.trim() ? { link: link.trim() } : {}),
-        ...(confirmLate ? { confirmLate: true } : {}),
-      }),
+      submit(
+        offeringId,
+        itemId,
+        {
+          requestKey: requestKey.current,
+          fileIds: chosenIds,
+          ...(text.trim() ? { text: text.trim() } : {}),
+          ...(link.trim() ? { link: link.trim() } : {}),
+          ...(confirmLate ? { confirmLate: true } : {}),
+        },
+        retry,
+      ),
     onSuccess: (r) => {
       if (r.result === 'confirm_late') return setAsk(r);
       setAsk(null);
@@ -221,7 +229,14 @@ function LearnerView({
         ...all,
         { key, name: file.name, size: file.size, progress: 0, state: 'uploading' },
       ]);
-      void uploadHandInFile(offeringId, itemId, file, (progress) => update({ progress }))
+      void uploadHandInFile(
+        offeringId,
+        itemId,
+        file,
+        (progress) => update({ progress }),
+        undefined,
+        retry,
+      )
         .then((f) => update({ state: 'ready', progress: 1, fileId: f.fileId }))
         .catch((err) => update({ state: 'error', error: describeError(err) }));
     }
@@ -302,7 +317,9 @@ function LearnerView({
           <p className="mt-2 text-xs text-muted-foreground" data-testid="grace-note">
             The clock of the server decides, not yours. If you START uploading a file before the due
             date and hand in within {Math.round(me.graceSeconds / 60)} minutes after it, your work
-            counts as on time.
+            counts as on time. If the server is busy when you press the button, the page keeps
+            trying and the moment your request reached the server is what counts, not the moment it
+            was finally accepted.
           </p>
         )}
         {a.instructions && (
@@ -465,6 +482,16 @@ function LearnerView({
                   className={INPUT_CLASS}
                 />
               </div>
+            )}
+            {busy && (
+              <p
+                role="status"
+                className="rounded-md border border-warning p-3 text-sm"
+                data-testid="busy"
+              >
+                Server busy — retrying, your submission time is protected. Keep this page open: your
+                work and the moment you pressed the button are kept (attempt {busy.attempt}).
+              </p>
             )}
             <Button type="submit" loading={send.isPending} disabled={nothing || uploading}>
               {late ? `Hand in late (${me.penaltyPercentNow}% penalty)` : 'Hand in'}

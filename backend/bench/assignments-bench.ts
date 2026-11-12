@@ -29,6 +29,7 @@ import { deleteTenantCascade } from '../src/db/dev-cleanup';
 const LEARNERS = Number(process.env.BENCH_LEARNERS ?? 1500);
 const QUEUE_LEARNERS = Math.min(Number(process.env.BENCH_QUEUE_LEARNERS ?? 500), LEARNERS);
 const CONNECTIONS = Number(process.env.BENCH_CONNECTIONS ?? 64);
+const FAIR_SECONDS = Number(process.env.BENCH_FAIR_SECONDS ?? 60);
 const PACED_SECONDS = Number(process.env.BENCH_PACED_SECONDS ?? 180);
 const FILE_KB = Number(process.env.BENCH_FILE_KB ?? 2048);
 const ZIP_FILE_KB = Number(process.env.BENCH_ZIP_FILE_KB ?? 2048);
@@ -45,6 +46,10 @@ interface Reply {
   status: number;
   body: Buffer;
   ms: number;
+  /** `Deadline-Receipt` of a 503 busy (the signed proof of when the request arrived) */
+  receipt: string | null;
+  /** epoch ms at which the request was sent */
+  sentAt: number;
 }
 
 async function main(): Promise<void> {
@@ -232,6 +237,7 @@ async function main(): Promise<void> {
     ): Promise<Reply> =>
       new Promise((resolve, reject) => {
         const t0 = performance.now();
+        const sentAt = Date.now();
         const payload = body === undefined ? undefined : Buffer.from(body);
         const req = http.request(
           {
@@ -257,6 +263,8 @@ async function main(): Promise<void> {
                 status: res.statusCode ?? 0,
                 body: Buffer.concat(chunks),
                 ms: performance.now() - t0,
+                receipt: (res.headers['deadline-receipt'] as string | undefined) ?? null,
+                sentAt,
               }),
             );
           },
@@ -265,15 +273,34 @@ async function main(): Promise<void> {
         if (payload) req.write(payload);
         req.end();
       });
-    /** The SPA's way: a 503 `busy` is answered after Retry-After (every hand-in call is idempotent). */
+    /**
+     * The SPA's way: a 503 `busy` is answered after Retry-After + backoff + jitter, with the receipt of the FIRST refusal in
+     * `X-Deadline-Receipt` (every hand-in call is idempotent). `trace` collects what a fairness check needs.
+     */
     const busy = { n: 0 };
-    const callRetry: typeof call = async (...args) => {
-      let r = await call(...args);
-      for (let i = 0; i < 8 && r.status === 503; i++) {
+    const callRetry = async (
+      method: string,
+      urlPath: string,
+      cookie: string,
+      body?: Buffer | string,
+      extra: Record<string, string> = {},
+      trace?: { firstSentAt: number; busy: number; lastSentAt: number },
+    ): Promise<Reply> => {
+      let receipt: string | null = null;
+      let r = await call(method, urlPath, cookie, body, extra);
+      if (trace) trace.firstSentAt = r.sentAt;
+      for (let i = 1; i <= 12 && r.status === 503; i++) {
         busy.n++;
-        await new Promise((res) => setTimeout(res, 2000 + Math.random() * 1000));
-        r = await call(...args);
+        if (trace) trace.busy++;
+        receipt = receipt ?? r.receipt;
+        const wait = Math.max(2000, Math.min(15_000, 1000 * 2 ** (i - 1)));
+        await new Promise((res) => setTimeout(res, wait + Math.random() * 1000 * Math.min(i, 5)));
+        r = await call(method, urlPath, cookie, body, {
+          ...extra,
+          ...(receipt ? { 'x-deadline-receipt': receipt } : {}),
+        });
       }
+      if (trace) trace.lastSentAt = r.sentAt;
       return r;
     };
     const json = (r: Reply) => JSON.parse(r.body.toString('utf8')) as Record<string, unknown>;
@@ -301,6 +328,8 @@ async function main(): Promise<void> {
       flow: number[];
       failed: number;
       reasons: Map<string, number>;
+      /** per learner: when the finalize was first sent, how often it was refused busy, when the accepted one was sent */
+      finalizes: Map<number, { firstSentAt: number; busy: number; lastSentAt: number }>;
     }
     const emptySteps = (): Steps => ({
       request: [],
@@ -310,6 +339,7 @@ async function main(): Promise<void> {
       flow: [],
       failed: 0,
       reasons: new Map(),
+      finalizes: new Map(),
     });
 
     const fail = (steps: Steps, step: string, r: Reply) => {
@@ -365,6 +395,8 @@ async function main(): Promise<void> {
         }
         ids.push(target.fileId);
       }
+      const trace = { firstSentAt: 0, busy: 0, lastSentAt: 0 };
+      steps.finalizes.set(n, trace);
       const fin = await callRetry(
         'POST',
         `${A(burstOffering, itemId)}/submissions`,
@@ -375,6 +407,7 @@ async function main(): Promise<void> {
           ...(kind === 'text' ? { text: `my answer ${n}` } : {}),
         }),
         JSONH,
+        trace,
       );
       steps.finalize.push(fin.ms);
       if (fin.status !== 200) fail(steps, 'finalize', fin);
@@ -458,6 +491,80 @@ async function main(): Promise<void> {
         performance.now() - t0,
         statementCount.n - s0,
       );
+    }
+
+    // ------------------------------------------------------------------ 1b. fairness: the burst squeezed across the deadline
+    // The due date is FAIR_SECONDS from now (late work allowed for another hour, so a late mark is recorded, not refused). The
+    // learners start with a rising density over most of that time, so many finalizes are sent just before the deadline and are
+    // refused busy, then retried AFTER it. The rule: a finalize whose FIRST send was before the due date is never marked late
+    // (a retry that went through after the due date counts from the first arrival, by the receipt); one first sent after it is.
+    say(`## 1b. fairness: ${LEARNERS} hand-ins squeezed across a deadline ${FAIR_SECONDS} s away`);
+    {
+      const fairItem = await item(burstOffering, 'Burst (fairness)', 'i3');
+      const dueAt = Date.now() + FAIR_SECONDS * 1000;
+      await owner.query(
+        `UPDATE lms.assignments SET due_at = to_timestamp($3::double precision / 1000),
+                late_policy = 'allowed', late_cutoff_at = to_timestamp($3::double precision / 1000) + interval '1 hour',
+                penalty_kind = 'flat', penalty_value = 10, penalty_cap = 50
+          WHERE tenant_id = $1 AND item_id = $2`,
+        [tenantId, fairItem, dueAt],
+      );
+      const steps = emptySteps();
+      busy.n = 0;
+      const s0 = statementCount.n;
+      const t0 = performance.now();
+      const arrivals = Array.from({ length: LEARNERS }, (_, i) => ({
+        n: i + 1,
+        at: FAIR_SECONDS * 1000 * 0.9 * Math.sqrt(Math.random()),
+      }));
+      await Promise.all(
+        arrivals.map(async (a) => {
+          await new Promise((r) => setTimeout(r, a.at));
+          await safeHandIn(a.n, fairItem, steps);
+        }),
+      );
+      report(
+        `fairness: ${LEARNERS} arrivals over ${round(FAIR_SECONDS * 0.9)} s before a deadline at ${FAIR_SECONDS} s`,
+        steps,
+        performance.now() - t0,
+        statementCount.n - s0,
+      );
+      const rows = (
+        await owner.query<{ n: number; late: number; grace: boolean }>(
+          `SELECT (substring(u.email from 2 for position('@' in u.email) - 2))::int AS n, s.late_seconds AS late, s.on_grace AS grace
+             FROM lms.submissions s
+             JOIN lms.course_participants p ON p.tenant_id = s.tenant_id AND p.id = s.participant_id
+             JOIN lms.tenant_memberships m ON m.tenant_id = p.tenant_id AND m.id = p.membership_id
+             JOIN lms.users u ON u.id = m.user_id
+            WHERE s.tenant_id = $1 AND s.assignment_item_id = $2 AND s.version_no = 1`,
+          [tenantId, fairItem],
+        )
+      ).rows;
+      let unfair = 0;
+      let protectedByReceipt = 0;
+      let lateAfter = 0;
+      let lateRetries = 0;
+      let onTime = 0;
+      for (const r of rows) {
+        const t = steps.finalizes.get(r.n);
+        if (!t) continue;
+        const before = t.firstSentAt <= dueAt;
+        if (r.late > 0) {
+          if (before) unfair++;
+          else lateAfter++;
+        } else onTime++;
+        if (before && t.busy > 0 && t.lastSentAt > dueAt && r.late === 0) protectedByReceipt++;
+        if (!before && t.busy > 0) lateRetries++;
+      }
+      say(
+        `   ${rows.length} hand-ins: ${onTime} on time, ${lateAfter} late (first sent after the deadline: correct), ` +
+          `**${unfair} unfair late marks** (first sent before the deadline, marked late); ` +
+          `${protectedByReceipt} finalizes were refused busy before the deadline, accepted only after it, and stayed on time ` +
+          `(protected by the receipt); ${lateRetries} late ones were also refused busy.`,
+      );
+      if (rows.length !== LEARNERS)
+        throw new Error(`expected ${LEARNERS} submitters, found ${rows.length}`);
+      if (unfair > 0) throw new Error(`${unfair} unfair late marks`);
     }
 
     // ------------------------------------------------------------------ 2. the grading queue for QUEUE_LEARNERS

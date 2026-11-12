@@ -95,6 +95,9 @@ async function measure(url, cookie) {
       tbt: a['total-blocking-time']?.numericValue ?? 0,
       cls: a['cumulative-layout-shift']?.numericValue ?? 0,
       si: a['speed-index']?.numericValue ?? 0,
+      lcpElement: (
+        a['largest-contentful-paint-element']?.details?.items?.[0]?.items?.[0]?.node?.snippet ?? ''
+      ).slice(0, 120),
       // every accessibility audit that did not pass completely in THIS run, with what it found
       // for a run below 100: every accessibility audit that errored or scored below 1, plus warnings
       detail:
@@ -134,6 +137,35 @@ const rows = await withStack(
     const demo = await seedCourseDemo({ webPort, password });
     const learnerCookie = await signIn(webPort, password, demo.learnerEmail);
     const teacherCookie = await signIn(webPort, password, demo.instructorEmail);
+    if (process.env.LH_NO_ASSIGNMENT === '1') {
+      // a comparison with the data of the step before assignments (see the README of the comparison in docs/benchmarks.md):
+      // the item has submissions, so it is archived and every outline skips it
+      const host = `e2e-one.localhost:${webPort}`;
+      const status = await new Promise((resolve, reject) => {
+        const req = httpRequest(
+          {
+            host: '127.0.0.1',
+            port: webPort,
+            path: `/api/offerings/${demo.offeringId}/items/${demo.assignmentItemId}`,
+            method: 'DELETE',
+            headers: {
+              host,
+              origin: `http://${host}`,
+              'x-requested-with': 'lms',
+              cookie: teacherCookie,
+            },
+          },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode);
+          },
+        );
+        req.on('error', reject);
+        req.end();
+      });
+      if (status !== 204 && status !== 200)
+        throw new Error(`could not archive the demo assignment (${status})`);
+    }
     const pages = [
       { name: 'Login page', url: `http://e2e-one.localhost:${webPort}/login`, cookie: undefined },
       { name: 'Members list', url: `http://e2e-one.localhost:${webPort}/members`, cookie },
@@ -185,13 +217,19 @@ const rows = await withStack(
         cookie: learnerCookie,
       },
     ];
+    const only = process.env.LH_ONLY;
     const out = [];
-    for (const p of pages) {
+    for (const p of only ? pages.filter((x) => x.name === only) : pages) {
       const runs = [];
       for (let i = 0; i < RUNS; i++) runs.push(await measure(p.url, p.cookie));
       out.push({
         page: p.name,
-        runs: runs.map((r) => ({ performance: r.performance, accessibility: r.accessibility })),
+        runs: runs.map((r) => ({
+          performance: r.performance,
+          accessibility: r.accessibility,
+          lcpMs: Math.round(r.lcp),
+          lcpElement: r.lcpElement,
+        })),
         performance: median(runs.map((r) => r.performance)),
         accessibility: median(runs.map((r) => r.accessibility)),
         fcpMs: Math.round(median(runs.map((r) => r.fcp))),

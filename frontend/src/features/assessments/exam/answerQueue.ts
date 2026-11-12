@@ -1,5 +1,5 @@
 import type { SaveRequest, SaveResponse } from '@lms/backend/contracts';
-import { ApiError } from '../../../shared/api/client';
+import { ApiError, busyDelayMs } from '../../../shared/api/client';
 
 // The answer queue of the exam screen (step 9). Plain TypeScript, no React: its timing, retry, durability and
 // revision behaviour are unit tested with fake timers and an in-memory storage.
@@ -12,6 +12,9 @@ import { ApiError } from '../../../shared/api/client';
 //  * REVISIONS: every change carries a revision above the one the client knows. After a resume the client continues from
 //    the SERVER's revision (never from its own counter), so a change made on device B after device A wins. An answer the
 //    server refused as older comes back in `stale` and replaces what the screen shows.
+//  * BUSY SERVER (503): the same request is sent again after Retry-After, with growing jittered waits, carrying the signed
+//    RECEIPT the server gave with the first refusal (proof of WHEN the request arrived, so the deadline check counts from
+//    then, not from when the retry was finally served). The receipt is kept with the queued answers, durably.
 //  * One request at a time, in order. A failed one stays queued and is retried with a growing delay; the same request
 //    twice changes nothing on the server (same revision), so a lost answer is just sent again.
 
@@ -45,6 +48,8 @@ interface Persisted {
   savedAt: number;
   pending: Entry[];
   events: { kind: EventKind; at: number }[];
+  /** the receipt of a refused (503 busy) request, until a request is accepted */
+  receipt?: string | null;
 }
 
 export interface QueueStorage {
@@ -90,16 +95,24 @@ export function localStorageQueue(): QueueStorage {
   };
 }
 
-export type SaveStatus = 'saved' | 'saving' | 'offline' | 'stopped';
+export type SaveStatus = 'saved' | 'saving' | 'busy' | 'offline' | 'stopped';
 
 export interface QueueOptions {
   attemptId: string;
-  send: (body: SaveRequest, o: { keepalive: boolean }) => Promise<SaveResponse>;
+  send: (
+    body: SaveRequest,
+    o: { keepalive: boolean; receipt: string | null },
+  ) => Promise<SaveResponse>;
   storage?: QueueStorage;
   now?: () => number;
   debounceMs?: number;
   retryBaseMs?: number;
   retryMaxMs?: number;
+  /** at most this many busy answers in a row are waited out inside one flush (default 12) */
+  busyAttempts?: number;
+  /** tests */
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
   onStatus?: (s: SaveStatus) => void;
   /** answers the server already had in a newer revision: show these */
   onStale?: (items: QuestionState[]) => void;
@@ -132,6 +145,9 @@ export class AnswerQueue {
   private debounce: ReturnType<typeof setTimeout> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private failures = 0;
+  private receipt: string | null = null;
+  private busy = false;
+  private disposed = false;
   private running: Promise<void> | null = null;
   private rerun = false;
   private stopped = false;
@@ -171,6 +187,7 @@ export class AnswerQueue {
         }
       }
       this.events = stored.events.slice(0, MAX_EVENTS);
+      this.receipt = stored.receipt ?? null;
     }
     this.loaded = true;
     this.persist();
@@ -185,6 +202,7 @@ export class AnswerQueue {
 
   get status(): SaveStatus {
     if (this.stopped) return 'stopped';
+    if (this.busy) return 'busy';
     if (this.offline) return 'offline';
     // events that wait for the next save do not make the status "saving": the answers are what the learner cares about
     if (!this.loaded || this.pending.size > 0 || this.running !== null) return 'saving';
@@ -313,6 +331,7 @@ export class AnswerQueue {
         for (const e of batch) this.inflight.set(e.position, e.rev);
         let res: SaveResponse;
         try {
+          this.busy = false;
           res = await this.o.send(
             {
               answers: batch.map((e) => ({
@@ -325,19 +344,28 @@ export class AnswerQueue {
               })),
               events,
             },
-            { keepalive },
+            { keepalive, receipt: this.receipt },
           );
         } catch (err) {
           this.inflight.clear();
+          // the server is busy: wait, and send again with the receipt, inside this flush (a submit waits for the answers)
+          if (await this.waitOutBusy(err)) continue;
           this.fail(err);
           return;
         }
         this.inflight.clear();
         this.failures = 0;
         this.offline = false;
+        this.busy = false;
+        this.busyRun = 0;
+        if (this.receipt) {
+          this.receipt = null;
+          this.persist();
+        }
         if (res.serverNow && res.deadlineAt) this.o.onClock?.(res.serverNow, res.deadlineAt);
         if (res.result !== 'ok') {
           this.stopped = true;
+          this.receipt = null;
           this.pending.clear();
           this.events = [];
           this.storage.remove(this.key);
@@ -373,6 +401,27 @@ export class AnswerQueue {
     } while (this.rerun && !this.stopped);
   }
 
+  private busyRun = 0;
+
+  /**
+   * A 503 busy: keep the receipt (the FIRST one: later refusals hand back the same), say so, wait Retry-After plus a growing
+   * jittered delay, and let the loop send the same work again. false = not a busy answer, or too many in a row.
+   */
+  private async waitOutBusy(err: unknown): Promise<boolean> {
+    if (!(err instanceof ApiError) || err.status !== 503 || err.code !== 'busy') return false;
+    if (this.stopped || this.disposed || this.busyRun >= (this.o.busyAttempts ?? 12)) return false;
+    this.busyRun += 1;
+    if (err.receipt && !this.receipt) {
+      this.receipt = err.receipt;
+      this.persist();
+    }
+    this.busy = true;
+    this.emit();
+    const sleep = this.o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+    await sleep(busyDelayMs(this.busyRun, err.retryAfterSeconds, this.o.random));
+    return !this.stopped && !this.disposed;
+  }
+
   private fail(err: unknown): void {
     const status = err instanceof ApiError ? err.status : 0;
     if (
@@ -399,7 +448,7 @@ export class AnswerQueue {
 
   // ------------------------------------------------------------------ storage and status
   private persist(): void {
-    if (this.pending.size === 0 && this.events.length === 0) {
+    if (this.pending.size === 0 && this.events.length === 0 && !this.receipt) {
       this.storage.remove(this.key);
       return;
     }
@@ -408,6 +457,7 @@ export class AnswerQueue {
       savedAt: this.now(),
       pending: [...this.pending.values()],
       events: this.events,
+      receipt: this.receipt,
     });
   }
 
@@ -431,6 +481,7 @@ export class AnswerQueue {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.debounce) clearTimeout(this.debounce);
     if (this.retry) clearTimeout(this.retry);
   }

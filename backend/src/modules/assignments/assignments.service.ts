@@ -172,6 +172,11 @@ export function createAssignmentsService(deps: {
       allowedBy: participationsGranting(permission),
     };
   };
+  /** when the request reached the server (core/deadline.ts), for the deadline checks of the database functions */
+  const arrivalOf = (ctx: RequestContext) =>
+    ctx.arrival
+      ? { at: new Date(ctx.arrival.atMs), maxAgeSeconds: ctx.arrival.maxAgeSeconds }
+      : null;
   const tenantOf = (ctx: RequestContext): string => {
     if (!ctx.tenantId) throw new ForbiddenError();
     return ctx.tenantId;
@@ -424,6 +429,7 @@ export function createAssignmentsService(deps: {
           contentType: kind.mime,
           size: input.size,
           grace: config.graceSeconds,
+          arrival: arrivalOf(ctx),
         }),
       );
       learnerVerdict(r);
@@ -473,6 +479,7 @@ export function createAssignmentsService(deps: {
           fileIds: body.fileIds,
           confirmLate: body.confirmLate === true,
           grace: config.graceSeconds,
+          arrival: arrivalOf(ctx),
         }),
       );
       learnerVerdict(r);

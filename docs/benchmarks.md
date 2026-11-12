@@ -577,3 +577,43 @@ What the benchmark found and fixed (the CLAUDE.md "planner lesson", this time ab
 Laptop caveat, again: the figures are for one 2-core laptop where the API, PostgreSQL, the disk and the load generator compete.
 Confirm on Cloud Run + Cloud SQL + a bucket before promising a number: uploads then bypass the API entirely (signed URLs straight to
 the bucket) and the confirm reads object metadata instead of re-reading the bytes (GCP step).
+
+## Step 10b: deadline fairness under load — 2026-11-12
+
+`pnpm --filter @lms/backend run bench:assignments`, section 1b (a throwaway college, no statistics, one laptop, local PostgreSQL 17).
+1,500 learners (70% one PDF, 20% text, 10% three files) arrive with a rising density over the first 54 s before a deadline 60 s away
+(`BENCH_FAIR_SECONDS`); the whole flow (upload request, PUT, confirm, finalize) runs through the same client as the SPA: a 503 `busy` is
+retried after Retry-After + backoff + jitter with the receipt of the first refusal. Late work is allowed for another hour, so a late mark
+would be recorded, not refused. The check compares the time each finalize was FIRST sent (client clock) with the stored `late_seconds`.
+
+| Result                                                                                                          | Value                                |
+| --------------------------------------------------------------------------------------------------------------- | ------------------------------------ |
+| hand-ins accepted / failed                                                                                      | 1,500 / 0 in 72 s (272 statements/s) |
+| busy (503) answers retried                                                                                      | 186                                  |
+| late marks for a finalize first sent before the deadline (**unfair**)                                           | **0**                                |
+| finalizes refused busy before the deadline and accepted only after it, still on time (protected by the receipt) | 39                                   |
+| finalize p50 / p95 / p99                                                                                        | 628 ms / 3.9 s / 8.7 s               |
+
+The run fails (non-zero exit) if any unfair late mark is found. Nobody FIRST sent a finalize after the deadline in this run (the arrivals
+stop at 54 s); "a request that arrived after the deadline is late even with retries" is covered by `test/deadline-fairness.test.ts`.
+The earlier sections are unchanged: saturation 1,500 hand-ins in 45 s with 0 busy answers; paced 180 s with 13 busy answers retried.
+
+### Lighthouse "Course (learner)": was 86-89 noise? (Step 10b)
+
+`LH_RUNS=1 LH_ONLY="Course (learner)" node scripts/lighthouse.mjs`, one process per sample, the variants interleaved (A, B, A, B, ...) so
+machine drift hits all of them; A = the Step 9 commit (`4ba98db`, a throwaway worktree, nothing committed, same Lighthouse script),
+B = the current code and demo data, C = the current code with the demo assignment archived (`LH_NO_ASSIGNMENT=1`: the data of Step 9).
+
+| Variant                     | n   | performance (sorted)          | median   | median LCP |
+| --------------------------- | --- | ----------------------------- | -------- | ---------- |
+| A Step 9                    | 10  | 86 90 93 94 95 96 96 96 97 97 | **95.5** | 1.9 s      |
+| B Step 10 (before the fix)  | 10  | 80 83 87 87 89 89 92 96 96 97 | **89**   | 3.3 s      |
+| C Step 10 code, Step 9 data | 5   | 88 96 96 97 97                | 96       | 1.9 s      |
+
+It is partly noise (the score is bimodal: LCP 1.9 s or 3.3 s, A has 86 too) but the gap is real: B was slow in about 6 of 10 runs, A in 2-3.
+The code difference between the two commits on this page is a few lines; the data is what changed the odds. The LCP element is the course
+heading, and the page rendered nothing but a skeleton until BOTH the offering and the outline (the slower request, and larger now that the
+course has an assignment) had arrived, so the heading's paint moved with the slower response. **Fix** (`OfferingPage.tsx`): the title and
+header render as soon as the offering has loaded (the outline has its own skeleton below, with its own error state), and the room of the
+progress bar is reserved so nothing moves when it arrives. After the fix, interleaved with Step 9, 6 runs each: A 96 96 96 96 96 93, B
+96 96 96 96 96 97, medians **96 and 96**.

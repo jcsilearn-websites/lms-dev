@@ -18,7 +18,7 @@ import type {
   SaveResponse,
 } from '@lms/backend/contracts';
 import type { Static } from '@sinclair/typebox';
-import { api, download } from '../../shared/api/client';
+import { api, type BusyRetry, download } from '../../shared/api/client';
 
 // Typed with the backend contracts (type-only imports: no backend code lands in the browser bundle).
 
@@ -216,18 +216,20 @@ export const saveAnswers = (
   offeringId: string,
   attemptId: string,
   body: SaveRequest,
-  o: { keepalive?: boolean; signal?: AbortSignal } = {},
+  o: { keepalive?: boolean; signal?: AbortSignal; receipt?: string | null } = {},
 ) =>
   api<SaveResponse>(`/offerings/${offeringId}/attempts/${attemptId}/answers`, {
     method: 'PUT',
     body,
     ...(o.keepalive ? { keepalive: true } : {}),
+    ...(o.receipt ? { receipt: o.receipt } : {}),
     signal: o.signal,
   });
-export const submitAttempt = (offeringId: string, attemptId: string) =>
+/** Idempotent: a 503 busy is sent again with the receipt of the first arrival (see `BusyRetry`). */
+export const submitAttempt = (offeringId: string, attemptId: string, retry?: BusyRetry) =>
   api<{ status: 'submitted' | 'graded'; submittedAt: string }>(
     `/offerings/${offeringId}/attempts/${attemptId}/submit`,
-    { method: 'POST', body: {} },
+    { method: 'POST', body: {}, ...(retry ? { retryBusy: retry } : {}) },
   );
 export const getResult = (offeringId: string, attemptId: string, signal?: AbortSignal) =>
   api<ResultDto>(`/offerings/${offeringId}/attempts/${attemptId}/result`, { signal });

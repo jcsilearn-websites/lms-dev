@@ -478,3 +478,111 @@ describe('the end of the attempt', () => {
     expect(t.storage.data.has(KEY)).toBe(false);
   });
 });
+
+describe('a busy server (503) and the receipt', () => {
+  const busy = (receipt: string | null = 'rcpt-1') =>
+    new ApiError(503, 'busy', 'busy', null, [], 2, receipt);
+
+  function busyQueue(
+    storage: QueueStorage,
+    send: (
+      b: SaveRequest,
+      o: { keepalive: boolean; receipt: string | null },
+    ) => Promise<SaveResponse>,
+    waits: number[],
+    statuses: string[] = [],
+  ) {
+    return new AnswerQueue({
+      attemptId: ATTEMPT,
+      send,
+      storage,
+      onStatus: (s) => statuses.push(s),
+      onStale: () => {},
+      onClosed: () => {},
+      onStopped: () => {},
+      now: () => Date.now(),
+      sleep: async (ms) => void waits.push(ms),
+      random: () => 0,
+    });
+  }
+
+  it('waits Retry-After with growing delays, shows "busy", and sends the same answers with the FIRST receipt', async () => {
+    const storage = memoryStorage();
+    const calls: { rev: number; receipt: string | null }[] = [];
+    const waits: number[] = [];
+    const statuses: string[] = [];
+    let n = 0;
+    const queue = busyQueue(
+      storage,
+      async (b, o) => {
+        calls.push({ rev: b.answers[0]?.rev ?? -1, receipt: o.receipt });
+        n += 1;
+        if (n === 1) throw busy('first');
+        if (n === 2) throw busy('second-ignored');
+        return OK;
+      },
+      waits,
+      statuses,
+    );
+    queue.load([q(1)]);
+    queue.set(1, { answer: { t: 'x' } });
+    await queue.flushNow();
+    expect(calls.map((c) => c.receipt)).toEqual([null, 'first', 'first']);
+    expect(new Set(calls.map((c) => c.rev)).size).toBe(1);
+    expect(waits).toEqual([2000, 2000]);
+    expect(statuses).toContain('busy');
+    expect(queue.status).toBe('saved');
+    expect(queue.pendingCount).toBe(0);
+  });
+
+  it('keeps the receipt with the queued answers durably, and a reload sends it', async () => {
+    const storage = memoryStorage();
+    const queue = busyQueue(storage, async () => {
+      throw busy('kept');
+    }, []);
+    queue.load([q(1)]);
+    queue.set(1, { answer: { t: 'x' } });
+    await queue.flushNow();
+    expect((storage.data.get(KEY) as { receipt?: string }).receipt).toBe('kept');
+    queue.dispose();
+
+    const seen: (string | null)[] = [];
+    const again = busyQueue(
+      storage,
+      async (_b, o) => {
+        seen.push(o.receipt);
+        return OK;
+      },
+      [],
+    );
+    again.load([q(1)]);
+    await again.flushNow();
+    expect(seen).toEqual(['kept']);
+    expect(storage.data.has(KEY)).toBe(false);
+  });
+
+  it('gives up after the allowed number of busy answers and reports a normal failure', async () => {
+    const storage = memoryStorage();
+    const waits: number[] = [];
+    const queue = new AnswerQueue({
+      attemptId: ATTEMPT,
+      send: async () => {
+        throw busy();
+      },
+      storage,
+      onStatus: () => {},
+      onStale: () => {},
+      onClosed: () => {},
+      onStopped: () => {},
+      now: () => Date.now(),
+      sleep: async (ms) => void waits.push(ms),
+      random: () => 0,
+      busyAttempts: 3,
+    });
+    queue.load([q(1)]);
+    queue.set(1, { answer: { t: 'x' } });
+    await queue.flushNow();
+    expect(waits).toHaveLength(3);
+    expect(queue.pendingCount).toBe(1);
+  });
+});

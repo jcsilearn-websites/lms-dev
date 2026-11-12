@@ -119,3 +119,66 @@ describe('describeError', () => {
     expect(describeError(new Error('boom'))).toBe('Something went wrong. Try again.');
   });
 });
+
+describe('api() with retryBusy (503 busy, deadline receipts)', () => {
+  const busyResponse = (receipt?: string) =>
+    HttpResponse.json(errorBody('busy', 'Server busy'), {
+      status: 503,
+      headers: { 'retry-after': '2', ...(receipt ? { 'deadline-receipt': receipt } : {}) },
+    });
+
+  it('sends the same request again with the first receipt and honours Retry-After and the backoff', async () => {
+    const seen: (string | null)[] = [];
+    let n = 0;
+    server.use(
+      http.post(`${API}/hand-in`, ({ request }) => {
+        seen.push(request.headers.get('x-deadline-receipt'));
+        n += 1;
+        if (n === 1) return busyResponse('r-first');
+        if (n === 2) return busyResponse('r-later');
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+    const waits: number[] = [];
+    const states: (unknown | null)[] = [];
+    const res = await api<{ ok: boolean }>('/hand-in', {
+      method: 'POST',
+      body: {},
+      retryBusy: {
+        sleep: async (ms) => void waits.push(ms),
+        random: () => 0,
+        onBusy: (s) => states.push(s),
+      },
+    });
+    expect(res.ok).toBe(true);
+    expect(seen).toEqual([null, 'r-first', 'r-first']);
+    expect(waits).toEqual([2000, 2000]);
+    expect(states.at(-1)).toBeNull();
+    expect(states.some((s) => s !== null)).toBe(true);
+  });
+
+  it('does not retry other errors, and gives up after maxAttempts', async () => {
+    let calls = 0;
+    server.use(
+      http.post(`${API}/nope`, () => {
+        calls += 1;
+        return HttpResponse.json(errorBody('forbidden', 'No'), { status: 403 });
+      }),
+      http.post(`${API}/always-busy`, () => {
+        calls += 1;
+        return busyResponse();
+      }),
+    );
+    const retry = { sleep: async () => {}, random: () => 0, maxAttempts: 2 };
+    await expect(
+      api('/nope', { method: 'POST', body: {}, retryBusy: retry }),
+    ).rejects.toMatchObject({
+      status: 403,
+    });
+    expect(calls).toBe(1);
+    await expect(
+      api('/always-busy', { method: 'POST', body: {}, retryBusy: retry }),
+    ).rejects.toMatchObject({ status: 503, code: 'busy' });
+    expect(calls).toBe(1 + 3);
+  });
+});

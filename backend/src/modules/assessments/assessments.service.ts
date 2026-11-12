@@ -106,6 +106,12 @@ export function createAssessmentsService(deps: {
     throw new AttemptNotFoundError();
   }
 
+  /** when the request reached the server (core/deadline.ts), for the deadline checks of the database functions */
+  const arrivalOf = (ctx: RequestContext) =>
+    ctx.arrival
+      ? { at: new Date(ctx.arrival.atMs), maxAgeSeconds: ctx.arrival.maxAgeSeconds }
+      : null;
+
   const iso = (v: unknown) => (v ? new Date(v as string).toISOString() : null);
 
   return {
@@ -328,6 +334,7 @@ export function createAssessmentsService(deps: {
           offeringId,
           attemptId,
           grace: config.graceSeconds,
+          arrival: arrivalOf(ctx),
           answers: body.answers.map((x) => ({
             p: x.position,
             a: x.answer,
@@ -352,7 +359,14 @@ export function createAssessmentsService(deps: {
     async submit(ctx: RequestContext, offeringId: string, attemptId: string) {
       const tenantId = tenantOf(ctx);
       const r = await db.withoutTenant((conn) =>
-        repo.submit(conn, { tenantId, userId: ctx.userId, offeringId, attemptId }),
+        repo.submit(conn, {
+          tenantId,
+          userId: ctx.userId,
+          offeringId,
+          attemptId,
+          grace: config.graceSeconds,
+          arrival: arrivalOf(ctx),
+        }),
       );
       if (r.result === 'not_found') return missing(ctx, offeringId);
       learnerVerdict(r.result);

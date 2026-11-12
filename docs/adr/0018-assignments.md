@@ -108,6 +108,39 @@ per address; a forged cookie that resolves to no session counts against the addr
 not buy a fresh budget. Tested with 60 users behind one address. A saturated database pool answers **503 `busy` with Retry-After**
 (not a 500): every call of the hand-in flow is idempotent, so clients retry.
 
+### Deadline fairness under load (Step 10b, migration 0038)
+
+A busy server must never turn "handed in on time" into "late". Rule: **the deadline is judged by when the request ARRIVED at the
+API, not by when the database finally served it.**
+
+- **Arrival.** The first hook of every request (`core/deadline.ts`) stamps the arrival time in Node, before the tenant or the
+  session is looked up (both wait for the pool too). It travels as `p_arrival` into the definer functions of the deadline-sensitive
+  calls: `assignment_submit` (finalize), `assignment_upload_begin` (the start of an upload is what the grace rule looks at),
+  `attempt_save` (autosave) and `attempt_submit`. `lms.effective_arrival(p_arrival, p_max_age)` validates it in the database: never
+  in the future, never older than the bounded wait (`ARRIVAL_QUEUE_WAIT_SECONDS`, default 30); a NULL arrival means `now()`. The
+  stored `submitted_at` is the arrival.
+- **Receipt.** When such a request is refused with 503 `busy` (pool saturated), the answer carries `Deadline-Receipt`: an HMAC-SHA256
+  token computed in Node with **no database access**, bound to the session (and the user when already known: a refusal at the session
+  lookup does not know the user), the college, the resource (assignment item id / attempt id), the operation and the arrival, with an
+  expiry (`DEADLINE_RECEIPT_WINDOW_SECONDS`, default 600). The retry sends it back as `X-Deadline-Receipt`. A valid receipt (right
+  signature, not expired, SAME session or user, college, resource and operation) replaces the retry's arrival; anything else is
+  ignored and the retry counts from its own arrival like any request. A refused retry hands back the SAME receipt, so the arrival never
+  moves later. The signing key is `DEADLINE_RECEIPT_SECRET` (or derived from the storage key; production must set one of them).
+- **What a receipt cannot do.** It only moves the arrival EARLIER, to a moment the server itself witnessed, and never by more than the
+  window. A request that arrived after the deadline is late however often it retried (tested), and a forged, expired, other-user,
+  other-session or other-resource receipt is ignored (tested). **Known limit:** a receipt is not bound to the payload (the retry must
+  be free to carry the latest idempotent state), so a learner who was refused busy at 09:59:58 could send DIFFERENT answers up to
+  the window later with the earlier arrival. For an assignment the new version is still a hand-in with that arrival and the previous
+  one stays in the history; for an exam the server still refuses saves after `deadline + grace` for a request WITHOUT a receipt, and a
+  receipt exists only if the server itself refused a request before the deadline. Binding the receipt to a payload hash or giving the
+  exam operations a shorter window is possible if a college asks for it (not built).
+- **Client.** `api()` retries a 503 `busy` of these idempotent calls (finalize by `requestKey`, upload request and confirm, autosave
+  by `rev`, exam submit) after `max(Retry-After, 1 s * 2^(n-1) up to 15 s)` plus jitter, up to 12 times, with the first receipt, and
+  the page says "Server busy - retrying, your submission time is protected" instead of an error; the form and the answers stay. The
+  durable exam queue stores the receipt next to its queued answers (it survives a reload) and clears it when a request is accepted.
+- **Measured** (`bench:assignments`, section 1b): 1,500 hand-ins squeezed across a deadline 60 s away, the pool saturated: see
+  `docs/benchmarks.md` (Step 10b) for the number of unfair late marks (0) and how many finalizes the receipt protected.
+
 ## Consequences
 
 - The grading statement and the ZIP manifest are one statement each; the first open of the queue creates the random keys of the

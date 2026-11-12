@@ -363,21 +363,32 @@ export function createAssessmentsRepository() {
         answers: unknown[];
         events: unknown[];
         grace: number;
+        /** when the request ARRIVED (core/deadline.ts); null = now() */
+        arrival: { at: Date; maxAgeSeconds: number } | null;
       },
     ): Promise<Row> {
       const res =
         await conn.execute(sql`SELECT lms.attempt_save(${p.tenantId}::uuid, ${p.userId}::uuid,
         ${p.offeringId}::uuid, ${p.attemptId}::uuid, ${JSON.stringify(p.answers)}::jsonb, ${JSON.stringify(p.events)}::jsonb,
-        ${p.grace}::integer) AS r`);
+        ${p.grace}::integer, ${p.arrival?.at.toISOString() ?? null}::timestamptz,
+        ${p.arrival?.maxAgeSeconds ?? 30}::integer) AS r`);
       return res.rows[0]?.r as Row;
     },
     async submit(
       conn: Executor,
-      p: { tenantId: string; userId: string; offeringId: string; attemptId: string },
+      p: {
+        tenantId: string;
+        userId: string;
+        offeringId: string;
+        attemptId: string;
+        grace: number;
+        arrival: { at: Date; maxAgeSeconds: number } | null;
+      },
     ): Promise<Row> {
       const res =
         await conn.execute(sql`SELECT lms.attempt_submit(${p.tenantId}::uuid, ${p.userId}::uuid,
-        ${p.offeringId}::uuid, ${p.attemptId}::uuid) AS r`);
+        ${p.offeringId}::uuid, ${p.attemptId}::uuid, ${p.grace}::integer,
+        ${p.arrival?.at.toISOString() ?? null}::timestamptz, ${p.arrival?.maxAgeSeconds ?? 30}::integer) AS r`);
       return res.rows[0]?.r as Row;
     },
     async me(
