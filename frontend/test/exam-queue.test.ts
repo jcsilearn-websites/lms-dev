@@ -535,7 +535,7 @@ describe('a busy server (503) and the receipt', () => {
     expect(queue.pendingCount).toBe(0);
   });
 
-  it('keeps the receipt with the queued answers durably, and a reload sends it', async () => {
+  it('keeps the refused batch FROZEN with its receipt, durably, and a reload sends exactly that batch with it', async () => {
     const storage = memoryStorage();
     const queue = busyQueue(storage, async () => {
       throw busy('kept');
@@ -543,22 +543,110 @@ describe('a busy server (503) and the receipt', () => {
     queue.load([q(1)]);
     queue.set(1, { answer: { t: 'x' } });
     await queue.flushNow();
-    expect((storage.data.get(KEY) as { receipt?: string }).receipt).toBe('kept');
+    const stored = storage.data.get(KEY) as {
+      frozen?: { receipt: string; batch: { position: number; rev: number }[] };
+    };
+    expect(stored.frozen?.receipt).toBe('kept');
+    expect(stored.frozen?.batch).toMatchObject([{ position: 1, rev: 1 }]);
     queue.dispose();
 
-    const seen: (string | null)[] = [];
+    const seen: { rev: number; receipt: string | null }[] = [];
     const again = busyQueue(
       storage,
-      async (_b, o) => {
-        seen.push(o.receipt);
+      async (b, o) => {
+        seen.push({ rev: b.answers[0]?.rev ?? -1, receipt: o.receipt });
         return OK;
       },
       [],
     );
     again.load([q(1)]);
     await again.flushNow();
-    expect(seen).toEqual(['kept']);
+    expect(seen).toEqual([{ rev: 1, receipt: 'kept' }]);
     expect(storage.data.has(KEY)).toBe(false);
+  });
+
+  it('an answer EDITED while the server is busy is NOT added to the refused batch: it goes in a new batch without the receipt', async () => {
+    const storage = memoryStorage();
+    const sent: { entries: [number, unknown, number][]; receipt: string | null }[] = [];
+    let n = 0;
+    // while the server is busy (during the wait), the learner changes question 1 and answers question 2
+    const edit: { run: () => void } = { run: () => {} };
+    const queue = new AnswerQueue({
+      attemptId: ATTEMPT,
+      send: async (b, o) => {
+        sent.push({
+          entries: b.answers.map((a) => [a.position, a.answer, a.rev]),
+          receipt: o.receipt,
+        });
+        n += 1;
+        if (n === 1) throw busy('R1');
+        return OK;
+      },
+      storage,
+      onStatus: () => {},
+      onStale: () => {},
+      onClosed: () => {},
+      onStopped: () => {},
+      now: () => Date.now(),
+      sleep: async () => edit.run(),
+      random: () => 0,
+    });
+    edit.run = () => {
+      queue.set(1, { answer: { t: 'edited after' } });
+      queue.set(2, { answer: { t: 'new after' } });
+    };
+    queue.load([q(1), q(2)]);
+    queue.set(1, { answer: { t: 'before' } });
+    await queue.flushNow();
+    expect(sent).toEqual([
+      { entries: [[1, { t: 'before' }, 1]], receipt: null },
+      // the refused batch again, exactly as it was, with its receipt
+      { entries: [[1, { t: 'before' }, 1]], receipt: 'R1' },
+      // what changed afterwards: a NEW batch, the next revision, no receipt
+      {
+        entries: [
+          [1, { t: 'edited after' }, 2],
+          [2, { t: 'new after' }, 1],
+        ],
+        receipt: null,
+      },
+    ]);
+    expect(queue.pendingCount).toBe(0);
+    expect(queue.status).toBe('saved');
+  });
+
+  it('after a reload the frozen batch still goes first and an answer typed after the reload gets the next revision', async () => {
+    const storage = memoryStorage();
+    const first = busyQueue(storage, async () => {
+      throw busy('R9');
+    }, []);
+    first.load([q(1)]);
+    first.set(1, { answer: { t: 'before' } });
+    await first.flushNow();
+    first.dispose();
+
+    const sent: { rev: number; text: unknown; receipt: string | null }[] = [];
+    const reloaded = busyQueue(
+      storage,
+      async (b, o) => {
+        for (const a of b.answers)
+          sent.push({
+            rev: a.rev,
+            text: (a.answer as { t?: string } | null)?.t,
+            receipt: o.receipt,
+          });
+        return OK;
+      },
+      [],
+    );
+    reloaded.load([q(1)]);
+    // typed right after the reload, before the frozen batch went out
+    reloaded.set(1, { answer: { t: 'after' } });
+    await reloaded.flushNow();
+    expect(sent).toEqual([
+      { rev: 1, text: 'before', receipt: 'R9' },
+      { rev: 2, text: 'after', receipt: null },
+    ]);
   });
 
   it('gives up after the allowed number of busy answers and reports a normal failure', async () => {

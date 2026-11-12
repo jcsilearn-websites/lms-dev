@@ -51,7 +51,14 @@ export function createAssignmentsRoutes(deps: {
     app.post(
       `${A}/files`,
       {
-        config: { ...take, deadline: { operation: 'assignment.upload', param: 'itemId' } },
+        config: {
+          ...take,
+          deadline: {
+            operation: 'assignment.upload',
+            param: 'itemId',
+            payload: s.uploadPayload,
+          },
+        },
         schema: s.requestUploadRouteSchema,
       },
       c.requestUpload,
@@ -64,7 +71,14 @@ export function createAssignmentsRoutes(deps: {
     app.post(
       `${A}/submissions`,
       {
-        config: { ...take, deadline: { operation: 'assignment.submit', param: 'itemId' } },
+        config: {
+          ...take,
+          deadline: {
+            operation: 'assignment.submit',
+            param: 'itemId',
+            payload: s.handInPayload,
+          },
+        },
         schema: s.submitRouteSchema,
       },
       c.submit,

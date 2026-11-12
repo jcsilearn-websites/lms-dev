@@ -1,6 +1,6 @@
-import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 import cookie from '@fastify/cookie';
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyContextConfig, FastifyInstance, FastifyRequest } from 'fastify';
 import { hashToken } from './tokens';
 
 // DEADLINE FAIRNESS UNDER LOAD. A request that arrived before a deadline must not be marked late because it waited for a
@@ -15,8 +15,14 @@ import { hashToken } from './tokens';
 //     THAT session / user, college, resource and operation, and has not expired, gives the retry the receipt's arrival time (for
 //     at most the receipt window). Anything else is ignored: the retry then counts from its own arrival, like any request.
 //
-// Only routes that declare `config.deadline = { operation, param }` take part: `param` names the route parameter that is the
-// resource (an assignment item id, an attempt id).
+//  3. A receipt is also bound to the PAYLOAD that was refused: `h` is a hash of the operation, the resource and the canonical form of
+//     what the request carried (`config.deadline.payload`: the hand-in's text, link, file ids and request key; an autosave's
+//     (position, answer, rev) entries; a submit's attempt id). On the retry the receipt's arrival applies ONLY when the payload hashes
+//     to the same value; a changed payload is judged by its own arrival, with no error (the receipt is simply ignored). A file id
+//     stands for its bytes: a file is measured and its SHA-256 recorded once, when it is confirmed, and never again.
+//
+// Only routes that declare `config.deadline = { operation, param, payload }` take part: `param` names the route parameter that is the
+// resource (an assignment item id, an attempt id), `payload` maps the request body to the value that is hashed (null: unusable).
 
 export interface Arrival {
   /** epoch ms: when the request (or the receipt it carries) says it reached the server */
@@ -39,6 +45,8 @@ export interface ReceiptClaims {
   r: string;
   /** the operation, e.g. `assignment.submit` */
   o: string;
+  /** hash (base64url SHA-256) of the operation, the resource and the payload that was refused */
+  h: string;
   /** arrival, epoch ms */
   a: number;
   /** expiry, epoch ms */
@@ -78,7 +86,7 @@ export function createReceiptSigner(opts: {
       return `${payload}.${mac(payload).toString('base64url')}`;
     },
     verify(token) {
-      if (typeof token !== 'string' || token.length > 700) return null;
+      if (typeof token !== 'string' || token.length > 900) return null;
       const dot = token.indexOf('.');
       if (dot < 1) return null;
       const payload = token.slice(0, dot);
@@ -93,6 +101,7 @@ export function createReceiptSigner(opts: {
           typeof c.s !== 'string' ||
           typeof c.r !== 'string' ||
           typeof c.o !== 'string' ||
+          typeof c.h !== 'string' ||
           typeof c.a !== 'number' ||
           typeof c.e !== 'number' ||
           (c.u !== null && typeof c.u !== 'string')
@@ -109,6 +118,8 @@ export function createReceiptSigner(opts: {
 declare module 'fastify' {
   interface FastifyRequest {
     arrival: Arrival;
+    /** a receipt that is valid for this session, college, resource and operation; its payload is checked once the body is parsed */
+    receiptCandidate: { claims: ReceiptClaims; token: string } | null;
   }
   interface FastifyInstance {
     receipts: ReceiptSigner | null;
@@ -117,8 +128,43 @@ declare module 'fastify' {
   }
   interface FastifyContextConfig {
     /** A deadline-sensitive route: the operation and the route parameter that names the resource. */
-    deadline?: { operation: string; param: string };
+    deadline?: {
+      operation: string;
+      param: string;
+      /** the part of the body that the receipt is bound to (any JSON value; null = cannot be bound) */
+      payload: (body: unknown) => unknown;
+    };
   }
+}
+
+/** JSON with the keys of every object sorted, so the same data always has the same text. */
+export function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  const o = value as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .filter((k) => o[k] !== undefined)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${canonicalJson(o[k])}`)
+    .join(',')}}`;
+}
+
+/** The value a receipt is bound to; null when the route cannot say what the payload is. */
+export function payloadHash(
+  cfg: NonNullable<FastifyContextConfig['deadline']>,
+  resource: string,
+  body: unknown,
+): string | null {
+  let value: unknown;
+  try {
+    value = cfg.payload(body);
+  } catch {
+    return null;
+  }
+  if (value === null || value === undefined) return null;
+  return createHash('sha256')
+    .update(canonicalJson([cfg.operation, resource, value]))
+    .digest('base64url');
 }
 
 const TOKEN_SHAPE = /^[A-Za-z0-9_-]{43}$/;
@@ -175,43 +221,88 @@ export function registerReceipts(
 ): void {
   app.receipts = deps.signer;
   app.receiptCookie = deps.cookieName;
+  app.decorateRequest('receiptCandidate', null as never);
+  // 1. before the body exists: is this receipt for this session / user, college, resource and operation?
   app.addHook('onRequest', async (request) => {
-    const m = matchingReceipt(request, deps.signer, deps.cookieName);
-    if (m) {
-      request.arrival = {
-        atMs: m.claims.a,
-        maxAgeSeconds: deps.signer.windowSeconds,
-        receipt: m.token,
-      };
-    }
+    request.receiptCandidate = matchingReceipt(request, deps.signer, deps.cookieName);
   });
+  // 2. the body is parsed and validated: the receipt's arrival applies only to the exact payload that was refused. Anything
+  // else (an edited answer, another file, other text) is judged by its own arrival, silently.
+  app.addHook('preHandler', async (request) => {
+    const m = request.receiptCandidate;
+    const cfg = request.routeOptions?.config?.deadline;
+    if (!m || !cfg) return;
+    const resource = (request.params as Record<string, string | undefined>)[cfg.param];
+    const h = resource ? payloadHash(cfg, resource, request.body) : null;
+    if (h === null || !sameHash(h, m.claims.h)) return;
+    request.arrival = {
+      atMs: m.claims.a,
+      maxAgeSeconds: deps.signer.windowSeconds,
+      receipt: m.token,
+    };
+  });
+}
+
+function sameHash(a: string, b: string): boolean {
+  const x = Buffer.from(a);
+  const y = Buffer.from(b);
+  return x.length === y.length && timingSafeEqual(x, y);
+}
+
+/**
+ * The body of a request that was refused BEFORE it was parsed (the refusal came from the session lookup, which waits for the
+ * pool first): read straight from the socket, bounded in size and time, no database. null when it cannot be read.
+ */
+async function readRawJson(request: FastifyRequest): Promise<unknown> {
+  // no JSON body (a submit sends none): undefined, which the payload function of such a route does not need
+  if (!String(request.headers['content-type'] ?? '').includes('json')) return undefined;
+  const limit = request.routeOptions?.bodyLimit ?? 1_048_576;
+  const declared = Number(request.headers['content-length'] ?? 0);
+  if (!(declared >= 0) || declared > limit) return null;
+  const chunks: Buffer[] = [];
+  let size = 0;
+  const read = (async () => {
+    for await (const chunk of request.raw) {
+      const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as string);
+      size += b.length;
+      if (size > limit) return null;
+      chunks.push(b);
+    }
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown;
+  })().catch(() => null);
+  const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000).unref());
+  return Promise.race([read, timeout]);
 }
 
 /**
  * The receipt for a request that was refused with 503 busy, or null when there is nothing to bind it to (not a deadline route,
- * no college, no session cookie) or no signer. A request that ALREADY carried a valid receipt gets the same one back: the
- * arrival never moves later because the retry was refused too. No database access.
+ * no college, no session cookie, a body that cannot be read) or no signer. The receipt carries the hash of the payload that was
+ * refused. A retry that carried a valid receipt FOR THE SAME PAYLOAD and was refused again gets the same receipt back (the
+ * arrival never moves later); a retry with a changed payload gets a new receipt for its own arrival. No database access.
  */
-export function issueReceipt(request: FastifyRequest): string | null {
+export async function issueReceipt(request: FastifyRequest): Promise<string | null> {
   const signer = request.server.receipts;
   const cookieName = request.server.receiptCookie;
   const cfg = request.routeOptions?.config?.deadline;
   const tenant = request.tenant?.id;
   if (!signer || !cookieName || !cfg || !tenant) return null;
-  // a retry that carried a valid receipt and was refused again (even before the receipt was read, at the session lookup)
-  // gets the SAME receipt: the arrival never moves later
-  const carried = matchingReceipt(request, signer, cookieName);
-  if (carried) return carried.token;
   const params = (request.params ?? {}) as Record<string, string | undefined>;
   const resource = params[cfg.param];
   const sh = sessionHash(request, cookieName);
   if (!resource || !sh || !request.arrival) return null;
+  const body = request.body !== undefined ? request.body : await readRawJson(request);
+  const h = payloadHash(cfg, resource, body);
+  if (h === null) return null;
+  // refused again before the receipt was looked at (at the session lookup): the same payload keeps the same receipt
+  const carried = matchingReceipt(request, signer, cookieName);
+  if (carried && sameHash(h, carried.claims.h)) return carried.token;
   return signer.sign({
     u: request.auth?.userId ?? null,
     t: tenant,
     s: sh,
     r: resource,
     o: cfg.operation,
+    h,
     a: request.arrival.atMs,
   });
 }

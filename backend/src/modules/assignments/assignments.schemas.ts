@@ -182,3 +182,28 @@ export const zipRouteSchema = {
   params: item,
   response: { 200: Type.String({ format: 'binary' }), ...COMMON_ERRORS },
 };
+
+// What a deadline receipt is bound to (core/deadline.ts): the exact content of the request that was refused busy. A retry with
+// anything else changed is judged by its own arrival. A file id stands for its bytes: the SHA-256 is recorded once, at the
+// confirmation of the file, and never again.
+const asObject = (b: unknown): Record<string, unknown> | null =>
+  typeof b === 'object' && b !== null ? (b as Record<string, unknown>) : null;
+
+/** the file of an upload request: its name and declared size */
+export function uploadPayload(body: unknown): unknown {
+  const b = asObject(body);
+  return b ? { name: b.name ?? null, size: b.size ?? null } : null;
+}
+
+/** a hand-in: its request key, text, link and file ids (in order) and whether a late replacement was confirmed */
+export function handInPayload(body: unknown): unknown {
+  const b = asObject(body);
+  if (!b) return null;
+  return {
+    requestKey: b.requestKey ?? null,
+    text: b.text ?? null,
+    link: b.link ?? null,
+    fileIds: Array.isArray(b.fileIds) ? b.fileIds : [],
+    confirmLate: b.confirmLate === true,
+  };
+}

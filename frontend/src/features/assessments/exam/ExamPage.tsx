@@ -304,8 +304,10 @@ function Exam({
           className="rounded-md border border-warning p-3 text-sm"
           data-testid="busy"
         >
-          Server busy — retrying, your submission time is protected. Keep this page open: the moment
-          your answers reached the server is what counts, not the moment they were finally accepted.
+          Server busy — retrying, your submission time is protected. Keep this page open: the
+          answers you had already given count from the moment they reached the server, not from the
+          moment they were finally accepted. An answer you change or add while this message is shown
+          is sent afterwards and counts from the moment it is sent.
         </p>
       )}
       {status === 'offline' && (

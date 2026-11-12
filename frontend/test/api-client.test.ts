@@ -157,6 +157,34 @@ describe('api() with retryBusy (503 busy, deadline receipts)', () => {
     expect(states.some((s) => s !== null)).toBe(true);
   });
 
+  it('freezes the body: what the caller changes while the request waits does not reach the retry', async () => {
+    const bodies: unknown[] = [];
+    let n = 0;
+    server.use(
+      http.post(`${API}/frozen`, async ({ request }) => {
+        bodies.push(await request.json());
+        n += 1;
+        return n === 1 ? busyResponse('r') : HttpResponse.json({ ok: true });
+      }),
+    );
+    const payload = { text: 'as pressed', fileIds: ['a'] };
+    await api('/frozen', {
+      method: 'POST',
+      body: payload,
+      retryBusy: {
+        sleep: async () => {
+          payload.text = 'edited while waiting';
+          payload.fileIds.push('b');
+        },
+        random: () => 0,
+      },
+    });
+    expect(bodies).toEqual([
+      { text: 'as pressed', fileIds: ['a'] },
+      { text: 'as pressed', fileIds: ['a'] },
+    ]);
+  });
+
   it('does not retry other errors, and gives up after maxAttempts', async () => {
     let calls = 0;
     server.use(

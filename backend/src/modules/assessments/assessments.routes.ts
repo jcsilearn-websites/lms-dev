@@ -61,7 +61,7 @@ export function createAssessmentsRoutes(deps: {
         config: {
           ...take,
           rateLimit: { max: 900, timeWindow: '1 minute' },
-          deadline: { operation: 'attempt.save', param: 'attemptId' },
+          deadline: { operation: 'attempt.save', param: 'attemptId', payload: s.savePayload },
         },
         schema: s.saveRouteSchema,
       },
@@ -70,7 +70,10 @@ export function createAssessmentsRoutes(deps: {
     app.post(
       '/offerings/:id/attempts/:attemptId/submit',
       {
-        config: { ...take, deadline: { operation: 'attempt.submit', param: 'attemptId' } },
+        config: {
+          ...take,
+          deadline: { operation: 'attempt.submit', param: 'attemptId', payload: s.submitPayload },
+        },
         schema: s.submitRouteSchema,
       },
       c.submit,

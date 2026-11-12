@@ -203,3 +203,22 @@ export const analysisRouteSchema = {
   params: item,
   response: { 200: AnalysisSchema, ...COMMON_ERRORS },
 };
+
+// What a deadline receipt is bound to (core/deadline.ts): the exact content of the request that was refused busy.
+/** an autosave: its (question position, answer, rev) entries, ordered by position (flags, timings and events are not graded) */
+export function savePayload(body: unknown): unknown {
+  const answers = (body as { answers?: unknown } | null)?.answers;
+  if (!Array.isArray(answers)) return null;
+  return answers
+    .map((a: { position?: unknown; answer?: unknown; rev?: unknown }) => [
+      a.position ?? null,
+      a.answer ?? null,
+      a.rev ?? null,
+    ])
+    .sort((x, y) => Number(x[0]) - Number(y[0]));
+}
+
+/** a submit carries nothing: the receipt is bound to the attempt id (the resource in the hash) */
+export function submitPayload(): unknown {
+  return 'submit';
+}

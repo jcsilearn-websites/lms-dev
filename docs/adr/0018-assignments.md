@@ -128,12 +128,25 @@ API, not by when the database finally served it.**
   moves later. The signing key is `DEADLINE_RECEIPT_SECRET` (or derived from the storage key; production must set one of them).
 - **What a receipt cannot do.** It only moves the arrival EARLIER, to a moment the server itself witnessed, and never by more than the
   window. A request that arrived after the deadline is late however often it retried (tested), and a forged, expired, other-user,
-  other-session or other-resource receipt is ignored (tested). **Known limit:** a receipt is not bound to the payload (the retry must
-  be free to carry the latest idempotent state), so a learner who was refused busy at 09:59:58 could send DIFFERENT answers up to
-  the window later with the earlier arrival. For an assignment the new version is still a hand-in with that arrival and the previous
-  one stays in the history; for an exam the server still refuses saves after `deadline + grace` for a request WITHOUT a receipt, and a
-  receipt exists only if the server itself refused a request before the deadline. Binding the receipt to a payload hash or giving the
-  exam operations a shorter window is possible if a college asks for it (not built).
+  other-session or other-resource receipt is ignored (tested).
+- **Bound to the payload (Step 10c).** A receipt carries `h`, a hash of the operation, the resource and the canonical form (sorted keys,
+  defaults filled) of what the refused request carried: for a hand-in the request key, text, link, the file ids in order and the late
+  confirmation; for an upload request its name and size; for an autosave the `(position, answer, rev)` entries ordered by position
+  (flags, timings and integrity events are not graded and are not bound); for an exam submit the attempt id. On the retry the receipt's
+  arrival applies ONLY when the payload hashes to the same value. Anything else (an edited answer, other text, another file) is judged
+  by its own arrival, with no error: the receipt is simply ignored. Because the refusal usually comes from the session lookup, BEFORE
+  Fastify has parsed the body, the error path reads the body straight from the socket (bounded by the body limit and 2 s, no database)
+  to compute the hash; on the retry the hash is computed from the validated body in a `preHandler` hook, so both sides hash the same
+  canonical value. A refused retry that carried a receipt for the SAME payload gets the same receipt back; a retry with a changed
+  payload gets a NEW receipt for its own arrival. A file id stands for its bytes: the SHA-256 is recorded once, when the file is
+  confirmed (`markReady` only acts on a pending file) and never changes, so hashing the id binds the content without a database read
+  at the moment of the refusal (there is none to be had).
+- **What it means for an exam.** The client freezes the refused batch (`answerQueue.ts`): it is sent again exactly as it was, with its
+  receipt, kept in storage so a reload sends the same batch; its revisions stay "in flight", so an answer edited or added meanwhile
+  gets the NEXT revision and travels in a NEW batch with no receipt, judged by its own arrival (applied before the deadline plus the
+  save grace, `closed` after). A student keeps credit for what was answered before the deadline and nothing changed afterwards gains
+  early credit. The same holds for a hand-in: `api()` freezes the JSON body when the call starts, so nothing the page does while the
+  request waits reaches the retry.
 - **Client.** `api()` retries a 503 `busy` of these idempotent calls (finalize by `requestKey`, upload request and confirm, autosave
   by `rev`, exam submit) after `max(Retry-After, 1 s * 2^(n-1) up to 15 s)` plus jitter, up to 12 times, with the first receipt, and
   the page says "Server busy - retrying, your submission time is protected" instead of an error; the form and the answers stay. The

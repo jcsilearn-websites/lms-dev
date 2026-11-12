@@ -34,7 +34,7 @@ export function isPoolExhausted(err: unknown): boolean {
   return false;
 }
 
-function handleError(err: FastifyError, request: FastifyRequest, reply: FastifyReply) {
+async function handleError(err: FastifyError, request: FastifyRequest, reply: FastifyReply) {
   if (err instanceof AppError) {
     if (err.statusCode >= 500) request.log.warn({ err }, 'request failed');
     return reply.status(err.statusCode).send(body(request.id, err.code, err.message, err.details));
@@ -63,7 +63,7 @@ function handleError(err: FastifyError, request: FastifyRequest, reply: FastifyR
   if (isPoolExhausted(err)) {
     request.log.warn({ err }, 'database pool exhausted');
     // a deadline-sensitive request gets a signed receipt of WHEN it arrived (no database access): the retry sends it back
-    const receipt = issueReceipt(request);
+    const receipt = await issueReceipt(request);
     if (receipt) void reply.header('deadline-receipt', receipt);
     return reply
       .status(503)

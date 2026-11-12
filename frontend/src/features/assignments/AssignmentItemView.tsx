@@ -318,8 +318,9 @@ function LearnerView({
             The clock of the server decides, not yours. If you START uploading a file before the due
             date and hand in within {Math.round(me.graceSeconds / 60)} minutes after it, your work
             counts as on time. If the server is busy when you press the button, the page keeps
-            trying and the moment your request reached the server is what counts, not the moment it
-            was finally accepted.
+            trying, and the moment your request reached the server is what counts, not the moment it
+            was finally accepted, for exactly what you handed in. If you change your text, link or
+            files after that, it is a new hand-in and counts from the moment it is sent.
           </p>
         )}
         {a.instructions && (
@@ -490,7 +491,8 @@ function LearnerView({
                 data-testid="busy"
               >
                 Server busy — retrying, your submission time is protected. Keep this page open: your
-                work and the moment you pressed the button are kept (attempt {busy.attempt}).
+                work and the moment you pressed the button are kept (attempt {busy.attempt}). Do not
+                change anything now: a change counts from the moment it is sent, not from this one.
               </p>
             )}
             <Button type="submit" loading={send.isPending} disabled={nothing || uploading}>

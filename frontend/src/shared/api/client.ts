@@ -104,6 +104,10 @@ function isErrorBody(body: unknown): body is ErrorResponse {
 export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
   const retry = opts.retryBusy;
   if (!retry) return once<T>(path, opts);
+  // The receipt of a refusal is bound to the exact payload that was refused: the body is frozen NOW, as text, so that nothing the
+  // page does while the request waits (an object edited, a form changed) can leak into the retry.
+  if (opts.body !== undefined && !(opts.body instanceof FormData))
+    opts = { ...opts, body: JSON.parse(JSON.stringify(opts.body)) as unknown };
   const sleep = retry.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
   const max = retry.maxAttempts ?? 12;
   // the FIRST receipt is the one that counts: a later refusal hands back the same one

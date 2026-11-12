@@ -476,7 +476,11 @@ Full reasoning: `docs/adr/0018-assignments.md` ("Deadline fairness under load").
   the database; bound to session/user, college, resource, operation, arrival, expiry). The retry sends `X-Deadline-Receipt`; a valid one
   gives the retry the receipt's arrival (at most `DEADLINE_RECEIPT_WINDOW_SECONDS`, 600); anything else is ignored. Env:
   `ARRIVAL_QUEUE_WAIT_SECONDS` (30), `DEADLINE_RECEIPT_WINDOW_SECONDS`, `DEADLINE_RECEIPT_SECRET` (or derived from `STORAGE_SIGNING_SECRET`).
-  Known limit (documented in the ADR): a receipt is not bound to the payload.
+  A receipt is BOUND TO THE PAYLOAD (step 10c): `config.deadline.payload` (in the module's `*.schemas.ts`) maps the body to the value that
+  is hashed into the receipt (`h`); on the retry the receipt's arrival applies only when the hash matches exactly (checked in a
+  `preHandler`, after validation), otherwise the request is judged by its own arrival, silently. A new deadline route needs a
+  `payload` function and a changed-payload test. The exam queue FREEZES a refused batch (resent exactly, with its receipt; edits go in a
+  NEW batch without it) and `api()` freezes the body of a `retryBusy` call.
 - **Frontend**: `api()` takes `retryBusy` (exponential backoff + jitter honouring Retry-After, first receipt kept); the hand-in page and the
   exam page show "Server busy - retrying, your submission time is protected"; the durable exam queue (`answerQueue.ts`) keeps the receipt
   with its queued answers. Every such call must stay idempotent.
@@ -778,7 +782,7 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
   submissions, peer review or plagiarism check; no notification when a grade is released; a grade has no history beyond the audit log;
   the copy moves ALL dates by one shift (no per-item overrides); the confirm of an upload re-reads the bytes (object metadata on GCS);
   the 60 s squeeze of the deadline burst answers 503 `busy` to some calls: the SPA retries them by itself and the deadline counts from the
-  arrival (step 10b, above), but a receipt is not bound to the payload; blind grading cannot scrub a name a learner typed INSIDE their work.
+  arrival (step 10b, above), a receipt is bound to the payload (step 10c); blind grading cannot scrub a name a learner typed INSIDE their work.
 - **Open for the GCP step** (collected here so nothing is lost): the real mail provider; the GCS storage driver and the GCP
   Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
   Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s

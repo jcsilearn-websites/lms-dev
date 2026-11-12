@@ -14,7 +14,11 @@ import { ApiError, busyDelayMs } from '../../../shared/api/client';
 //    server refused as older comes back in `stale` and replaces what the screen shows.
 //  * BUSY SERVER (503): the same request is sent again after Retry-After, with growing jittered waits, carrying the signed
 //    RECEIPT the server gave with the first refusal (proof of WHEN the request arrived, so the deadline check counts from
-//    then, not from when the retry was finally served). The receipt is kept with the queued answers, durably.
+//    then, not from when the retry was finally served). The receipt is bound to the exact payload that was refused, so the
+//    refused batch is FROZEN: it is sent again exactly as it was, with its receipt, and never changes. What the learner
+//    answers or edits afterwards goes into a NEW batch, sent without the receipt and judged by its own arrival: credit for
+//    what was answered before the deadline, none for what changed after it. The frozen batch is kept durably (a reload
+//    sends it again).
 //  * One request at a time, in order. A failed one stays queued and is retried with a growing delay; the same request
 //    twice changes nothing on the server (same revision), so a lost answer is just sent again.
 
@@ -48,8 +52,14 @@ interface Persisted {
   savedAt: number;
   pending: Entry[];
   events: { kind: EventKind; at: number }[];
-  /** the receipt of a refused (503 busy) request, until a request is accepted */
-  receipt?: string | null;
+  /** a batch that was refused (503 busy) and is sent again exactly as it was, with its receipt, until it is accepted */
+  frozen?: FrozenBatch | null;
+}
+
+interface FrozenBatch {
+  batch: Entry[];
+  events: { kind: EventKind; at: number }[];
+  receipt: string;
 }
 
 export interface QueueStorage {
@@ -145,7 +155,7 @@ export class AnswerQueue {
   private debounce: ReturnType<typeof setTimeout> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private failures = 0;
-  private receipt: string | null = null;
+  private frozen: FrozenBatch | null = null;
   private busy = false;
   private disposed = false;
   private running: Promise<void> | null = null;
@@ -187,7 +197,16 @@ export class AnswerQueue {
         }
       }
       this.events = stored.events.slice(0, MAX_EVENTS);
-      this.receipt = stored.receipt ?? null;
+      const f = stored.frozen;
+      if (f && Array.isArray(f.batch) && typeof f.receipt === 'string') {
+        this.frozen = {
+          batch: f.batch.map((e) => ({ ...e })),
+          events: f.events ?? [],
+          receipt: f.receipt,
+        };
+        // an answer typed after the reload follows the frozen one with the next revision (never rewrites it)
+        for (const e of f.batch) this.inflight.set(e.position, e.rev);
+      }
     }
     this.loaded = true;
     this.persist();
@@ -323,11 +342,13 @@ export class AnswerQueue {
   private async loop(keepalive: boolean): Promise<void> {
     do {
       this.rerun = false;
-      while (!this.stopped && (this.pending.size > 0 || this.events.length > 0)) {
-        const batch = [...this.pending.values()]
-          .sort((a, b) => a.position - b.position)
-          .slice(0, BATCH);
-        const events = this.events.slice(0, EVENT_BATCH);
+      while (!this.stopped && (this.frozen || this.pending.size > 0 || this.events.length > 0)) {
+        // a refused batch goes again EXACTLY as it was (its receipt is bound to that payload); only then the rest
+        const frozen = this.frozen;
+        const batch =
+          frozen?.batch ??
+          [...this.pending.values()].sort((a, b) => a.position - b.position).slice(0, BATCH);
+        const events = frozen?.events ?? this.events.slice(0, EVENT_BATCH);
         for (const e of batch) this.inflight.set(e.position, e.rev);
         let res: SaveResponse;
         try {
@@ -344,28 +365,35 @@ export class AnswerQueue {
               })),
               events,
             },
-            { keepalive, receipt: this.receipt },
+            { keepalive, receipt: frozen?.receipt ?? null },
           );
         } catch (err) {
-          this.inflight.clear();
-          // the server is busy: wait, and send again with the receipt, inside this flush (a submit waits for the answers)
+          const busy = err instanceof ApiError && err.status === 503 && err.code === 'busy';
+          if (busy && !this.frozen && err.receipt) {
+            // freeze what was refused, exactly as sent, with the receipt of its arrival
+            this.frozen = {
+              batch: batch.map((e) => ({ ...e })),
+              events: [...events],
+              receipt: err.receipt,
+            };
+            this.persist();
+          }
+          // a frozen batch keeps its revisions "in flight": an edit made meanwhile gets the NEXT revision
+          if (!this.frozen) this.inflight.clear();
+          // the server is busy: wait, and send again inside this flush (a submit waits for the answers)
           if (await this.waitOutBusy(err)) continue;
           this.fail(err);
           return;
         }
         this.inflight.clear();
+        this.frozen = null;
         this.failures = 0;
         this.offline = false;
         this.busy = false;
         this.busyRun = 0;
-        if (this.receipt) {
-          this.receipt = null;
-          this.persist();
-        }
         if (res.serverNow && res.deadlineAt) this.o.onClock?.(res.serverNow, res.deadlineAt);
         if (res.result !== 'ok') {
           this.stopped = true;
-          this.receipt = null;
           this.pending.clear();
           this.events = [];
           this.storage.remove(this.key);
@@ -411,10 +439,6 @@ export class AnswerQueue {
     if (!(err instanceof ApiError) || err.status !== 503 || err.code !== 'busy') return false;
     if (this.stopped || this.disposed || this.busyRun >= (this.o.busyAttempts ?? 12)) return false;
     this.busyRun += 1;
-    if (err.receipt && !this.receipt) {
-      this.receipt = err.receipt;
-      this.persist();
-    }
     this.busy = true;
     this.emit();
     const sleep = this.o.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -448,7 +472,7 @@ export class AnswerQueue {
 
   // ------------------------------------------------------------------ storage and status
   private persist(): void {
-    if (this.pending.size === 0 && this.events.length === 0 && !this.receipt) {
+    if (this.pending.size === 0 && this.events.length === 0 && !this.frozen) {
       this.storage.remove(this.key);
       return;
     }
@@ -457,7 +481,7 @@ export class AnswerQueue {
       savedAt: this.now(),
       pending: [...this.pending.values()],
       events: this.events,
-      receipt: this.receipt,
+      frozen: this.frozen,
     });
   }
 
@@ -476,6 +500,7 @@ export class AnswerQueue {
     if (this.retry) clearTimeout(this.retry);
     this.pending.clear();
     this.events = [];
+    this.frozen = null;
     this.storage.remove(this.key);
     this.emit();
   }
