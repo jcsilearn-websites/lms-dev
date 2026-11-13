@@ -82,6 +82,12 @@ import {
   createStorageController,
 } from './modules/files';
 import {
+  createGradebookController,
+  createGradebookHandlers,
+  createGradebookRepository,
+  createGradebookService,
+} from './modules/gradebook';
+import {
   createHealthController,
   createHealthHandlers,
   createHealthRepository,
@@ -563,6 +569,10 @@ export function createModules(db: Database, config: ModulesConfig) {
     },
   });
   const rubricsService = createRubricsService({ db, rubricsRepo: createRubricsRepository() });
+  const gradebookService = createGradebookService({
+    db,
+    gradebookRepo: createGradebookRepository(),
+  });
 
   const handlers: HandlerMap = {
     ...createHealthHandlers({ healthService }),
@@ -588,6 +598,10 @@ export function createModules(db: Database, config: ModulesConfig) {
     }),
     ...createVideoHandlers({ videoService, sweep: { everyMs: video.purgeEveryMs } }),
     ...createFilesHandlers({ filesService, purge: { everyMs: config.storage.purgeEveryMs } }),
+    ...createGradebookHandlers({
+      gradebookService,
+      purge: { everyMs: config.storage.purgeEveryMs },
+    }),
     ...createCoursesHandlers({
       coursesService,
       sync: { batchSize: 200, maxBatches: 500, concurrency: 1 },
@@ -623,6 +637,10 @@ export function createModules(db: Database, config: ModulesConfig) {
     assignments: {
       service: assignmentsService,
       controller: createAssignmentsController({ assignmentsService }),
+    },
+    gradebook: {
+      service: gradebookService,
+      controller: createGradebookController({ gradebookService }),
     },
     rubrics: {
       service: rubricsService,

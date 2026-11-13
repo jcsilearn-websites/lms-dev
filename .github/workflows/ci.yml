@@ -75,6 +75,14 @@ jobs:
       - name: Install ffmpeg (pinned, checksum verified; development and CI only, never in a production image)
         run: bash .github/scripts/install-ffmpeg.sh
 
+      # The XLSX export of the gradebook is opened by an independent reader: LibreOffice converts it headless and the test
+      # checks that numbers are numbers and that text which looks like a formula is still text. It fails in CI when missing.
+      - name: Install LibreOffice Calc (headless; used only by the XLSX export test)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-calc
+          soffice --version
+
       # The ZIP of assignment submissions is validated by tools that are NOT ours (unzip -t, Python's zipfile): the tests
       # fail when they are missing in CI, so fail here with a clear message first.
       - name: Check the independent ZIP validators exist
@@ -253,6 +261,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install ffmpeg (pinned, checksum verified; development and CI only, never in a production image)
         run: bash .github/scripts/install-ffmpeg.sh
+      - name: Install LibreOffice Calc (headless; used only by the XLSX export test)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libreoffice-calc
       - name: Create the anon / authenticated roles
         env:
           PGPASSWORD: postgres

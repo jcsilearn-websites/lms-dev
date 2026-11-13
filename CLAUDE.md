@@ -7,7 +7,8 @@ profiles, bulk CSV import, Postgres job queue), 5b (the frontend for all of them
 participation, course content, file storage; backend + frontend), 6b (soft removal, PostgreSQL 17 everywhere), 7 (video
 lessons behind provider interfaces; backend + frontend), 8 (learning progress tracking; backend + frontend), 9 (quizzes and
 exams: question bank, assessments, attempt engine, grading; backend + frontend) and 10 (assignments: submissions, rubrics, grading,
-blind grading, late penalties, bulk ZIP, and the offering copy of assessments and assignments; backend + frontend) are built. Do not
+blind grading, late penalties, bulk ZIP, and the offering copy of assessments and assignments; backend + frontend) and 11 (the gradebook:
+categories, exact calculation, approval and immutable snapshots, exports; backend + frontend) are built. Do not
 build features beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -54,14 +55,16 @@ backend/
     modules/<module>/   health, tenants (+tenant_settings), users, memberships, audit, sessions, auth,
                         jobs (queue), academics, profiles, imports, courses, content, files, video, progress,
                         questions (bank, versions, CSV import), assessments (settings, attempts, grading, regrade),
-                        rubrics (per course, versioned), assignments (settings, submissions, grading, blind keys, ZIP, extensions)
+                        rubrics (per course, versioned), assignments (settings, submissions, grading, blind keys, ZIP, extensions),
+                        gradebook (categories, items, exact calculation, marks, CSV import, overrides, approval, snapshots, export, grade scales)
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
 frontend/src/
   app/              app shell, root layout (branding, 404 college), providers, router (one route tree per host kind), theme
   features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses, video, progress,
-                       assessments (bank/, builder/, grading/, exam/ + results), assignments (learner page, builder, grading, rubrics):
+                       assessments (bank/, builder/, grading/, exam/ + results), assignments (learner page, builder, grading, rubrics),
+                       gradebook (grid, settings, explanation, approval, learner grades, grade scales):
                        <feature>.api.ts (typed with backend contracts), pages, hooks
   shared/           ui/ (button, field, select, dialog, data-table, toast, states), api/ (client, errors), forms/, utils/
 frontend/e2e/       Playwright specs + helpers   frontend/scripts/  stack, e2e, serve, bundle check, lighthouse, screenshots
@@ -464,6 +467,43 @@ Full reasoning: `docs/adr/0018-assignments.md`. Numbers: `docs/benchmarks.md` (S
   move through the queue). A PDF opens in the browser's own viewer in a new tab (`FilePreview`); images and plain text are shown inline; everything
   else is a download. The editor chunk may be reached from the builder and the grading page (`check-bundle-size.mjs`).
 
+## Gradebook (step 11)
+
+Full reasoning: `docs/adr/0019-gradebook.md`. Numbers: `docs/benchmarks.md` (Step 11).
+- **ONE calculation**: `lms.gradebook_compute(tenant, offering, mode, participants, explain)` (migration 0040) makes every number: the grid, the
+  learner's page, the explanation and the lock snapshot call it. Earned points are exact FRACTIONS (`lms.frac`, an aggregate that only
+  multiplies), nothing is divided before the single rounding (`lms.round_frac`, `div` / `mod`: half up, half even, floor, ceil; 0-2 decimals).
+  `test/gradebook.calc.test.ts` has every rule and a fast-check property test against a BigInt-rational reference
+  (`test/gradebook-reference.ts`): they must agree EXACTLY. Change the rule -> change the reference. The function carries
+  `SET enable_nestloop = off` (47 s without it on a fresh college); `bench:gradebook` is the regression check.
+- **Rules**: categories (weight, drop lowest N but never the last, `exclude` | `zero_after_due`), extra credit (adds to earned only, never
+  dropped), `weighted` or one pool of points, scaled to `out_of`. A missing manual mark counts as zero only after the item is released or its
+  `due_at` has passed; submitted-but-ungraded work is "pending", never zero. The grade band is decided on the ROUNDED final.
+- **Items** (`gradebook_items`): a linked assessment / assignment (explicit, with `points`; earned = score / max x points) or a MANUAL column.
+  Items are archived, never deleted. The score of a quiz comes from `gradebook_assessment_scores` (released = `results_visible` of the learner's
+  own page, per attempt), NOT from step 9's `assessment_final_scores` (manual release only); assignments use `assignment_final_scores`.
+- **Learner**: `gradebook_me` (definer, 2 round trips) runs the calculation in `learner` mode: an unreleased item does not exist for the learner
+  (no state, no title, no count), final overrides and reasons are invisible, a provisional total has no grade. Locked: the frozen record. After an
+  unlock: provisional with an "under revision" notice. Sentinel: `gradebook.learner.test.ts`.
+- **Workflow**: `draft` -> `submitted` -> `returned` | `locked`. Edits only in draft / returned. Submitting needs an item, weights of 100 (weighted), a
+  scale and every item with marks released. Approve = ONE statement that freezes a version (structure + scale + the learners left out, each with a
+  reason) and a snapshot row per learner. `gradebook_versions`, `gradebook_snapshot_rows`, `gradebook_events`, `manual_mark_history` are append-only
+  for everyone (trigger; the dev cleanup switches the triggers off and on again). Unlock needs an admin and a reason (audited) and opens version n+1.
+- **Self-approval**: college setting `tenant_settings` key `gradebook` `{allowSelfApproval}` (default false). When false the submitter gets 403
+  `self_approval_not_allowed` and the refusal is audited (the function RETURNS the verdict so the audit row commits). Allowed self-approvals are recorded.
+- **Permissions**: `gradebook.read` (instructor, assistant, institution admin), `gradebook.manage`, `gradebook.override` (instructor),
+  `gradebook.enter_marks` (instructor; assistants only in items with `assistants_may_enter`), `gradebook.approve`, `gradescale.manage` (institution admin);
+  learners use `grade.view_own`. Offering routes are `scope: 'offering'`; staff calls are ONE statement (the access CTE + a database function) = 4 round
+  trips; the learner call 2; the export 4 + 3 per page of 500. A new route needs the CTE, a matrix row, a body in `offering-scope.test.ts` and a budget test.
+- **Marks**: `PUT .../marks` (<= 5,000 cells, `expected` = the stale-cell check, answers with the recomputed rows), CSV `mark-imports` (dry run in one
+  UPDATE, rows with errors skipped as a whole, matched by register number, columns by item title), overrides (item or final, reason mandatory,
+  revoked never deleted, audited WITH the reason). Grid: keyset chunks of 500 by register number, the page appends them.
+- **Export**: CSV (apostrophe rule) and XLSX (`core/xlsx.ts`, no library: numeric cells + inline strings, never `<f>`; CI opens it in LibreOffice
+  headless) of a locked VERSION in the configured column layout (`gradebooks.export_layout`).
+- **Frontend**: the grid (`GradebookGrid.tsx`) is virtualized both ways with `@tanstack/react-virtual` 3.14.22 (own lazy chunk with the page), the ARIA
+  grid pattern (one tab stop, `aria-selected`), spreadsheet keyboard, paste from Excel (`gridModel.ts`, unit tested); settings, import, explanation are
+  lazy chunks; the learner page says PROVISIONAL in words.
+
 ## Deadline fairness under load (step 10b)
 
 Full reasoning: `docs/adr/0018-assignments.md` ("Deadline fairness under load"). Numbers: `docs/benchmarks.md` (Step 10b).
@@ -730,6 +770,7 @@ pnpm --filter @lms/backend run bench:search    EXPLAIN experiment for member sea
 pnpm --filter @lms/backend run bench:progress  heartbeat throughput, class view 500 x 100, aggregation vs counters (throwaway college, no statistics)
 pnpm --filter @lms/backend run bench:assessments  1,500 learners start / autosave / submit / auto-submit one exam, grading time (throwaway college)
 pnpm --filter @lms/backend run bench:assignments  1,500 learners in the deadline burst (2 MB PDFs, text, 3 files), grading queue for 500, ZIP of 500 (peak memory)
+pnpm --filter @lms/backend run bench:gradebook  500 and 1,200 learners x 60 items: compute, grid chunk, lock, one learner (needs DATABASE_URL of a migrated DB)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
@@ -783,6 +824,10 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
   the copy moves ALL dates by one shift (no per-item overrides); the confirm of an upload re-reads the bytes (object metadata on GCS);
   the 60 s squeeze of the deadline burst answers 503 `busy` to some calls: the SPA retries them by itself and the deadline counts from the
   arrival (step 10b, above), a receipt is bound to the payload (step 10c); blind grading cannot scrub a name a learner typed INSIDE their work.
+- **Gradebook (step 11)**: the calculation of a whole class takes ~0.9 s per 500 learners x 60 items (the hoped-for ~100 ms is not met; ADR 0019
+  and benchmarks.md say where the time goes); no notification when a gradebook is submitted, returned or approved, nor when a final is published; no
+  GPA / credits / cross-course transcript; copying an offering does not copy the gradebook; one `out_of` and one rounding per gradebook; the
+  grid shows no history of a mark (the table exists: `manual_mark_history`); the Lighthouse performance of the grid page is 87-90 (budget 90).
 - **Open for the GCP step** (collected here so nothing is lost): the real mail provider; the GCS storage driver and the GCP
   Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
   Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s
@@ -791,10 +836,10 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 ## Current state / handoff (read after the sections above)
 
 Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/benchmarks.md` or the code.
-- **Where we are**: steps 1-10 are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are**: steps 1-11 are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
-  205, E2E 41, lint, typecheck, `bundle:check`, Lighthouse, gitleaks. **Steps 9 and 10 are verified: see the end of this section. Do not start step 11 (the gradebook) unasked.**
+  205, E2E 41, lint, typecheck, `bundle:check`, Lighthouse, gitleaks. **Steps 9, 10 and 11 are verified: see the end of this section. Do not start step 12 unasked.**
 - **Working agreement**: the owner commits and pushes. Never stage, commit, push or rewrite history. At the end of a step give a
   commit plan with EXACT `git add` commands per commit (full paths or directories, every changed file covered exactly once, checked
   with a script against `git status`) and the commit messages; a file that mixes two commits (e.g. CLAUDE.md) is split with a patch
@@ -817,6 +862,8 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
 - **Step 10 verification** (once, at the end of the step): see the final report of the step; the burst, queue and ZIP numbers are in `docs/benchmarks.md`.
 - **Migrations of step 10** are 0033 (rubrics, assignments, submissions, grades, learner functions), 0034 (position grants), 0035 (gate verdicts of
   the file calls), 0036 (helper grants), 0037 (INSERT on `assessments` for the copy): applied to the dev DB, so a fix is a NEW migration.
+- **Migrations of step 11** are 0039 (tables), 0040 (the calculation), 0041 (workflow and the functions of the endpoints). They are NOT applied to the dev
+  database by the agent (the owner runs `pnpm db:migrate`); until the owner has applied them a fix may still edit them. Tests and the bench use scratch databases.
 - **Known cosmetic issues**: the demo learners (Lighthouse / screenshots / E2E data) have no member profile,
   so the Section column of the class table shows "—"; My courses can show two links to the same course (the resume card and the
   course card), so scripts and tests use `.first()`.

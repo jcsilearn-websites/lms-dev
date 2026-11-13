@@ -55,13 +55,19 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `assignment.view_extensions` |  | yes |  | yes |  |  | See the due-date extensions of the learners of an assignment, and their reasons |
 | `rubric.read` |  | yes |  | yes | yes |  | See the rubrics of a course |
 | `rubric.manage` |  |  |  | yes |  |  | Create, edit (new version) and archive the rubrics of a course |
+| `gradebook.read` |  | yes |  | yes | yes |  | View the gradebook of an offering (grid, explanations, snapshots) and export a locked one |
+| `gradebook.manage` |  |  |  | yes |  |  | Configure the gradebook (categories, weights, items, scale, rounding), submit it for approval |
+| `gradebook.enter_marks` |  |  |  | yes | yes |  | Enter marks of manual gradebook items (assistants only in items that allow it) and import them from CSV |
+| `gradebook.override` |  |  |  | yes |  |  | Override the mark of one learner in an item or the final, with a reason |
+| `gradebook.approve` |  | yes |  |  |  |  | Approve or return a submitted gradebook, unlock a locked one (with a reason), see the approval queue |
+| `gradescale.manage` |  | yes |  |  |  |  | Create, change and archive the college grade scales |
 | **platform** | | | | | | | |
 | `platform.tenant.read` | yes |  |  |  |  |  | View colleges and (audited) their members |
 | `platform.tenant.manage` | yes |  |  |  |  |  | Create, rename, suspend colleges and invite their admins |
 | `platform.audit.read` | yes |  |  |  |  |  | Read the platform audit log |
 | `platform.user.unlock` | yes |  |  |  |  |  | Clear a login lockout (admin host) |
 
-41 permissions. Notes:
+47 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
 - "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
@@ -133,6 +139,13 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/departments/:id/archive` | `academic.manage` |
 | POST | `/api/departments/:id/unarchive` | `academic.manage` |
 | POST | `/api/files/:id/confirm` | any signed-in user |
+| GET | `/api/grade-scales` | any signed-in user |
+| POST | `/api/grade-scales` | `gradescale.manage` |
+| PATCH | `/api/grade-scales/:scaleId` | `gradescale.manage` |
+| PUT | `/api/grade-scales/:scaleId` | `gradescale.manage` |
+| GET | `/api/gradebook/queue` | `gradebook.approve` |
+| GET | `/api/gradebook/settings` | `gradebook.approve` |
+| PATCH | `/api/gradebook/settings` | `tenant.manage` |
 | GET | `/api/health/live` | public |
 | GET | `/api/health/ready` | public |
 | GET | `/api/imports` | `import.run` |
@@ -173,6 +186,25 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/offerings/:id/copy` | `course.publish` in the offering |
 | GET | `/api/offerings/:id/copy-preview` | `course.publish` in the offering |
 | POST | `/api/offerings/:id/files` | `course.edit` in the offering |
+| GET | `/api/offerings/:id/gradebook` | `gradebook.read` in the offering |
+| POST | `/api/offerings/:id/gradebook/approve` | `gradebook.approve` in the offering |
+| PUT | `/api/offerings/:id/gradebook/categories` | `gradebook.manage` in the offering |
+| GET | `/api/offerings/:id/gradebook/export.csv` | `gradebook.read` in the offering |
+| GET | `/api/offerings/:id/gradebook/export.xlsx` | `gradebook.read` in the offering |
+| GET | `/api/offerings/:id/gradebook/grid` | `gradebook.read` in the offering |
+| PUT | `/api/offerings/:id/gradebook/items` | `gradebook.manage` in the offering |
+| GET | `/api/offerings/:id/gradebook/learners/:participantId` | `gradebook.read` in the offering |
+| DELETE | `/api/offerings/:id/gradebook/learners/:participantId/override` | `gradebook.override` in the offering |
+| PUT | `/api/offerings/:id/gradebook/learners/:participantId/override` | `gradebook.override` in the offering |
+| POST | `/api/offerings/:id/gradebook/mark-imports` | `gradebook.enter_marks` in the offering |
+| GET | `/api/offerings/:id/gradebook/mark-imports/:importId` | `gradebook.enter_marks` in the offering |
+| POST | `/api/offerings/:id/gradebook/mark-imports/:importId/apply` | `gradebook.enter_marks` in the offering |
+| PUT | `/api/offerings/:id/gradebook/marks` | `gradebook.enter_marks` in the offering |
+| POST | `/api/offerings/:id/gradebook/return` | `gradebook.approve` in the offering |
+| GET | `/api/offerings/:id/gradebook/review` | `gradebook.read` in the offering |
+| PATCH | `/api/offerings/:id/gradebook/settings` | `gradebook.manage` in the offering |
+| POST | `/api/offerings/:id/gradebook/submit` | `gradebook.manage` in the offering |
+| POST | `/api/offerings/:id/gradebook/unlock` | `gradebook.approve` in the offering |
 | DELETE | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
 | GET | `/api/offerings/:id/items/:itemId` | `content.view` in the offering |
 | PATCH | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
@@ -220,6 +252,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/offerings/:id/items/:itemId/progress/complete` | `progress.record` in the offering |
 | POST | `/api/offerings/:id/items/:itemId/progress/heartbeat` | `progress.record` in the offering |
 | POST | `/api/offerings/:id/items/:itemId/progress/viewed` | `progress.record` in the offering |
+| GET | `/api/offerings/:id/me/grades` | `grade.view_own` in the offering |
 | POST | `/api/offerings/:id/modules` | `course.edit` in the offering |
 | DELETE | `/api/offerings/:id/modules/:moduleId` | `course.edit` in the offering |
 | PATCH | `/api/offerings/:id/modules/:moduleId` | `course.edit` in the offering |

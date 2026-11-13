@@ -19,6 +19,8 @@ const TENANT_NAV: NavItem[] = [
   { to: '/courses', label: 'Courses', permission: 'course.read' },
   { to: '/offerings', label: 'Offerings', permission: 'course.read' },
   { to: '/members', label: 'Members', permission: 'member.read' },
+  { to: '/gradebooks', label: 'Gradebook approvals', permission: 'gradebook.approve' },
+  { to: '/grade-scales', label: 'Grade scales', permission: 'gradescale.manage' },
   { to: '/academics', label: 'Academic setup', permission: 'academic.manage' },
   { to: '/imports', label: 'Import', permission: 'import.run' },
   { to: '/audit', label: 'Audit log', permission: 'audit.read' },

@@ -92,6 +92,16 @@ export function OfferingPage() {
                 Class progress
               </Link>
             )}
+            {(staff || o.myParticipation === 'instructor' || o.myParticipation === 'assistant') && (
+              <Link to={`/offerings/${id}/gradebook` as '/'} className={linkBtn}>
+                Gradebook
+              </Link>
+            )}
+            {o.myParticipation === 'learner' && (
+              <Link to={`/offerings/${id}/grades` as '/'} className={linkBtn}>
+                My grades
+              </Link>
+            )}
             {(o.myParticipation === 'instructor' || o.myParticipation === 'assistant') && (
               <Link to={`/courses/${o.courseId}/questions` as '/'} className={linkBtn}>
                 Question bank

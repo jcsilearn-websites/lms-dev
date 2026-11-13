@@ -34,6 +34,9 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'assessment.view_accommodations',
     'assignment.view_extensions',
     'rubric.read',
+    'gradebook.read',
+    'gradebook.approve',
+    'gradescale.manage',
     'academic.read',
     'academic.manage',
     'profile.read_own',
@@ -66,6 +69,10 @@ export const PARTICIPATION_PERMISSIONS: Readonly<
     'rubric.manage',
     'submission.grade',
     'grade.finalize',
+    'gradebook.read',
+    'gradebook.manage',
+    'gradebook.enter_marks',
+    'gradebook.override',
   ]),
   assistant: new Set<Permission>([
     'content.view',
@@ -74,6 +81,8 @@ export const PARTICIPATION_PERMISSIONS: Readonly<
     'question.read',
     'rubric.read',
     'submission.grade',
+    'gradebook.read',
+    'gradebook.enter_marks',
   ]),
   // grade.view_own additionally requires resource.ownerUserId === the caller (see policy.ts)
   learner: new Set<Permission>([

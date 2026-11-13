@@ -9,6 +9,37 @@ import type pg from 'pg';
  * tenant (and are not platform admins). Runs inside the caller's transaction.
  */
 export async function deleteTenantCascade(client: pg.Client, tenantId: string): Promise<void> {
+  // The gradebook's history tables refuse DELETE for everybody (triggers). A DEV cleanup is the one place that removes them: the
+  // triggers are switched off for the delete and always switched on again.
+  const immutable: [string, string][] = [
+    ['gradebook_snapshot_rows', 'gradebook_snapshot_rows_immutable'],
+    ['gradebook_versions', 'gradebook_versions_immutable'],
+    ['gradebook_events', 'gradebook_events_immutable'],
+    ['manual_mark_history', 'manual_mark_history_immutable'],
+  ];
+  try {
+    for (const [table, trigger] of immutable)
+      await client.query(`ALTER TABLE lms.${table} DISABLE TRIGGER ${trigger}`);
+    for (const table of [
+      'mark_import_cells',
+      'mark_imports',
+      'gradebook_snapshot_rows',
+      'gradebook_versions',
+      'gradebook_events',
+      'grade_overrides',
+      'manual_mark_history',
+      'manual_marks',
+      'gradebook_items',
+      'gradebook_categories',
+      'gradebooks',
+      'grade_scale_bands',
+      'grade_scales',
+    ])
+      await client.query(`DELETE FROM lms.${table} WHERE tenant_id = $1`, [tenantId]);
+  } finally {
+    for (const [table, trigger] of immutable)
+      await client.query(`ALTER TABLE lms.${table} ENABLE TRIGGER ${trigger}`);
+  }
   // children before parents: nothing that history depends on is cascade-deleted (ON DELETE RESTRICT)
   for (const table of [
     'assignment_feedback_files',

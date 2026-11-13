@@ -22,6 +22,7 @@
     "@sinclair/typebox": "0.34.52",
     "@tanstack/react-query": "^5.105.0",
     "@tanstack/react-router": "1.170.46",
+    "@tanstack/react-virtual": "3.14.22",
     "@tiptap/core": "3.31.4",
     "@tiptap/extension-blockquote": "3.31.4",
     "@tiptap/extension-bold": "3.31.4",

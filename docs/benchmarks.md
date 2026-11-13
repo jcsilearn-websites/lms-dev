@@ -617,3 +617,51 @@ course has an assignment) had arrived, so the heading's paint moved with the slo
 header render as soon as the offering has loaded (the outline has its own skeleton below, with its own error state), and the room of the
 progress bar is reserved so nothing moves when it arrives. After the fix, interleaved with Step 9, 6 runs each: A 96 96 96 96 96 93, B
 96 96 96 96 96 97, medians **96 and 96**.
+
+## Step 11: the gradebook
+
+`pnpm --filter @lms/backend run bench:gradebook` (a MIGRATED database: `DATABASE_URL` / `DATABASE_APP_URL` name it; the run used a
+test database on the 2-core development laptop, PostgreSQL 17 native, local). A throwaway college (`bench-<random>`, deleted in a `finally`):
+N learners x 60 items = 50 manual columns (90 % filled) + 5 quizzes + 5 assignments, five categories (weighted, drop-lowest 0-2, half of them
+"zero after due"), a grade scale, `out_of` 40. Measured as the APP role with the college set, first on the FRESH college (no statistics: what
+a newly loaded college looks like; measured BEFORE any ANALYZE) and then after `ANALYZE`. Medians of 5 runs (3 for the heavy ones).
+
+| Statement (DB time)                                           | 500 x 60 fresh | 500 x 60 analyzed | 1,200 x 60 fresh | 1,200 x 60 analyzed |
+| ------------------------------------------------------------- | -------------- | ----------------- | ---------------- | ------------------- |
+| compute, every learner, no explanation (the whole grid)       | 909 ms         | 863 ms            | 2,387 ms         | 2,386 ms            |
+| a grid chunk of 500 learners (compute + the JSON of the rows) | 1,111 ms       | 984 ms            | 1,295 ms         | 1,151 ms            |
+| compute with the explanation of EVERY learner                 | 1,377 ms       | 1,332 ms          | 3,615 ms         | 3,583 ms            |
+| lock: approve (compute with explanations + snapshot insert)   | 4,248 ms       | not repeated      | 4,345 ms         | not repeated        |
+| review (problems + excluded + stats: compute twice)           | 1,975 ms       | 1,937 ms          | 5,084 ms         | 4,979 ms            |
+| 500 mark cells saved + recompute of their rows                | 1,192 ms       | 930 ms            | 1,175 ms         | 1,202 ms            |
+| ONE learner's view (`gradebook_me`)                           | 91 ms          | 97 ms             | 249 ms           | 251 ms              |
+| ONE learner's staff explanation                               | 100 ms         | 131 ms            | 282 ms           | 281 ms              |
+
+**Reading the numbers.**
+
+- **The target (~100 ms for 500 x 60 in one statement) is NOT met.** The calculation is ~0.9 s for 30,000 cells (30 µs a cell) and grows
+  linearly (72,000 cells: 2.4 s). The work is exact fractions, not planner luck: the plan is the same with and without statistics. A chunk of
+  500 learners of a 1,200 learner class costs ~1.2 s, so the grid fills in over about three round trips of ~1 s each, while the first 500
+  rows are already usable. Where the time goes (EXPLAIN ANALYZE): about a third building the 30,000 cells (eight hash joins), a quarter the
+  sort of the drop-lowest window and the fraction aggregates, the rest the JSON of cells and totals. Ideas not done: keep the per-item scores
+  in a materialised table updated by triggers, or compute only the learners of the visible chunk's sections (the grid already does this per
+  chunk: the cost per chunk is the cost of its learners, plus ~90 ms of fixed work that every call pays).
+- **The planner lesson held again, harder.** Called with parameters (as the application does) the function took **47 s** on a fresh college
+  where the same statement inlined with literals took 1 s: with unknown parameters and no statistics the planner chose nested loops over
+  the 30,000-cell join. `SET enable_nestloop = off` on the function fixes it (1.1 s) and is in the migration with the measurement in its
+  comment. The bench exists to catch exactly this regression.
+- Fixed cost: a call for ONE learner still costs ~90 ms (planning a 20-step statement ~50 ms and a scan of the quiz and assignment scores of the
+  whole offering). That is what `gradebook_me` and the explanation pay; their round trips are 2 and 4.
+- Round trips (`query-budget.gradebook.test.ts`): every staff call 4, the learner's page 2, the export 4 + 3 per page of 500 learners.
+
+### Lighthouse (mobile, median of 3), Step 11
+
+| Page           | Performance | Accessibility | LCP   | TBT     |
+| -------------- | ----------- | ------------- | ----- | ------- |
+| Gradebook grid | 87-90       | 100           | 3.1 s | ~230 ms |
+| My grades      | 96          | 100           | 2.6 s | 105 ms  |
+
+The grid page sits on the edge of the budget (87-90 over repeated runs; "Class progress", the page most like it, scored 92 in the same sessions):
+its code is split (the settings, import and explanation panels are chunks of their own), its data is prefetched by the route loader, its header
+renders before the data, and the grid does not scroll on mount. What is left is the lazy page chunk plus four parallel requests behind the
+simulated 4x CPU. The demo has 3 learners; a 500-learner grid is as cheap to paint (the grid is virtualized in both directions).

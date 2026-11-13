@@ -552,6 +552,106 @@ export async function seedCourseDemo({ webPort, password }) {
   const queue = await must(await teach3.get(`${A}/grading/queue?limit=10`), 'grading queue');
   const gradingLearnerKey = queue.items[0].learnerKey;
   await teach3.dispose();
+
+  // ---- the gradebook (step 11): categories, items, a scale, marks of three learners, a submitted (not approved) gradebook
+  const gradeAdmin = await api(webPort, 'admin@e2e-one.test', password);
+  const scale = await must(
+    await gradeAdmin.post('grade-scales', {
+      data: {
+        name: 'Demo scale',
+        bands: [
+          { minPercent: 0, label: 'RA', isPass: false },
+          { minPercent: 50, label: 'C', isPass: true },
+          { minPercent: 60, label: 'B', isPass: true },
+          { minPercent: 70, label: 'B+', isPass: true },
+          { minPercent: 80, label: 'A', isPass: true },
+          { minPercent: 90, label: 'A+', isPass: true },
+        ],
+      },
+    }),
+    'grade scale',
+  );
+  await gradeAdmin.dispose();
+  const gt = await api(webPort, INSTRUCTOR, password);
+  const GB = `offerings/${offering.id}/gradebook`;
+  const first = await must(await gt.get(GB), 'gradebook');
+  const withCats = await must(
+    await gt.put(`${GB}/categories`, {
+      data: {
+        categories: [
+          {
+            id: first.categories[0].id,
+            name: 'Coursework',
+            weight: 60,
+            dropLowest: 0,
+            missingPolicy: 'exclude',
+          },
+          { name: 'Exams', weight: 40, dropLowest: 1, missingPolicy: 'zero_after_due' },
+        ],
+      },
+    }),
+    'gradebook categories',
+  );
+  const [coursework, exams] = withCats.categories.map((c) => c.id);
+  await must(
+    await gt.put(`${GB}/items`, {
+      data: {
+        items: [
+          {
+            source: 'manual',
+            title: 'Lab marks',
+            categoryId: coursework,
+            points: 20,
+            extraCredit: false,
+            released: true,
+          },
+          {
+            source: 'assignment',
+            contentItemId: assignment.id,
+            categoryId: coursework,
+            points: 100,
+            extraCredit: false,
+          },
+          {
+            source: 'assessment',
+            contentItemId: quizItemId,
+            categoryId: exams,
+            points: 10,
+            extraCredit: false,
+          },
+          {
+            source: 'assessment',
+            contentItemId: examItemId,
+            categoryId: exams,
+            points: 20,
+            extraCredit: false,
+          },
+        ],
+      },
+    }),
+    'gradebook items',
+  );
+  await must(
+    await gt.patch(`${GB}/settings`, { data: { weighted: true, outOf: 40, scaleId: scale.id } }),
+    'gradebook settings',
+  );
+  const grid = await must(await gt.get(`${GB}/grid`), 'gradebook grid');
+  const lab = (await must(await gt.get(GB), 'gradebook')).items.find(
+    (i) => i.title === 'Lab marks',
+  );
+  await must(
+    await gt.put(`${GB}/marks`, {
+      data: {
+        cells: grid.rows.map((r, i) => ({
+          itemId: lab.id,
+          participantId: r.participantId,
+          points: String(12 + ((i * 3) % 8)),
+        })),
+      },
+    }),
+    'gradebook marks',
+  );
+  await gt.dispose();
   return {
     assignmentItemId: assignment.id,
     gradingLearnerKey,

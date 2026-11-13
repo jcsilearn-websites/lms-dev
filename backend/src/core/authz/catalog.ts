@@ -38,6 +38,12 @@ export const PERMISSION_GROUPS = {
     'assignment.view_extensions',
     'rubric.read',
     'rubric.manage',
+    'gradebook.read',
+    'gradebook.manage',
+    'gradebook.enter_marks',
+    'gradebook.override',
+    'gradebook.approve',
+    'gradescale.manage',
   ],
   platform: [
     'platform.tenant.read',
@@ -99,6 +105,16 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
     'See the due-date extensions of the learners of an assignment, and their reasons',
   'rubric.read': 'See the rubrics of a course',
   'rubric.manage': 'Create, edit (new version) and archive the rubrics of a course',
+  'gradebook.read':
+    'View the gradebook of an offering (grid, explanations, snapshots) and export a locked one',
+  'gradebook.manage':
+    'Configure the gradebook (categories, weights, items, scale, rounding), submit it for approval',
+  'gradebook.enter_marks':
+    'Enter marks of manual gradebook items (assistants only in items that allow it) and import them from CSV',
+  'gradebook.override': 'Override the mark of one learner in an item or the final, with a reason',
+  'gradebook.approve':
+    'Approve or return a submitted gradebook, unlock a locked one (with a reason), see the approval queue',
+  'gradescale.manage': 'Create, change and archive the college grade scales',
   'assessment.create': 'Build assessments, set accommodations',
   'submission.create': 'Take assessments (start, answer and submit attempts)',
   'submission.grade': 'Grade answers and see attempts (instructors and assistants)',

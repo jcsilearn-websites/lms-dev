@@ -12,6 +12,7 @@ import { departmentOptions, optionKeys } from '../features/academics/academics.a
 import { meKey } from '../features/auth/auth.api';
 import { LoginPage } from '../features/auth/LoginPage';
 import { loadMe, meQueryOptions } from '../features/auth/useMe';
+import { getConfig, getGrid, gradebookKeys } from '../features/gradebook/gradebook.api';
 import { listMembers, memberKeys } from '../features/members/members.api';
 import { safeRedirect } from '../shared/utils/redirect';
 import { AppShell } from './AppShell';
@@ -255,6 +256,43 @@ const rubricsRoute = child(
   '/courses/$courseId/rubrics',
   lazyPage(() => import('../features/assignments/RubricsPage'), 'RubricsPage'),
 );
+// gradebook (step 11): the grid page, the learner's grades, the approval queue and the grade scales are lazy chunks. The grid and
+// its virtualizer are reachable from nothing else (`pnpm bundle:check`). The API decides who may do what.
+const gradebookRoute = child(
+  '/offerings/$id/gradebook',
+  lazyPage(() => import('../features/gradebook/GradebookPage'), 'GradebookPage'),
+  undefined,
+  {
+    // the data starts loading while the (lazy) page code does: not awaited, a failure is the page's to show
+    loader: ({ context, params }: { context: RouterContext; params: { id: string } }) => {
+      void context.queryClient.prefetchQuery({
+        queryKey: gradebookKeys.config(params.id),
+        queryFn: ({ signal }) => getConfig(params.id, signal),
+      });
+      void context.queryClient.prefetchInfiniteQuery({
+        queryKey: gradebookKeys.grid(params.id, undefined),
+        queryFn: ({ pageParam, signal }) => getGrid(params.id, undefined, pageParam, signal),
+        initialPageParam: undefined as string | undefined,
+        getNextPageParam: (last: { nextCursor: string | null }) => last.nextCursor ?? undefined,
+        pages: 1,
+      });
+    },
+  },
+);
+const myGradesRoute = child(
+  '/offerings/$id/grades',
+  lazyPage(() => import('../features/gradebook/LearnerGradesPage'), 'LearnerGradesPage'),
+);
+const approvalsRoute = child(
+  '/gradebooks',
+  lazyPage(() => import('../features/gradebook/ApprovalQueuePage'), 'ApprovalQueuePage'),
+  'gradebook.approve',
+);
+const gradeScalesRoute = child(
+  '/grade-scales',
+  lazyPage(() => import('../features/gradebook/GradeScalesPage'), 'GradeScalesPage'),
+  'gradescale.manage',
+);
 const bankRoute = child(
   '/courses/$courseId/questions',
   lazyPage(() => import('../features/assessments/bank/BankPage'), 'BankPage'),
@@ -328,6 +366,10 @@ function buildRouteTree() {
           assessmentBuilderRoute,
           gradingRoute,
           assignmentBuilderRoute,
+          gradebookRoute,
+          myGradesRoute,
+          approvalsRoute,
+          gradeScalesRoute,
           assignmentGradingRoute,
           rubricsRoute,
           bankRoute,

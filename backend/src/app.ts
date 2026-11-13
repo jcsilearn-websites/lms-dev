@@ -26,6 +26,7 @@ import { createAuthRoutes } from './modules/auth';
 import { createContentRoutes } from './modules/content';
 import { createCoursesRoutes } from './modules/courses';
 import { createFilesRoutes, createStorageRoutes } from './modules/files';
+import { createGradebookRoutes } from './modules/gradebook';
 import { createHealthRoutes } from './modules/health';
 import { createImportsRoutes } from './modules/imports';
 import { createMembershipsRoutes } from './modules/memberships';
@@ -137,6 +138,9 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
         createQuestionsRoutes({ questionsController: modules.questions.controller }),
       );
       void api.register(createRubricsRoutes({ rubricsController: modules.rubrics.controller }));
+      void api.register(
+        createGradebookRoutes({ gradebookController: modules.gradebook.controller }),
+      );
       void api.register(createVideoRoutes({ videoController: modules.video.controller }));
       void api.register(
         createVideoUploadRoutes({

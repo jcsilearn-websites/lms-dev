@@ -46,6 +46,21 @@ import {
 } from '../src/modules/courses/courses.model';
 import { files } from '../src/modules/files/files.model';
 import {
+  gradebookCategories,
+  gradebookEvents,
+  gradebookItems,
+  gradebookSnapshotRows,
+  gradebooks,
+  gradebookVersions,
+  gradeOverrides,
+  gradeScaleBands,
+  gradeScales,
+  manualMarkHistory,
+  manualMarks,
+  markImportCells,
+  markImports,
+} from '../src/modules/gradebook/gradebook.model';
+import {
   importJobs,
   importKind,
   importRowStatus,
@@ -143,6 +158,19 @@ const schema = {
   assignmentFeedbackFiles,
   rubrics,
   rubricVersions,
+  gradeScales,
+  gradeScaleBands,
+  gradebooks,
+  gradebookCategories,
+  gradebookItems,
+  manualMarks,
+  manualMarkHistory,
+  gradeOverrides,
+  gradebookEvents,
+  gradebookVersions,
+  gradebookSnapshotRows,
+  markImports,
+  markImportCells,
 };
 
 import { testOwnerPool } from './support';

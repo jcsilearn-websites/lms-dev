@@ -169,6 +169,12 @@ await withStack(
             await a.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/people`);
             await a.pg.getByText('Lena Learner').first().waitFor();
             await a.snap('course-people');
+            await a.pg.goto(`${origin('e2e-one')}/grade-scales`);
+            await a.pg.getByText('Demo scale').first().waitFor();
+            await a.snap('grade-scales');
+            await a.pg.goto(`${origin('e2e-one')}/gradebooks`);
+            await a.pg.getByRole('heading', { name: 'Gradebook approvals' }).waitFor();
+            await a.snap('gradebook-approvals');
             await a.c.close();
 
             const t = await signedIn(demo.instructorEmail);
@@ -253,6 +259,9 @@ await withStack(
             );
             await l.pg.getByTestId('late-policy').waitFor();
             await l.snap('assignment');
+            await l.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/grades`);
+            await l.pg.getByTestId('final-marks').waitFor();
+            await l.snap('my-grades');
             await l.c.close();
             const t2 = await signedIn(demo.instructorEmail);
             await t2.pg.goto(`${origin('e2e-one')}/courses/${demo.courseId}/questions`);
@@ -281,6 +290,21 @@ await withStack(
             );
             await t2.pg.getByTestId('learner-panel').waitFor();
             await t2.snap('assignment-grading');
+            // the gradebook (step 11): the grid, the explanation of a final, the settings
+            await t2.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/gradebook`);
+            await t2.pg.getByRole('grid', { name: 'Gradebook' }).waitFor();
+            await t2.pg
+              .getByRole('gridcell', { name: /Lab marks: \d+/ })
+              .first()
+              .waitFor();
+            await t2.snap('gradebook-grid');
+            await t2.pg.getByRole('button', { name: /^Lena Learner/ }).click();
+            await t2.pg.getByRole('dialog').getByText('Overrides', { exact: true }).waitFor();
+            await t2.snap('gradebook-explanation');
+            await t2.pg.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+            await t2.pg.getByRole('tab', { name: 'Settings' }).click();
+            await t2.pg.getByRole('heading', { name: 'Categories' }).waitFor();
+            await t2.snap('gradebook-settings');
             await t2.c.close();
           }
 

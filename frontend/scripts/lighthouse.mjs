@@ -211,6 +211,18 @@ const rows = await withStack(
         cookie: teacherCookie,
       },
       {
+        // the instructor's gradebook grid (lazy route with the virtualizer): learners x items, sticky header
+        name: 'Gradebook grid',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/gradebook`,
+        cookie: teacherCookie,
+      },
+      {
+        // a learner's grades: provisional total and the explanation of how it was calculated
+        name: 'My grades',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/grades`,
+        cookie: learnerCookie,
+      },
+      {
         // the video item page: the player (hls.js) is a lazy chunk, the poster is the picture
         name: 'Video item',
         url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/items/${demo.videoItemId}`,

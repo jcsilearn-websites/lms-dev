@@ -91,6 +91,23 @@ const BODIES: Record<string, unknown> = {
     reason: 'because',
   },
   'POST /offerings/:id/items/:itemId/assignment/release': {},
+  'PATCH /offerings/:id/gradebook/settings': { outOf: 10 },
+  'PUT /offerings/:id/gradebook/categories': {
+    categories: [{ name: 'x', weight: 1, dropLowest: 0, missingPolicy: 'exclude' }],
+  },
+  'PUT /offerings/:id/gradebook/items': { items: [] },
+  'PUT /offerings/:id/gradebook/marks': { cells: [{ itemId: U, participantId: U, points: '1' }] },
+  'POST /offerings/:id/gradebook/mark-imports': { csv: 'register_number,A\nR1,1' },
+  'POST /offerings/:id/gradebook/mark-imports/:importId/apply': {},
+  'PUT /offerings/:id/gradebook/learners/:participantId/override': {
+    itemId: null,
+    points: '1',
+    reason: 'because',
+  },
+  'POST /offerings/:id/gradebook/submit': {},
+  'POST /offerings/:id/gradebook/approve': {},
+  'POST /offerings/:id/gradebook/return': { comment: 'because' },
+  'POST /offerings/:id/gradebook/unlock': { reason: 'because' },
 };
 
 /** Routes whose schema needs a query string or a number in the path to get past validation. */

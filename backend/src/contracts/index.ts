@@ -9,6 +9,7 @@ export * from './content';
 export * from './courses';
 export * from './errors';
 export * from './files';
+export * from './gradebook';
 export * from './health';
 export * from './imports';
 export * from './members';

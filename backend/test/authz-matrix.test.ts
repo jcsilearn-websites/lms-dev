@@ -321,6 +321,45 @@ const ROWS: Row[] = [
   offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/grading/files/${U}`, 404),
   offeringScoped('GET', `/offerings/${U}/items/${U}/assignment/submissions.zip`, 404),
   offeringScoped('POST', `/offerings/${U}/items/${U}/assignment/release`, 404, {}),
+  // ---- gradebook (step 11): offering scoped (the access check is in the same statement as the work); the queue, the
+  // college setting and the grade scales are account level
+  offeringScoped('GET', `/offerings/${U}/gradebook`, 404),
+  offeringScoped('GET', `/offerings/${U}/gradebook/review`, 404),
+  offeringScoped('PATCH', `/offerings/${U}/gradebook/settings`, 404, { outOf: 10 }),
+  offeringScoped('PUT', `/offerings/${U}/gradebook/categories`, 404, {
+    categories: [{ name: 'x', weight: 1, dropLowest: 0, missingPolicy: 'exclude' }],
+  }),
+  offeringScoped('PUT', `/offerings/${U}/gradebook/items`, 404, { items: [] }),
+  offeringScoped('GET', `/offerings/${U}/gradebook/grid`, 404),
+  offeringScoped('GET', `/offerings/${U}/gradebook/learners/${U}`, 404),
+  offeringScoped('PUT', `/offerings/${U}/gradebook/marks`, 404, {
+    cells: [{ itemId: U, participantId: U, points: '1' }],
+  }),
+  offeringScoped('POST', `/offerings/${U}/gradebook/mark-imports`, 404, {
+    csv: 'register_number,A\nR1,1',
+  }),
+  offeringScoped('GET', `/offerings/${U}/gradebook/mark-imports/${U}`, 404),
+  offeringScoped('POST', `/offerings/${U}/gradebook/mark-imports/${U}/apply`, 404, {}),
+  offeringScoped('PUT', `/offerings/${U}/gradebook/learners/${U}/override`, 404, {
+    itemId: null,
+    points: '1',
+    reason: 'because',
+  }),
+  offeringScoped('DELETE', `/offerings/${U}/gradebook/learners/${U}/override`, 404),
+  offeringScoped('POST', `/offerings/${U}/gradebook/submit`, 404),
+  offeringScoped('POST', `/offerings/${U}/gradebook/approve`, 404, {}),
+  offeringScoped('POST', `/offerings/${U}/gradebook/return`, 404, { comment: 'because' }),
+  offeringScoped('POST', `/offerings/${U}/gradebook/unlock`, 404, { reason: 'because' }),
+  offeringScoped('GET', `/offerings/${U}/gradebook/export.csv`, 404),
+  offeringScoped('GET', `/offerings/${U}/gradebook/export.xlsx`, 404),
+  offeringScoped('GET', `/offerings/${U}/me/grades`, 404),
+  tenantPerm('GET', '/gradebook/queue', 200),
+  tenantPerm('GET', '/gradebook/settings', 200),
+  tenantPerm('PATCH', '/gradebook/settings', 200, { allowSelfApproval: false }),
+  tenantRead('GET', '/grade-scales', 200),
+  tenantPerm('POST', '/grade-scales', 400, {}),
+  tenantPerm('PUT', `/grade-scales/${U}`, 400, {}),
+  tenantPerm('PATCH', `/grade-scales/${U}`, 404, { archived: true }),
   // the local video provider's playback files: the token in the path is the credential, the session says who
   // asks; a made-up token is 403 for every signed-in caller (on the admin host a platform admin has no college)
   {

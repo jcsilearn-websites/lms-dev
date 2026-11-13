@@ -321,7 +321,7 @@ test('a learner sees the published entries, the locked one by title and date, ne
   await expect(page.getByRole('heading', { name: TITLE })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Edit content' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: /Read this first/ })).toBeVisible();
-  await expect(page.getByRole('link', { name: /grades/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /^grades File/ })).toBeVisible();
   await expect(page.getByText('Hidden exam answers')).toHaveCount(0);
   const locked = page.locator('ul > li').filter({ hasText: 'Opens in two weeks' });
   await expect(locked).toContainText('Available from');
@@ -337,7 +337,7 @@ test('a learner sees the published entries, the locked one by title and date, ne
 
   // the file downloads through a signed link
   await page.goBack();
-  await page.getByRole('link', { name: /grades/ }).click();
+  await page.getByRole('link', { name: /^grades File/ }).click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.getByRole('button', { name: 'Download grades.csv' }).click(),

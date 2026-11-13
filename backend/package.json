@@ -27,6 +27,7 @@
     "bench:progress": "tsx bench/progress-bench.ts",
     "bench:assessments": "tsx bench/assessments-bench.ts",
     "bench:assignments": "tsx bench/assignments-bench.ts",
+    "bench:gradebook": "tsx bench/gradebook-bench.ts",
     "docs:permissions": "tsx src/cli/docs-permissions.ts",
     "admin:create": "tsx src/cli/create-platform-admin.ts",
     "db:dev:clean": "tsx src/cli/dev-clean.ts"
@@ -55,6 +56,7 @@
     "@types/pg": "^8.23.1",
     "autocannon": "^8.0.0",
     "cross-env": "^10.1.0",
+    "fast-check": "4.10.2",
     "tsup": "^9.0.0",
     "tsx": "^4.23.15",
     "vitest": "^5.0.5"
