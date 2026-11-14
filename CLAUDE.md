@@ -834,6 +834,9 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
   GPA / credits / cross-course transcript; copying an offering does not copy the gradebook; one `out_of` and one rounding per gradebook; the
   grid shows no history of a mark (the table exists: `manual_mark_history`); the Lighthouse performance of the grid page and of the grading view is measured with the DESKTOP preset (instructors use laptops; grid 98,
   mobile 88-89; grading view 84-91 on mobile, which made CI flap): the only pages with a different preset (documented in `lighthouse.mjs` and ADR 0019); the budget of 90 stays.
+- **Open after step 11c** (owner decisions, none started): stored per-learner gradebook results (the way to the 300 / 800 ms class targets); notifications
+  (behind learners, released grades, gradebook submitted / returned / approved); GPA / credits / transcript across courses; copying a gradebook with an
+  offering; a mark history view in the grid; malware scanning of assignment files (before the first production college); the shared rate limiter.
 - **Open for the GCP step** (collected here so nothing is lost): the real mail provider; the GCS storage driver and the GCP
   Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
   Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s
@@ -842,10 +845,13 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 ## Current state / handoff (read after the sections above)
 
 Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/benchmarks.md` or the code.
-- **Where we are**: steps 1-11 are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are**: steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
-  removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
-  205, E2E 41, lint, typecheck, `bundle:check`, Lighthouse, gitleaks. **Steps 9, 10 and 11 are verified: see the end of this section. Do not start step 12 unasked.**
+  removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
+  payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
+  205, E2E 41, lint, typecheck, `bundle:check`, Lighthouse, gitleaks. **Latest full verification (end of step 11c): backend 1,500 + 65 serial
+  (1 skipped), frontend 303, E2E 60, lint, typecheck, `bundle:check`, Lighthouse (all budgets), gitleaks, `docs:permissions --check`. Do not
+  start step 12 unasked.**
 - **Working agreement**: the owner commits and pushes. Never stage, commit, push or rewrite history. At the end of a step give a
   commit plan with EXACT `git add` commands per commit (full paths or directories, every changed file covered exactly once, checked
   with a script against `git status`) and the commit messages; a file that mixes two commits (e.g. CLAUDE.md) is split with a patch
@@ -862,14 +868,33 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
 - **Planner lesson (cost two bugs in step 8)**: a freshly loaded tenant has no statistics. Measure every new set-based statement
   in that state BEFORE the timing loops (autovacuum can analyze mid-run and hide the problem); aggregate to one row per entity
   before joining, `MATERIALIZED` for run-once steps, unique-key `LATERAL ... OFFSET 0` lookups.
-- **Step 9 verification** (once, at the end of the step): see the final report of the step; the exam-time numbers are in `docs/benchmarks.md`.
+- **Steps 9-11c in one place** (the rules live in their sections above and in ADRs 0017-0019; the numbers in `docs/benchmarks.md`):
+  - **9 assessments**: learner exam calls are definer functions (2 round trips); accommodation reasons are private; the integrity log is
+    information, not proof. **10 assignments**: submissions are immutable versions; the deadline is the server clock; blind grading is sentinel-tested;
+    malware scanning is NOT built (highest-risk TODO). **10b / 10c deadline fairness**: a deadline is judged by ARRIVAL (`core/deadline.ts`,
+    `lms.effective_arrival`); a 503 `busy` carries an HMAC `Deadline-Receipt` bound to session, college, resource, operation, arrival AND the
+    payload hash (`config.deadline.payload`); a retry gets the receipt's arrival only when the hash matches. A new deadline route needs a
+    `payload` function and a changed-payload test; the calls must stay idempotent.
+  - **11 gradebook**: ONE calculation `lms.gradebook_compute` in exact fractions with one rounding, checked EXACTLY against a BigInt reference by a
+    property test (change the rule -> change `test/gradebook-reference.ts`); learner mode hides unreleased items completely (sentinel test);
+    workflow draft -> submitted -> returned | locked with append-only snapshots; self-approval is a college setting, default off, refusal audited.
+  - **11b / 11c performance**: one learner 13 ms at any class size (bench FAILS above 1.5x between 500 and 1,200 learners); whole class 0.44 s
+    (500 x 60) and 1.1 s (1,200), lock 1.0 s / 2.5 s: the 300 / 800 ms / 2 s targets are NOT met (~13 us a cell in single passes; the next step is
+    stored per-learner results, a design decision for the owner). Two read paths (<= 25 learners by unique-key probes, more in bulk), a test compares them.
+  - **Planner settings** on `gradebook_compute` (`enable_nestloop`, `enable_seqscan`, `enable_mergejoin` off, `work_mem` 32MB; nestloop also on grid, marks,
+    approve, review) are KEPT: measured ON and OFF in three statistics states (no statistics, after ANALYZE, a second college next to one with
+    foreign statistics) they were neutral or 5-17 % faster everywhere (ADR 0019, benchmarks Step 11c). Rule for any new function: keep a setting only
+    if it helps or is neutral in BOTH the fresh and the analyzed state; reproduce with `GRADEBOOK_BENCH_SETTINGS=off`, `GRADEBOOK_BENCH_STATE=analyzed`,
+    `GRADEBOOK_BENCH_KEEP=1`, `GRADEBOOK_BENCH_TIMEOUT_MS` (scratch database only).
+  - **Lighthouse desktop exceptions**: only the gradebook grid and the grading view use the desktop preset (instructors use laptops; the grading
+    view flapped between 84 and 91 on mobile); every other page is mobile; the budget of 90 stays under both (`frontend/scripts/lighthouse.mjs`).
 - **Migrations of step 9** are 0028 (bank), 0029 (assessments + engine), 0030 (grants, purge), 0031 (helper grants), 0032 (FK of a
-  question's current version): they are applied to the dev DB, so a fix is a NEW migration.
-- **Step 10 verification** (once, at the end of the step): see the final report of the step; the burst, queue and ZIP numbers are in `docs/benchmarks.md`.
-- **Migrations of step 10** are 0033 (rubrics, assignments, submissions, grades, learner functions), 0034 (position grants), 0035 (gate verdicts of
-  the file calls), 0036 (helper grants), 0037 (INSERT on `assessments` for the copy): applied to the dev DB, so a fix is a NEW migration.
-- **Migrations of step 11** are 0039 (tables), 0040 (the calculation), 0041 (workflow and the functions of the endpoints). The speed-up of step 11b is a NEW migration, 0042 (`gradebook_perf`:
-  the functions replaced; 0040 / 0041 are exactly as committed). They are NOT applied to the dev database by the agent (the owner runs `pnpm db:migrate`). Tests and the bench use scratch databases.
+  question's current version). **Step 10**: 0033 (rubrics, assignments, submissions, grades, learner functions), 0034 (position grants), 0035 (gate
+  verdicts of the file calls), 0036 (helper grants), 0037 (INSERT on `assessments` for the copy); **10b**: 0038 (arrival-based deadlines). All applied to the
+  dev DB, so a fix is a NEW migration. **Step 11**: 0039 (tables), 0040 (the calculation), 0041 (workflow and endpoint functions), 0042
+  (`gradebook_perf`: the faster functions, DROP + CREATE where the return type became `json`). 0039-0042 are NOT applied to the dev database by the
+  agent: `pnpm db:migrate` on a dev database that has none of them applies all four as committed (checked: the dev DB had nothing from 0039 on).
+  **A migration that exists in any commit is never edited**, even if never applied anywhere.
 - **Known cosmetic issues**: the demo learners (Lighthouse / screenshots / E2E data) have no member profile,
   so the Section column of the class table shows "—"; My courses can show two links to the same course (the resume card and the
   course card), so scripts and tests use `.first()`.
