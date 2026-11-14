@@ -133,7 +133,7 @@ function proxy(req, res) {
   req.pipe(upstream);
 }
 
-createServer((req, res) => {
+const server = createServer((req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return proxy(req, res);
 
@@ -147,6 +147,12 @@ createServer((req, res) => {
     return res.end('not found');
   }
   return serveFile(req, res, join(DIST, 'index.html')); // client-side route
-}).listen(PORT, '127.0.0.1', () => {
+});
+// Both loopback addresses: `*.localhost` resolves to ::1 on some machines (Node 22 on Windows answers IPv6 first) and to 127.0.0.1 on
+// others, and a Node client (Playwright's request context) connects to whatever the name gives it. A host without IPv6 just skips ::1.
+server.listen(PORT, '127.0.0.1', () => {
   console.log(`serving dist/ on http://127.0.0.1:${PORT} (api: ${API.origin})`);
 });
+const v6 = createServer(server.listeners('request')[0]);
+v6.on('error', () => {});
+v6.listen(PORT, '::1');

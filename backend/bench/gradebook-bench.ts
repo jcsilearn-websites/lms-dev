@@ -31,12 +31,35 @@ async function main(): Promise<void> {
   await owner.connect();
   const app = new pg.Client(connectionConfig(appUrl, ownerEnv.DB_SSL, ownerEnv.DB_SSL_CA));
   await app.connect();
+  // the app role has a statement timeout; a run WITHOUT the planner settings can exceed it on a fresh college (that is the finding),
+  // so a measurement run may lift it for its own session: GRADEBOOK_BENCH_TIMEOUT_MS=600000
+  if (process.env.GRADEBOOK_BENCH_TIMEOUT_MS)
+    await app.query(`SET statement_timeout = ${Number(process.env.GRADEBOOK_BENCH_TIMEOUT_MS)}`);
+  // GRADEBOOK_BENCH_SETTINGS=off: the function-level planner settings are removed from the functions of THIS database first, to
+  // measure what they buy (docs/benchmarks.md, Step 11c). Use a scratch database, never the dev one.
+  if (process.env.GRADEBOOK_BENCH_SETTINGS === 'off') {
+    for (const f of [
+      'gradebook_compute(uuid, uuid, text, uuid[], boolean)',
+      'gradebook_grid(uuid, uuid, uuid, text, uuid, integer)',
+      'gradebook_marks_save(uuid, uuid, uuid, boolean, text, jsonb)',
+      'gradebook_review_action(uuid, uuid, uuid, text, text)',
+      'gradebook_review(uuid, uuid)',
+    ])
+      await owner.query(`ALTER FUNCTION lms.${f} RESET enable_nestloop`);
+    for (const g of ['enable_seqscan', 'enable_mergejoin', 'work_mem'])
+      await owner.query(
+        `ALTER FUNCTION lms.gradebook_compute(uuid, uuid, text, uuid[], boolean) RESET ${g}`,
+      );
+    console.log('function-level planner settings REMOVED for this run');
+  }
   const lines: string[] = [];
   const say = (s: string) => {
     lines.push(s);
     console.log(s);
   };
 
+  // the one-learner view must not depend on the size of the class
+  const oneLearner = new Map<number, number>();
   for (const learners of SIZES) {
     const suffix = randomBytes(4).toString('hex');
     const slug = `bench-${suffix}`;
@@ -207,8 +230,9 @@ async function main(): Promise<void> {
         say(
           `${label.padEnd(58)} median ${r2(median(t)).toString().padStart(8)} ms   (runs: ${t.map((x) => Math.round(x)).join(', ')})`,
         );
+        return median(t);
       };
-      const phase = async (name: string) => {
+      const phase = async (name: string, fresh = false) => {
         say(`--- ${name}`);
         await timeApp(
           'compute, all learners, no explanation (the grid)',
@@ -232,7 +256,7 @@ async function main(): Promise<void> {
             [tenantId],
           )
         ).rows[0].id;
-        await timeApp(
+        const me = await timeApp(
           'one learner, learner view with explanation (me)',
           'SELECT lms.gradebook_me($1, $2, $3)',
           [
@@ -247,6 +271,7 @@ async function main(): Promise<void> {
           ],
           20,
         );
+        if (fresh) oneLearner.set(learners, me);
         await timeApp(
           'one learner, staff explanation',
           'SELECT lms.gradebook_explain($1, $2, $3)',
@@ -267,37 +292,53 @@ async function main(): Promise<void> {
         );
       };
 
-      await phase('FRESH college, no statistics (what a newly loaded college looks like)');
+      // the lock: submit + approve in one transaction each time, then rolled back (measured in both states)
+      const lock = async () => {
+        const lockTimes: number[] = [];
+        for (let i = 0; i < 3; i++) {
+          await app.query('BEGIN');
+          await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
+          await app.query(
+            `UPDATE lms.gradebooks SET status = 'submitted', submitted_by = $2, submitted_at = now() WHERE id = $1`,
+            [gb, teacher],
+          );
+          const t0 = performance.now();
+          const r = await app.query(
+            `SELECT lms.gradebook_review_action($1, $2, $3, 'approve', NULL) AS r`,
+            [tenantId, approver, offeringId],
+          );
+          lockTimes.push(performance.now() - t0);
+          if (r.rows[0].r.result !== 'ok')
+            throw new Error(`lock refused: ${JSON.stringify(r.rows[0].r)}`);
+          await app.query('ROLLBACK');
+        }
+        say(
+          `${'LOCK: approve = compute with explanations + snapshot insert'.padEnd(58)} median ${r2(median(lockTimes)).toString().padStart(8)} ms   (runs: ${lockTimes.map((x) => Math.round(x)).join(', ')})`,
+        );
+      };
 
-      // the lock: submit + approve in one transaction each time, then rolled back
-      const lockTimes: number[] = [];
-      for (let i = 0; i < 3; i++) {
-        await app.query('BEGIN');
-        await app.query(`SELECT set_config('app.tenant_id', $1, true)`, [tenantId]);
-        await app.query(
-          `UPDATE lms.gradebooks SET status = 'submitted', submitted_by = $2, submitted_at = now() WHERE id = $1`,
-          [gb, teacher],
-        );
-        const t0 = performance.now();
-        const r = await app.query(
-          `SELECT lms.gradebook_review_action($1, $2, $3, 'approve', NULL) AS r`,
-          [tenantId, approver, offeringId],
-        );
-        lockTimes.push(performance.now() - t0);
-        if (r.rows[0].r.result !== 'ok')
-          throw new Error(`lock refused: ${JSON.stringify(r.rows[0].r)}`);
-        await app.query('ROLLBACK');
+      // GRADEBOOK_BENCH_STATE=analyzed: skip the fresh phase and measure only the steady state
+      const analyzedOnly = process.env.GRADEBOOK_BENCH_STATE === 'analyzed';
+      if (analyzedOnly) {
+        await owner.query('ANALYZE');
+        oneLearner.set(learners, 0);
+      } else {
+        await phase('FRESH college, no statistics (what a newly loaded college looks like)', true);
+
+        await lock();
+        await owner.query('ANALYZE');
       }
-      say(
-        `${'LOCK: approve = compute with explanations + snapshot insert'.padEnd(58)} median ${r2(median(lockTimes)).toString().padStart(8)} ms   (runs: ${lockTimes.map((x) => Math.round(x)).join(', ')})`,
-      );
-
-      await owner.query('ANALYZE');
       await phase('after ANALYZE (what autovacuum gives it a minute later)');
+      await lock();
     } finally {
       if (process.env.GRADEBOOK_BENCH_SETUP_ONLY !== '1')
         await owner.query('ROLLBACK').catch(() => {});
-      if (process.env.GRADEBOOK_BENCH_SETUP_ONLY !== '1')
+      // GRADEBOOK_BENCH_KEEP=1 keeps the college (a scratch database only): the NEXT size is then a college loaded into a database
+      // whose statistics describe another one (Step 11c, the realistic state of a second college)
+      if (
+        process.env.GRADEBOOK_BENCH_SETUP_ONLY !== '1' &&
+        process.env.GRADEBOOK_BENCH_KEEP !== '1'
+      )
         await deleteTenantCascade(owner, tenantId).catch((e) => console.error('cleanup failed', e));
     }
   }

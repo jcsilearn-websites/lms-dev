@@ -16,6 +16,7 @@ import {
   assignment,
   base,
   type Class,
+  compute,
   gradebookClass,
   participantIds,
   quiz,
@@ -181,6 +182,28 @@ describe('the gradebook pulls released scores of quizzes and assignments', () =>
     const asha = ok(await ic.get(`${b}/grid`)).rows.find((r: Json) => r.participantId === pids[0]);
     expect(asha.cells[items['Quiz A'] as string]).toEqual(['s', '20', 0]);
     ok(await ic.put(`${b}/items`, { items: g.items }));
+  });
+});
+
+describe('the two read paths of the calculation agree', () => {
+  it('a few learners (unique-key probes) and a whole class (bulk reads) give identical cells, totals, finals and explanations', async () => {
+    for (const mode of ['staff', 'learner'] as const) {
+      const few = await compute(owner, A.tenantId, e.offeringId, mode, pids, true);
+      // more than 25 ids (repeats are harmless) take the bulk path
+      const many = await compute(
+        owner,
+        A.tenantId,
+        e.offeringId,
+        mode,
+        [...pids, ...Array(30).fill(pids[0]!)],
+        true,
+      );
+      const all = await compute(owner, A.tenantId, e.offeringId, mode, null, true);
+      const key = (r: Awaited<ReturnType<typeof compute>>) =>
+        [...r].sort((a, b) => a.participant_id.localeCompare(b.participant_id));
+      expect(key(many), mode).toEqual(key(few));
+      expect(key(all), mode).toEqual(key(few));
+    }
   });
 });
 

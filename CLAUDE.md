@@ -475,7 +475,10 @@ Full reasoning: `docs/adr/0019-gradebook.md`. Numbers: `docs/benchmarks.md` (Ste
   multiplies), nothing is divided before the single rounding (`lms.round_frac`, `div` / `mod`: half up, half even, floor, ceil; 0-2 decimals).
   `test/gradebook.calc.test.ts` has every rule and a fast-check property test against a BigInt-rational reference
   (`test/gradebook-reference.ts`): they must agree EXACTLY. Change the rule -> change the reference. The function carries
-  `SET enable_nestloop = off` (47 s without it on a fresh college); `bench:gradebook` is the regression check.
+  `SET enable_nestloop = off` (+ `enable_seqscan = off`, `enable_mergejoin = off`, `work_mem = 32MB`; migration 0042; measured ON and OFF in three
+  statistics states: 5-17 % faster in every one, never slower, reasons in ADR 0019); `bench:gradebook` is the regression check and FAILS when the one-learner view at 1,200 learners costs more than 1.5x the one at 500.
+  It is `plpgsql` (the plan is cached per session), reads only the learners and items asked for, returns `json` (not `jsonb`) for cells / totals /
+  explanation; at most 25 learners read quizzes and assignments by unique-key probes, more read them once for the set (a test compares both paths).
 - **Rules**: categories (weight, drop lowest N but never the last, `exclude` | `zero_after_due`), extra credit (adds to earned only, never
   dropped), `weighted` or one pool of points, scaled to `out_of`. A missing manual mark counts as zero only after the item is released or its
   `due_at` has passed; submitted-but-ungraded work is "pending", never zero. The grade band is decided on the ROUNDED final.
@@ -621,7 +624,8 @@ Run the manual `flakiness` workflow (`gh workflow run CI`) on the new image befo
 
 ## Database migration discipline
 
-- **Forward-only.** Never edit an applied migration (the checksum check fails); fix with a new migration.
+- **Forward-only.** Never edit an applied migration (the checksum check fails); fix with a new migration. **A migration that exists in ANY commit
+  is never edited, applied or not: always add a new one** (`CREATE OR REPLACE FUNCTION`; DROP + CREATE when the return type changes, then grant again).
 - **Expand -> migrate -> contract** for breaking changes: add the new column/table (nullable or defaulted), backfill, switch
   the code, and only in a LATER migration drop the old one. Never rename or drop in the same release that stops using it.
 - Every migration must run cleanly on an **empty DB** (CI) and on the **existing dev DB**.
@@ -824,10 +828,12 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
   the copy moves ALL dates by one shift (no per-item overrides); the confirm of an upload re-reads the bytes (object metadata on GCS);
   the 60 s squeeze of the deadline burst answers 503 `busy` to some calls: the SPA retries them by itself and the deadline counts from the
   arrival (step 10b, above), a receipt is bound to the payload (step 10c); blind grading cannot scrub a name a learner typed INSIDE their work.
-- **Gradebook (step 11)**: the calculation of a whole class takes ~0.9 s per 500 learners x 60 items (the hoped-for ~100 ms is not met; ADR 0019
-  and benchmarks.md say where the time goes); no notification when a gradebook is submitted, returned or approved, nor when a final is published; no
+- **Gradebook (step 11)**: the calculation of a whole class takes ~0.44 s per 500 learners x 60 items and 1.1 s for 1,200 (one learner: 13 ms, any class
+  size; the 300 / 800 ms targets of step 11b are NOT met: ~13 us a cell is left in single passes, the next step would be stored per-learner results;
+  ADR 0019 and benchmarks.md say where the time goes); no notification when a gradebook is submitted, returned or approved, nor when a final is published; no
   GPA / credits / cross-course transcript; copying an offering does not copy the gradebook; one `out_of` and one rounding per gradebook; the
-  grid shows no history of a mark (the table exists: `manual_mark_history`); the Lighthouse performance of the grid page is 87-90 (budget 90).
+  grid shows no history of a mark (the table exists: `manual_mark_history`); the Lighthouse performance of the grid page and of the grading view is measured with the DESKTOP preset (instructors use laptops; grid 98,
+  mobile 88-89; grading view 84-91 on mobile, which made CI flap): the only pages with a different preset (documented in `lighthouse.mjs` and ADR 0019); the budget of 90 stays.
 - **Open for the GCP step** (collected here so nothing is lost): the real mail provider; the GCS storage driver and the GCP
   Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
   Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s
@@ -862,11 +868,13 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
 - **Step 10 verification** (once, at the end of the step): see the final report of the step; the burst, queue and ZIP numbers are in `docs/benchmarks.md`.
 - **Migrations of step 10** are 0033 (rubrics, assignments, submissions, grades, learner functions), 0034 (position grants), 0035 (gate verdicts of
   the file calls), 0036 (helper grants), 0037 (INSERT on `assessments` for the copy): applied to the dev DB, so a fix is a NEW migration.
-- **Migrations of step 11** are 0039 (tables), 0040 (the calculation), 0041 (workflow and the functions of the endpoints). They are NOT applied to the dev
-  database by the agent (the owner runs `pnpm db:migrate`); until the owner has applied them a fix may still edit them. Tests and the bench use scratch databases.
+- **Migrations of step 11** are 0039 (tables), 0040 (the calculation), 0041 (workflow and the functions of the endpoints). The speed-up of step 11b is a NEW migration, 0042 (`gradebook_perf`:
+  the functions replaced; 0040 / 0041 are exactly as committed). They are NOT applied to the dev database by the agent (the owner runs `pnpm db:migrate`). Tests and the bench use scratch databases.
 - **Known cosmetic issues**: the demo learners (Lighthouse / screenshots / E2E data) have no member profile,
   so the Section column of the class table shows "—"; My courses can show two links to the same course (the resume card and the
   course card), so scripts and tests use `.first()`.
+- **E2E and `*.localhost`**: Node resolves `*.localhost` to `::1` on some machines (Node 22 on Windows) and to `127.0.0.1` on others; `scripts/serve.mjs` listens on
+  BOTH (a client that connects by name, like Playwright's request context, works either way).
 - **Environment quirks** live in the owner's memory file, not here: a heredoc-written script mangles backslashes (use the Write
   tool), a relative path from a nested directory drops files in the repo root, `biome check --write` reformats code so later
   string-replace edits can silently match nothing (re-read first).

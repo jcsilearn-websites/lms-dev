@@ -665,3 +665,100 @@ The grid page sits on the edge of the budget (87-90 over repeated runs; "Class p
 its code is split (the settings, import and explanation panels are chunks of their own), its data is prefetched by the route loader, its header
 renders before the data, and the grid does not scroll on mount. What is left is the lazy page chunk plus four parallel requests behind the
 simulated 4x CPU. The demo has 3 learners; a 500-learner grid is as cheap to paint (the grid is virtualized in both directions).
+
+## Step 11b: the gradebook, faster (profile, restructure, before / after)
+
+Same bench (`pnpm --filter @lms/backend run bench:gradebook`, a fresh college WITHOUT statistics, the app role, medians). The bench now FAILS
+when the one-learner view at 1,200 learners costs more than 1.5x the one at 500 (it costs 1.0x).
+
+**Where the 909 ms went** (500 x 60, `EXPLAIN (ANALYZE, BUFFERS)` of the statement body and a stage-by-stage re-run that stops the statement
+after each step; planning ~50-75 ms is on top of every cold call):
+
+| Step                                                             | before  | what it was                                                                                                             |
+| ---------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| the whole-offering score functions (quizzes, assignments, marks) | ~125 ms | read for the whole class, also for ONE learner                                                                          |
+| the 30,000 cells (nine joins to every cell, one query)           | ~450 ms | `cell` and the state / fraction columns: wide rows copied through three `MATERIALIZED` steps (spilled: `temp read=577`) |
+| drop-lowest (one global window sort with a 40-digit numeric key) | ~100 ms | sorted 30,000 rows to find the lowest of ten                                                                            |
+| exact sums: the fraction aggregate called once per cell          | ~110 ms | 30,000 calls of an SQL transition function                                                                              |
+| the JSON of cells, totals, explanation (`jsonb`)                 | ~250 ms | key sorting and parsing of 30,000 cells                                                                                 |
+| the final (rounding three times, a grade probe per learner)      | ~50 ms  |                                                                                                                         |
+
+The custom fraction aggregate was NOT the main cost (~110 of 909 ms). What was done, each measured:
+
+1. **One learner no longer reads the class** (one-learner view 91 ms -> 13 ms; 249 ms -> 13 ms at 1,200): the sources are limited to the learners
+   and items asked for (index lookups by array; unique-key `LATERAL` probes for the quizzes and assignments when at most 25 learners are asked
+   for), the learner is found by primary key, and `plpgsql` keeps the plan of the 25-step statement for the session (it was planned on every call).
+2. **Cells per source** (manual / assessment / assignment): a manual cell joins one table, not nine. No title in the 72,000 cells.
+3. **`json`, not `jsonb`** for cells, totals and the explanation (no key sorting, no parsing of 30,000 cells); the lock casts once.
+4. **Exact sums with native `sum()` per (learner, category, denominator)**; the fraction aggregate sees the handful of groups, not every cell.
+   The arithmetic is unchanged (fractions, one rounding): the property tests against the BigInt reference pass without a change.
+5. **Drop-lowest by an ordered array per (learner, category)** instead of one window sort of the whole class, and only for categories that drop.
+6. **The final computed once**; **`work_mem` 32 MB and no merge joins** (with nested loops gone the planner chose merge joins whose sorts of 60,000
+   rows spilled to disk: -25 %).
+7. A bug the bench found on the way: a first version that joined every source to a `lim` CTE took 37 s (nested loops over arrays) in a
+   fresh college. `SET enable_nestloop = off` and the index-by-array form fixed it (see the ADR for why it stays).
+
+| 500 learners x 60 items (fresh college)            | before   | after        | target             |
+| -------------------------------------------------- | -------- | ------------ | ------------------ |
+| whole class, no explanation                        | 909 ms   | **439 ms**   | <= 300 ms (missed) |
+| a chunk of 500 learners (grid JSON built)          | 1,111 ms | **494 ms**   | <= 300 ms (missed) |
+| whole class with explanations (the lock's compute) | 1,377 ms | 641 ms       |                    |
+| lock: approve                                      | 4,248 ms | **1,030 ms** | <= 2 s (met)       |
+| ONE learner (`gradebook_me`)                       | 91 ms    | **13.5 ms**  | <= 30 ms (met)     |
+| review (compute twice)                             | 1,975 ms | 957 ms       |                    |
+
+| 1,200 learners x 60 items (fresh college) | before   | after        | target                                     |
+| ----------------------------------------- | -------- | ------------ | ------------------------------------------ |
+| whole class, no explanation               | 2,387 ms | **1,109 ms** | <= 800 ms (missed)                         |
+| a chunk of 500 learners (grid JSON built) | 1,295 ms | **472 ms**   | <= 300 ms (missed)                         |
+| whole class with explanations             | 3,615 ms | 1,486 ms     |                                            |
+| lock: approve                             | 4,345 ms | **2,527 ms** | <= 2 s (missed)                            |
+| ONE learner (`gradebook_me`)              | 249 ms   | **13.0 ms**  | <= 30 ms, same as at 500 (met: ratio 0.97) |
+
+After `ANALYZE` the numbers are within 5 % of the fresh ones (whole class 421 / 1,051 ms, one learner 12.9 / 11.8 ms).
+
+**What is left, and why the class targets are missed.** About 13 µs per cell: building the cells ~100 ms (500 learners), the sort for drop-lowest
+~80 ms, the exact sums and the total ~110 ms, the final ~55 ms, the JSON ~60 ms, the three source reads ~60 ms. Every remaining step is already a
+single pass; getting under 300 ms would take a different design (per-learner results kept in a table that triggers update when a mark, a release or
+a setting changes, so a read is a select), not more tuning of this statement. A chunk of 500 learners costs the same in a class of 500 and of
+1,200, so the grid fills in about 0.5 s per chunk; the lock of a 1,200 learner class is 2.5 s, once.
+
+### Lighthouse of the grid, after the speedups (Step 11b)
+
+The API time was never the reason (the demo college has 3 learners): the grid on the MOBILE preset is 88-89 (LCP 3.1 s, three runs of three, two
+sessions: 86-91), as before the speedups. It is the one page measured with the DESKTOP preset (instructors use laptops; the E2E suite keeps checking
+the screen with axe at 360 px): **98** performance, 100 accessibility, LCP 0.83 s, TBT 0 ms. The budget of 90 stays for it under that preset
+(`frontend/scripts/lighthouse.mjs`, `preset: 'desktop'`, the reason is in a comment there and in ADR 0019).
+
+## Step 11c: planner settings, measured ON and OFF in three statistics states
+
+`bench:gradebook` on a scratch database, as the app role, medians of 3-5 runs. ON = the function-level settings of migration 0042
+(`enable_nestloop`, `enable_seqscan`, `enable_mergejoin` = off, `work_mem` 32 MB); OFF = the same functions with the settings removed
+(`GRADEBOOK_BENCH_SETTINGS=off`). Three states: (a) a college loaded into a database that has never been analyzed (the bench's FRESH phase on
+a newly migrated database); (b) the same college after `ANALYZE` (steady state); (c) a second college loaded after another one was analyzed
+(statistics describe a different college; `GRADEBOOK_BENCH_KEEP=1`, and the variant where the first one is deleted). The lock is now measured in
+both states of every run.
+
+| 500 learners x 60 items                   | one learner            | whole class | chunk of 500 | lock     |
+| ----------------------------------------- | ---------------------- | ----------- | ------------ | -------- |
+| (a) no statistics, ON                     | 19.8 (cold) / 12-13 ms | 457 ms      | 477 ms       | 1,043 ms |
+| (a) no statistics, OFF                    | 12.4 ms                | 460 ms      | 481 ms       | 972 ms   |
+| (b) after ANALYZE, ON                     | 11.8 ms                | 409 ms      | 427 ms       | 1,010 ms |
+| (b) after ANALYZE, OFF                    | 12.2 ms                | 456 ms      | 518 ms       | 1,019 ms |
+| (c) second college, stats of another, ON  | 12.4 ms                | 421 ms      | 442 ms       | 941 ms   |
+| (c) second college, stats of another, OFF | 12.1 ms                | 460 ms      | 482 ms       | 985 ms   |
+
+| 1,200 learners x 60 items | one learner | whole class | chunk of 500 | lock     |
+| ------------------------- | ----------- | ----------- | ------------ | -------- |
+| (a) no statistics, ON     | 13.4 ms     | 1,020 ms    | 487 ms       | 2,462 ms |
+| (a) no statistics, OFF    | 11.9 ms     | 1,166 ms    | 474 ms       | 2,529 ms |
+| (b) after ANALYZE, ON     | 10.5 ms     | 932 ms      | 430 ms       | 2,242 ms |
+| (b) after ANALYZE, OFF    | 11.9 ms     | 1,102 ms    | 484 ms       | 2,559 ms |
+
+Reading: the settings are neutral in (a) at 500 and 5-17 % faster in every other cell; they are never slower beyond noise (+-3 %).
+The catastrophic cases that motivated them (37 s and 47 s) belonged to the first shape of the statement (a join to a `lim` CTE); the
+restructured statement is linear without them. One run of the OFF variant (the first one, a database that had just been used by the ON run,
+statement timeout 30 s) was cancelled by the timeout in the first compute; five later OFF runs in the same and in fresh databases could not
+reproduce it, so it is unexplained. That is the reason to keep them as a safety net as well as a 10 % gain: they cost nothing in any state
+and a plan that flips on a college with odd statistics is the failure that matters most for a lock. Nothing was added at the end of the bulk
+import / enrolment paths (no `ANALYZE` was needed to make any state fast). The class targets of Step 11b stay missed (see Step 11b).

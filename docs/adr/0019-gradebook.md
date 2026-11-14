@@ -83,9 +83,33 @@ the event, the version and the audit entry.
 
 ### Performance
 
-See `docs/benchmarks.md` (Step 11). The statement is linear in cells and stable with and without statistics once the planner is kept from
-choosing nested loops (`SET enable_nestloop = off` on the function: with the parameters unknown a fresh college took 47 s instead of 1 s).
-It does not reach the hoped-for ~100 ms for 500 x 60: that is a known gap.
+See `docs/benchmarks.md` (Steps 11 and 11b). The statement is linear in cells and stable with and without statistics. Where the time goes and
+what was done is measured there; the figures that matter: one learner 13 ms regardless of the size of the class (bench-enforced: the 1,200
+learner case may not exceed 1.5x the 500 case), a whole class of 500 x 60 in 439 ms and of 1,200 x 60 in 1.1 s, a chunk of 500 learners ~0.5 s,
+the lock 1.0 s (500) / 2.5 s (1,200). The class targets of Step 11b (300 / 800 ms) are NOT met: about 13 µs a cell is left in single passes,
+and going lower is a different design (stored per-learner results), not tuning.
+
+**Why the planner settings stay on `gradebook_compute`** (migration 0042; `enable_nestloop = off`, `enable_seqscan = off`,
+`enable_mergejoin = off`, `work_mem = 32MB`, scoped to the function, so they do not leak into the caller's transaction; `enable_nestloop = off`
+is also on the functions that join its output to people: grid, marks, approve, review). They were measured ON and OFF in three statistics
+states (a college in a database never analyzed; after `ANALYZE`; a second college next to one the statistics describe), at 500 and 1,200
+learners: neutral in one cell, 5-17 % faster in all the others, never slower (tables in `docs/benchmarks.md`, Step 11c). The rule applied:
+keep a setting only if it helps or is neutral in BOTH the fresh and the analyzed state. The reason given in Step 11 (37 s without them) belonged
+to the first shape of the statement, a join of every source to a CTE of arrays: nested loops over rows the planner believed were few. The
+restructured statement reads sources by index-by-array or unique-key probes and joins the rest by hash, so it is linear either way; what the
+settings buy now is the 10 % (no merge joins with 60,000-row sorts spilling to disk, no sequential scan of the class for one learner) and
+protection against a plan that flips for a college with misleading statistics (one cancelled run of the OFF variant, not reproduced). No
+`ANALYZE` at the end of the import or enrolment paths was needed. `bench:gradebook` (a fresh college; `GRADEBOOK_BENCH_SETTINGS=off` and
+`GRADEBOOK_BENCH_STATE=analyzed` reproduce the matrix) is the regression check.
+
+**Two read paths, one result.** At most 25 learners: the quizzes and assignments of a learner are read by unique-key probes (no class read);
+more: read once for the whole set. `gradebook.learner.test.ts` compares both on the same learners (cells, totals, finals and explanations must be
+identical).
+
+**Lighthouse of the grid page and of the grading view** are measured with the desktop preset, not the mobile one: a 12-column spreadsheet and a
+three-pane grading screen (queue, submission, rubric) are instructors' laptop screens. The grid scores 98 on desktop (88-89 on mobile, LCP 3.1 s);
+the grading view scored 84-91 on mobile from run to run, which made CI flap around the budget. The learner pages and every other screen keep the
+mobile preset, and the budget of 90 stays under both presets. These are the two documented exceptions (`frontend/scripts/lighthouse.mjs`).
 
 ## Consequences
 
