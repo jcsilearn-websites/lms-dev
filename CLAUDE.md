@@ -8,7 +8,8 @@ participation, course content, file storage; backend + frontend), 6b (soft remov
 lessons behind provider interfaces; backend + frontend), 8 (learning progress tracking; backend + frontend), 9 (quizzes and
 exams: question bank, assessments, attempt engine, grading; backend + frontend) and 10 (assignments: submissions, rubrics, grading,
 blind grading, late penalties, bulk ZIP, and the offering copy of assessments and assignments; backend + frontend) and 11 (the gradebook:
-categories, exact calculation, approval and immutable snapshots, exports; backend + frontend) are built. Do not
+categories, exact calculation, approval and immutable snapshots, exports; backend + frontend) and 12 (dashboards, rollups, at-risk learners,
+usage metering; backend + frontend) are built. Do not
 build features beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -56,7 +57,8 @@ backend/
                         jobs (queue), academics, profiles, imports, courses, content, files, video, progress,
                         questions (bank, versions, CSV import), assessments (settings, attempts, grading, regrade),
                         rubrics (per course, versioned), assignments (settings, submissions, grading, blind keys, ZIP, extensions),
-                        gradebook (categories, items, exact calculation, marks, CSV import, overrides, approval, snapshots, export, grade scales)
+                        gradebook (categories, items, exact calculation, marks, CSV import, overrides, approval, snapshots, export, grade scales),
+                        analytics (activity, rollups, dashboards, at-risk, reports + exports), usage (monthly metering, platform usage)
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
@@ -64,7 +66,8 @@ frontend/src/
   app/              app shell, root layout (branding, 404 college), providers, router (one route tree per host kind), theme
   features/<feature>/  auth, tenant, dashboard, members, academics, imports, audit, settings, me, platform, courses, video, progress,
                        assessments (bank/, builder/, grading/, exam/ + results), assignments (learner page, builder, grading, rubrics),
-                       gradebook (grid, settings, explanation, approval, learner grades, grade scales):
+                       gradebook (grid, settings, explanation, approval, learner grades, grade scales),
+                       analytics (charts/ hand-written SVG + ChartFrame, learner section, teaching / offering / college dashboards, at-risk, settings, platform usage):
                        <feature>.api.ts (typed with backend contracts), pages, hooks
   shared/           ui/ (button, field, select, dialog, data-table, toast, states), api/ (client, errors), forms/, utils/
 frontend/e2e/       Playwright specs + helpers   frontend/scripts/  stack, e2e, serve, bundle check, lighthouse, screenshots
@@ -507,6 +510,47 @@ Full reasoning: `docs/adr/0019-gradebook.md`. Numbers: `docs/benchmarks.md` (Ste
   grid pattern (one tab stop, `aria-selected`), spreadsheet keyboard, paste from Excel (`gridModel.ts`, unit tested); settings, import, explanation are
   lazy chunks; the learner page says PROVISIONAL in words.
 
+## Dashboards, reports, at-risk and usage (step 12)
+
+Full reasoning, the estimation method and its accuracy limits: `docs/adr/0020-analytics-usage.md`. Numbers and the planner lessons: `docs/benchmarks.md` (Step 12).
+- **College time zone**: `tenant_settings` key `timezone` (default `Asia/Kolkata`, validated against `pg_timezone_names`, audited). EVERY day / week / month bucket
+  is a LOCAL day (`lms.local_day`, `lms.next_local_midnight`: DST-safe); timestamps stay UTC; the UI formats dates in the college zone (`formatCollegeTime`).
+  A zone change affects future buckets only. Settings (zone, at-risk rules, course-health switch / weeks / backlog days, billing definition) live behind `GET/PATCH /analytics/settings`.
+- **Activity**: `member_activity_days` (one row per user and local day). `AnalyticsService.noteActivity` is called from an `onResponse` hook (never on the request
+  path) and remembers per session "recorded until the next local midnight": at most ONE `lms.activity_touch` per user and day. `/auth/me`, health, media and storage
+  requests do not count. No page-view tracking.
+- **Rollups** (`rollup_learner_offering`, `_offering_day`, `_org_day`, `_tenant_day`, `rollup_state`; app = SELECT only): triggers write change MARKS
+  (`rollup_dirty_participants` / `_offerings`, no grants) in the same transaction as the change; `lms.rollup_run_tenant` expands offering marks, RECOMPUTES a
+  bounded batch (`ANALYTICS_ROLLUP_BATCH`, 500) from the source (never deltas), rebuilds the touched offerings' daily rows and the day windows, and deletes only the
+  marks it saw. Clock events (a deadline passing, an item opening or becoming overdue) mark their offering. "Data as of" = run time, or the oldest unapplied change.
+  Scheduled system job `analytics.rollup` (`ANALYTICS_ROLLUP_SECONDS`, 300). `test/analytics.rollup.test.ts` compares every rollup with an INDEPENDENT TypeScript
+  computation after random mutations and random partial refreshes: a new dashboard number needs a mark, a recompute branch and a line in that reference.
+- **At-risk** = four transparent rules over the learner rollup (behind via the offering's own `behind_after_days`; missed >= N deadlines; average RELEASED score below
+  the college pass mark; no activity for N days), thresholds per college (`tenant_settings` key `atRisk`, defaults in `lms.atrisk_settings`), flags evaluated when
+  read (`lms.atrisk_flags`, which must stay a plain inlinable SQL function: no SET clause, settings behind `OFFSET 0`). Evidence (which items, dates, scores) is read
+  live for the page shown (`analytics.atrisk.ts` words it). **No risk score, no ranking, anywhere.** Permission `atrisk.view`: instructors and assistants by participation,
+  institution admins, never a learner (sentinel tests over every learner response); the admin dashboard shows counts per department only.
+- **Dashboards**: learner = ONE definer call about the caller only (`lms.learner_dashboard`, 2 round trips; upcoming 14 days, released grades by NAME, resume, week, a
+  private streak); instructor = offering dashboard, teaching dashboard, video drop-off (from the progress ranges, aggregate only), at-risk; administrator = generic report
+  tables (`GET /reports/:table`, columns + rows + summary + asOf) that also feed `GET /reports/:table/export?format=csv|xlsx` (<= 100,000 rows, apostrophe rule);
+  platform = `GET /platform/usage` (aggregates only, closed months frozen). Staff calls are ONE statement with the access CTE (4 round trips); reports are one statement
+  that also returns the zone, the course-health window and `asOf`.
+- **Usage metering**: `progress_heartbeat` also adds the NEW unique seconds to `video_watch_days` (same definer call, still 2 round trips); `usage_compute` (billable
+  learners = active >= N days and a learner, college setting; video hours; GB = watched seconds x measured bytes/second per rendition weighted by the ASSUMED mix
+  `USAGE_RENDITION_MIX`; storage; offerings); `usage_close_due` freezes each college's month two hours after it ends in ITS zone into `usage_snapshots`
+  (append-only for everyone, trigger `usage_snapshots_immutable`; a correction would be revision n+1, no endpoint writes one yet). Scheduled job `usage.close_months`.
+- **Planner lessons of this step** (each cost a measured multiple, docs/benchmarks.md): aggregate per day, never a correlated count per day; a SQL function with a `SET`
+  clause is NOT inlined (so its callers' filters do not reach it); keep a settings lookup out of a row filter with `OFFSET 0`; `jit = off` on the analytics functions;
+  `enable_nestloop = off` only where measured neutral (the day windows), NOT on the per-offering unique-key probes. `pnpm --filter @lms/backend run bench:analytics`
+  (a scratch database it creates and drops) is the regression check; it needs the migrated schema only, never the dev database.
+- **Row locks**: the offering access CTE locks `FOR NO KEY UPDATE` (never `FOR UPDATE`, which blocks foreign-key checks and made a deadlock cycle
+  with the rollup refresh: edit holds offering -> waits for its change mark; refresh holds the mark -> FK check waits for the offering). A new lock on a
+  parent row takes `FOR NO KEY UPDATE` unless it deletes the row or changes its key (ADR 0020, regression test in `analytics.rollup.test.ts`).
+- **Frontend**: hand-written SVG charts (`features/analytics/charts`: bar, line, funnel, heat strip; no chart library, ~300 lines). Every chart sits in `ChartFrame`: a
+  summary SENTENCE, "data as of", and the same data as a real table (in the page for screen readers, shown on "Show as table"). Scrollable tables are `ScrollRegion`
+  (focusable, named). Text links inside text are underlined (axe). The learner section lives in the home page and loads no chart code (`pnpm bundle:check` fails
+  otherwise); the college / offering dashboards use the desktop Lighthouse preset (the third and fourth documented exceptions, with the gradebook grid and grading view).
+
 ## Deadline fairness under load (step 10b)
 
 Full reasoning: `docs/adr/0018-assignments.md` ("Deadline fairness under load"). Numbers: `docs/benchmarks.md` (Step 10b).
@@ -711,6 +755,9 @@ every extra statement also holds a pooled connection longer. So round trips are 
   Step 10: learner calls (assignment page, upload request, hand-in, file link) **2**; the confirm of an upload **8** (gate + two short
   transactions around the storage read); every rubric, builder, extension, grading (queue, summary, learner, grade, waiver, release, file)
   and ZIP-manifest call 4 (the first open of the queue also makes the keys: 6, once); the ZIP streams its bytes after the manifest transaction.
+  Step 12: the learner dashboard **2**; every staff dashboard / at-risk / report / settings read and each export (first page) 4; `PATCH /analytics/settings` 5 (read,
+  merge, write: a rare admin action); platform usage 2; the heartbeat is still **2** (the watch log is written inside the same definer call); the FIRST request of a
+  local day adds ONE background statement (`activity_touch`), every later one none.
   Step 5: academics reads 4, every academic change 4 (one fused statement), profile read / upsert / section moves 4,
   `GET /members` with profile filters 4, `GET /imports*` 4 (`/rows` and `/errors.csv` 5: the import and its page share a
   transaction), confirm / cancel 4, `POST /imports` = 7 + 1 per 1,000 rows staged (10,000 rows: 16 statements). The worker
@@ -775,6 +822,7 @@ pnpm --filter @lms/backend run bench:progress  heartbeat throughput, class view 
 pnpm --filter @lms/backend run bench:assessments  1,500 learners start / autosave / submit / auto-submit one exam, grading time (throwaway college)
 pnpm --filter @lms/backend run bench:assignments  1,500 learners in the deadline burst (2 MB PDFs, text, 3 files), grading queue for 500, ZIP of 500 (peak memory)
 pnpm --filter @lms/backend run bench:gradebook  500 and 1,200 learners x 60 items: compute, grid chunk, lock, one learner (needs DATABASE_URL of a migrated DB)
+pnpm --filter @lms/backend run bench:analytics  10,000 students x 200 offerings: rollup refresh (full / incremental, fresh vs ANALYZEd), every dashboard's DB time, activity upsert (scratch DB)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
@@ -834,6 +882,16 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
   GPA / credits / cross-course transcript; copying an offering does not copy the gradebook; one `out_of` and one rounding per gradebook; the
   grid shows no history of a mark (the table exists: `manual_mark_history`); the Lighthouse performance of the grid page and of the grading view is measured with the DESKTOP preset (instructors use laptops; grid 98,
   mobile 88-89; grading view 84-91 on mobile, which made CI flap): the only pages with a different preset (documented in `lighthouse.mjs` and ADR 0019); the budget of 90 stays.
+- **Analytics (step 12)**: the full refresh of a brand-new college takes ~77 s (50,000 enrolments) and a scattered incremental run costs ~35-45 ms per offering touched
+  (two whole-offering score functions: skipping them for runs that touch few learners is the next step); no notification to flagged learners (and by design none to the
+  learner about being flagged); the at-risk "behind" rule uses the offering's days setting (no college override); a usage correction (revision n+1) has a table but no
+  endpoint; the platform usage page is axe-tested in E2E but not in Lighthouse (the script signs in on tenant hosts only); org-day rollups keep the group a member had when
+  the day was rolled up; video GB is an ESTIMATE (assumed rendition mix; ADR 0020 lists the accuracy limits); "Needs attention" (course health) is admin-only, behind the college setting `showCourseHealth` (default ON, audited), lists
+  offerings with a reason (no new content in N weeks / grading backlog older than D days), never people; the first-of-day activity cache is per instance.
+- **TODO (step 12 follow-ups)**: (1) the usage-correction endpoint: `usage_snapshots` already supports revision n+1 with a reason, but nothing writes one (platform admin
+  only, audited, never an UPDATE); (2) a Lighthouse run for the platform usage page: `scripts/lighthouse.mjs` signs in on tenant hosts only, so it needs an admin-host session;
+  today it is covered by axe in the E2E suite only; (3) NEXT OPTIMIZATION TARGET: the incremental rollup refresh costs ~40 ms per TOUCHED offering (two whole-offering score
+  functions plus planning), 1 % of learners scattered over 200 offerings = ~7-9 s (docs/benchmarks.md, Step 12): skip the per-offering fixed work when a run touches few learners.
 - **Open after step 11c** (owner decisions, none started): stored per-learner gradebook results (the way to the 300 / 800 ms class targets); notifications
   (behind learners, released grades, gradebook submitted / returned / approved); GPA / credits / transcript across courses; copying a gradebook with an
   offering; a mark history view in the grid; malware scanning of assignment files (before the first production college); the shared rate limiter.
@@ -845,7 +903,7 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 ## Current state / handoff (read after the sections above)
 
 Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/benchmarks.md` or the code.
-- **Where we are**: steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are**: steps 1-12 are built (12 = dashboards, rollups, at-risk, usage metering; see its section). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
   payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
@@ -888,6 +946,9 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
     `GRADEBOOK_BENCH_KEEP=1`, `GRADEBOOK_BENCH_TIMEOUT_MS` (scratch database only).
   - **Lighthouse desktop exceptions**: only the gradebook grid and the grading view use the desktop preset (instructors use laptops; the grading
     view flapped between 84 and 91 on mobile); every other page is mobile; the budget of 90 stays under both (`frontend/scripts/lighthouse.mjs`).
+- **Step 12 migrations**: 0043 (time zone helpers, activity, the heartbeat's watch log, change marks, rollup and snapshot tables), 0044 (the refresh functions), 0045 (learner
+  dashboard, usage), 0046 (at-risk), 0047 (`as_of`), 0048-0051 (planner fixes found by the benchmark: day aggregation, `jit`, nested loops, `atrisk_flags` inlining).
+  NONE is applied to the dev database by the agent (the same rule as 0039-0042): `pnpm db:migrate` applies them all.
 - **Migrations of step 9** are 0028 (bank), 0029 (assessments + engine), 0030 (grants, purge), 0031 (helper grants), 0032 (FK of a
   question's current version). **Step 10**: 0033 (rubrics, assignments, submissions, grades, learner functions), 0034 (position grants), 0035 (gate
   verdicts of the file calls), 0036 (helper grants), 0037 (INSERT on `assessments` for the copy); **10b**: 0038 (arrival-based deadlines). All applied to the

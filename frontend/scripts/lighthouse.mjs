@@ -228,6 +228,22 @@ const rows = await withStack(
         cookie: teacherCookie,
       },
       {
+        // the college dashboard (step 12): an administrator's analytics page with SVG charts and tables.
+        // DESKTOP preset, a documented exception (ADR 0020): a dashboard of seven tables and charts is read on a laptop; phones get the
+        // same content as tables (axe at 360 px is tested by the E2E suite). The budget of 90 stays.
+        name: 'College dashboard',
+        preset: 'desktop',
+        url: `http://e2e-one.localhost:${webPort}/college-dashboard`,
+        cookie,
+      },
+      {
+        // an instructor's offering dashboard (step 12): backlog, funnel, quizzes, activity. DESKTOP preset for the same reason.
+        name: 'Offering dashboard',
+        preset: 'desktop',
+        url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/dashboard`,
+        cookie: teacherCookie,
+      },
+      {
         // a learner's grades: provisional total and the explanation of how it was calculated
         name: 'My grades',
         url: `http://e2e-one.localhost:${webPort}/offerings/${demo.offeringId}/grades`,

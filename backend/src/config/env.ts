@@ -153,6 +153,13 @@ const storageFields = {
   ASSESSMENT_SAVE_GRACE_SECONDS: Type.Integer({ minimum: 0, maximum: 300, default: 30 }),
   ASSESSMENT_SWEEP_SECONDS: Type.Integer({ minimum: 1, maximum: 3600, default: 15 }),
   ASSESSMENT_SWEEP_BATCH: Type.Integer({ minimum: 1, maximum: 1000, default: 200 }),
+  // analytics (step 12): the rollup refresh runs every ANALYTICS_ROLLUP_SECONDS (learners per statement: ANALYTICS_ROLLUP_BATCH); a
+  // month is closed for billing USAGE_CLOSE_INTERVAL_SECONDS after the check finds it ended; USAGE_RENDITION_MIX is the assumed
+  // share of viewing per rendition (JSON) used to estimate the video GB delivered
+  ANALYTICS_ROLLUP_SECONDS: Type.Integer({ minimum: 5, maximum: 3600, default: 300 }),
+  ANALYTICS_ROLLUP_BATCH: Type.Integer({ minimum: 10, maximum: 5000, default: 500 }),
+  USAGE_CLOSE_INTERVAL_SECONDS: Type.Integer({ minimum: 60, maximum: 86400, default: 3600 }),
+  USAGE_RENDITION_MIX: Type.String({ default: '{"360p":0.2,"480p":0.3,"720p":0.5}' }),
   // assignments (step 10): a file upload begun before the due date and handed in within this many minutes counts on time
   ASSIGNMENT_UPLOAD_GRACE_MINUTES: Type.Integer({ minimum: 0, maximum: 120, default: 10 }),
   // deadline fairness under load (core/deadline.ts): the arrival time of a request is believed for at most this long a wait; a

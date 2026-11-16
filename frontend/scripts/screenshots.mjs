@@ -66,6 +66,33 @@ await withStack(
       '',
     ].join('\r\n');
 
+    // analytics (step 12): the demo college flags learners with a pass mark of 100 % (any released score below it), and the worker's
+    // rollup (every 5 s here) must have run before the dashboards are photographed
+    {
+      const host2 = `e2e-one.localhost:${webPort}`;
+      const adm = await request.newContext({
+        baseURL: `http://127.0.0.1:${webPort}/api/`,
+        extraHTTPHeaders: { host: host2, origin: `http://${host2}`, 'x-requested-with': 'lms' },
+      });
+      await must(await adm.post('auth/login', { data: { email: 'admin@e2e-one.test', password } }));
+      await must(
+        await adm.patch('analytics/settings', { data: { atRisk: { passMarkPercent: 100 } } }),
+      );
+      const deadline = Date.now() + 90_000;
+      for (;;) {
+        const r = await must(await adm.get('reports/at-risk'));
+        if (r.asOf && r.rows.some((row) => row.flagged_learners > 0)) break;
+        if (Date.now() > deadline) {
+          console.log(
+            '  (the rollup did not flag anyone in time: the lists are photographed as they are)',
+          );
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+      await adm.dispose();
+    }
+
     const browser = await chromium.launch();
     let reviewUrl = null;
     try {
@@ -153,7 +180,16 @@ await withStack(
               await pg.screenshot({ path: join(OUT, `${name}-${scheme}-${vpName}.png`) });
               console.log(`  ${name}-${scheme}-${vpName}.png`);
             };
-            return { c, pg, snap };
+            // a dashboard is taller than the window: its whole page
+            const snapFull = async (name) => {
+              await pg.waitForTimeout(500);
+              await pg.screenshot({
+                path: join(OUT, `${name}-${scheme}-${vpName}.png`),
+                fullPage: true,
+              });
+              console.log(`  ${name}-${scheme}-${vpName}.png`);
+            };
+            return { c, pg, snap, snapFull };
           };
           {
             const a = await signedIn('admin@e2e-one.test');
@@ -175,6 +211,14 @@ await withStack(
             await a.pg.goto(`${origin('e2e-one')}/gradebooks`);
             await a.pg.getByRole('heading', { name: 'Gradebook approvals' }).waitFor();
             await a.snap('gradebook-approvals');
+            await a.pg.goto(`${origin('e2e-one')}/college-dashboard`);
+            await a.pg.getByRole('heading', { name: 'College dashboard' }).waitFor();
+            await a.pg.getByRole('img', { name: 'Active users on each day' }).waitFor();
+            await a.pg.getByRole('heading', { name: 'Learners flagged by department' }).waitFor();
+            await a.snapFull('dashboard-college');
+            await a.pg.goto(`${origin('e2e-one')}/analytics-settings`);
+            await a.pg.getByRole('heading', { name: 'Analytics settings' }).waitFor();
+            await a.snapFull('analytics-settings');
             await a.c.close();
 
             const t = await signedIn(demo.instructorEmail);
@@ -220,6 +264,8 @@ await withStack(
               .waitFor();
             await l.pg.getByRole('progressbar', { name: /Progress in/ }).waitFor();
             await l.snap('my-courses');
+            await l.pg.getByTestId('learner-dashboard').waitFor();
+            await l.snapFull('dashboard-learner');
             await l.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}`);
             await l.pg.getByText(/Available from/).waitFor();
             await l.snap('course-learner');
@@ -305,6 +351,19 @@ await withStack(
             await t2.pg.getByRole('tab', { name: 'Settings' }).click();
             await t2.pg.getByRole('heading', { name: 'Categories' }).waitFor();
             await t2.snap('gradebook-settings');
+            await t2.pg.goto(`${origin('e2e-one')}/teaching`);
+            await t2.pg.getByRole('heading', { name: 'Teaching' }).waitFor();
+            await t2.pg.getByText('Waiting to be graded').first().waitFor();
+            await t2.snapFull('dashboard-teaching');
+            await t2.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/dashboard`);
+            await t2.pg.getByRole('heading', { name: 'Offering dashboard' }).waitFor();
+            await t2.pg.getByText('Hand-ins waiting for a grade').waitFor();
+            await t2.pg.getByRole('img', { name: /completed every required item/ }).waitFor();
+            await t2.snapFull('dashboard-offering');
+            await t2.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/at-risk`);
+            await t2.pg.getByRole('heading', { name: 'Learners flagged by the rules' }).waitFor();
+            await t2.pg.getByText(/learners? (is|are) flagged|No learner is flagged/).waitFor();
+            await t2.snapFull('at-risk');
             await t2.c.close();
           }
 
@@ -320,6 +379,15 @@ await withStack(
           await p.waitForTimeout(400);
           await p.screenshot({ path: join(OUT, `platform-colleges-${scheme}-${vpName}.png`) });
           console.log(`  platform-colleges-${scheme}-${vpName}.png`);
+          await p.goto(`${origin('admin')}/usage`);
+          await p.getByRole('heading', { name: 'Usage by college' }).waitFor();
+          await p.getByRole('table', { name: /Usage of every college/ }).waitFor();
+          await p.waitForTimeout(500);
+          await p.screenshot({
+            path: join(OUT, `platform-usage-${scheme}-${vpName}.png`),
+            fullPage: true,
+          });
+          console.log(`  platform-usage-${scheme}-${vpName}.png`);
           await pctx.close();
         }
       }

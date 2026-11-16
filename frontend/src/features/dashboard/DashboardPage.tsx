@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { Badge } from '../../shared/ui/layout';
 import { EmptyState, ErrorState, Skeleton } from '../../shared/ui/states';
+import { LearnerDashboardSection } from '../analytics/LearnerDashboardSection';
 import { usePermissions } from '../auth/useMe';
 import { courseKeys, listMyCourses } from '../courses/courses.api';
 import { ProgressBar } from '../progress/ProgressBar';
@@ -113,6 +114,10 @@ export function DashboardPage() {
   ].filter((s) => has(s.perm));
 
   const items = mine.data?.items ?? [];
+  const learns = items.some((o) => o.myParticipation === 'learner');
+  const teaches = items.some(
+    (o) => o.myParticipation === 'instructor' || o.myParticipation === 'assistant',
+  );
   return (
     <div className="space-y-8">
       <h1 className="text-2xl font-semibold">Welcome{me ? `, ${me.user.displayName}` : ''}</h1>
@@ -180,6 +185,24 @@ export function DashboardPage() {
           </ul>
         )}
       </section>
+      {/* below the course list on purpose: it arrives later, and inserting it above would shift the courses */}
+      {learns && <LearnerDashboardSection />}
+      {teaches && (
+        <section aria-labelledby="teaching">
+          <h2 id="teaching" className="mb-3 text-lg font-semibold">
+            Teaching
+          </h2>
+          <Link
+            to={'/teaching' as '/'}
+            className="block rounded-md border border-border bg-surface p-4 hover:bg-muted"
+          >
+            <span className="font-medium">Teaching dashboard</span>
+            <span className="mt-1 block text-sm text-muted-foreground">
+              Grading waiting, progress and flagged learners across your offerings
+            </span>
+          </Link>
+        </section>
+      )}
       {shortcuts.length > 0 && (
         <section aria-labelledby="tools">
           <h2 id="tools" className="mb-3 text-lg font-semibold">

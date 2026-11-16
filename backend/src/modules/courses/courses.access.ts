@@ -27,7 +27,13 @@ export interface AccessSpec {
   accountAllowed: boolean;
   /** Participation types that allow the action (participationsGranting(permission)). */
   allowedBy: readonly ParticipationType[];
-  /** Lock the offering row (mutations). */
+  /**
+   * Lock the offering row (mutations): FOR NO KEY UPDATE, which serialises the mutations of one offering against each
+   * other but NOT against foreign-key checks (FOR KEY SHARE). FOR UPDATE also blocked every insert that references the
+   * offering, and with the rollup refresh (step 12) that closed a deadlock cycle: an edit held the offering and waited
+   * for its change mark, the refresh held the mark and waited for the offering in the FK check of its rollup insert.
+   * No locked statement deletes an offering or changes its key. Tested in analytics.rollup.test.ts.
+   */
   lock?: boolean;
   /** The CTE's name (default `acc`); a statement that checks two offerings names the second one. */
   name?: string;
@@ -52,7 +58,7 @@ export function accessCte(a: AccessSpec): SQL {
            AND p.status = 'active'
          LIMIT 1) mp ON true
      WHERE o.tenant_id = ${a.tenantId}::uuid AND o.id = ${a.offeringId}::uuid
-     ${a.lock ? sql`FOR UPDATE OF o` : sql``})`;
+     ${a.lock ? sql`FOR NO KEY UPDATE OF o` : sql``})`;
 }
 
 /** 404 when the offering is missing or not visible to the caller; 403 when visible but not allowed. */

@@ -16,11 +16,22 @@ export async function deleteTenantCascade(client: pg.Client, tenantId: string): 
     ['gradebook_versions', 'gradebook_versions_immutable'],
     ['gradebook_events', 'gradebook_events_immutable'],
     ['manual_mark_history', 'manual_mark_history_immutable'],
+    ['usage_snapshots', 'usage_snapshots_immutable'],
   ];
   try {
     for (const [table, trigger] of immutable)
       await client.query(`ALTER TABLE lms.${table} DISABLE TRIGGER ${trigger}`);
     for (const table of [
+      'usage_snapshots',
+      'rollup_learner_offering',
+      'rollup_offering_day',
+      'rollup_org_day',
+      'rollup_tenant_day',
+      'rollup_state',
+      'rollup_dirty_participants',
+      'rollup_dirty_offerings',
+      'video_watch_days',
+      'member_activity_days',
       'mark_import_cells',
       'mark_imports',
       'gradebook_snapshot_rows',

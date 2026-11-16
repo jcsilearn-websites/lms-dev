@@ -89,6 +89,8 @@ export async function withStack(fn, { extraMembers = 0 } = {}) {
     // assessments: a short grace after the deadline and a fast sweeper, so the auto-submit test does not wait long
     ASSESSMENT_SAVE_GRACE_SECONDS: '3',
     ASSESSMENT_SWEEP_SECONDS: '2',
+    // analytics (step 12): the rollup refresh every few seconds so the dashboards fill within a test
+    ANALYTICS_ROLLUP_SECONDS: '5',
   };
   const children = [];
   function start(name, cmd, args, shell = isWindows) {

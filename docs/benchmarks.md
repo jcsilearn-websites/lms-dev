@@ -762,3 +762,69 @@ statement timeout 30 s) was cancelled by the timeout in the first compute; five 
 reproduce it, so it is unexplained. That is the reason to keep them as a safety net as well as a 10 % gain: they cost nothing in any state
 and a plan that flips on a college with odd statistics is the failure that matters most for a lock. Nothing was added at the end of the bulk
 import / enrolment paths (no `ANALYZE` was needed to make any state fast). The class targets of Step 11b stay missed (see Step 11b).
+
+## Step 12: dashboards, rollups, at-risk and usage metering
+
+`pnpm --filter @lms/backend run bench:analytics` (BENCH_STUDENTS=10000 BENCH_OFFERINGS=200; `BENCH_KEEP=1` keeps the scratch database,
+`BENCH_STOP=refresh` stops after the first refresh, `BENCH_STRICT=1` exits non-zero above 200 ms). It creates and migrates a SCRATCH
+database (`lms_bench_s12_*`, localhost only, dropped at the end), loads the college set-based, then measures the statements the API runs.
+
+College: 10,000 students, 200 offerings, 50,000 enrolments (250 learners each), 200,000 progress rows, 70,000 submissions (60 % graded and
+released), 40,000 quiz attempts, 400,000 activity days (each student active on ~40 of the last 120 days). Local laptop (2 cores),
+PostgreSQL 17. (a) = freshly loaded, NO statistics; (b) = after `ANALYZE`.
+
+### Rollup refresh
+
+| What                                                                   | (a) no statistics       | (b) analysed            |
+| ---------------------------------------------------------------------- | ----------------------- | ----------------------- |
+| FULL refresh, every learner marked (100 runs of 500)                   | 77.0 s (770 ms per run) | 39.4 s (394 ms per run) |
+| INCREMENTAL, 1 % of learners changed, scattered over all 200 offerings | 8.8 s                   | 7.3 s                   |
+| INCREMENTAL, 10 % changed                                              | 11.5 s                  | -                       |
+| NOTHING changed (clock events + day windows)                           | 95 ms                   | -                       |
+
+The cost of an incremental run is per OFFERING touched (~35-45 ms of execution plus planning of a large statement), not per learner: 1 % of
+learners scattered over every offering is the worst case; five minutes of real activity touches a few dozen offerings. A refresh is bounded
+(500 learners per statement) and a full one is only the first run of a college.
+
+### DB time per dashboard (target <= 200 ms; median of 5)
+
+| Call                                         | (a)          | (b)          |
+| -------------------------------------------- | ------------ | ------------ |
+| learner dashboard                            | 21 ms        | 21 ms        |
+| offering dashboard (250 learners)            | 23 ms        | 23 ms        |
+| teaching dashboard (10 offerings)            | 34 ms        | 34 ms        |
+| at-risk page (50 of 250)                     | 24 ms        | 24 ms        |
+| video drop-off                               | 4 ms         | 4 ms         |
+| active users (DAU / WAU / MAU)               | 41 ms        | 40 ms        |
+| report: activity / resources / gradebooks    | 2-19 ms      | 3-18 ms      |
+| report: organisation by department / section | 146 / 147 ms | 143 / 136 ms |
+| report: course health                        | 62 ms        | 62 ms        |
+| report: grading backlog                      | 179 ms       | 181 ms       |
+| report: learners flagged by department       | 68 ms        | 68 ms        |
+| platform usage (open month, one college)     | 45 ms        | 44 ms        |
+
+### Activity upsert
+
+One `activity_touch` call (autocommit, one statement): median 1.0 ms. 10,000 first-of-day writes on 5 connections: 3.7 s (2,720/s). A
+repeat for the same user and day writes nothing, and the API remembers it per session until the next local midnight: at most ONE write per
+user and day (budget test: the first request of a day adds one background statement, later requests none).
+
+### What the benchmark found (the planner lessons, again)
+
+1. `rollup_tenant_day_apply` with a correlated count per day: a statement timeout (minutes) in state (a). Fix: one aggregation, each source
+   read once (migration 0048).
+2. `atrisk_flags` carried `SET search_path`, and a SQL function with a SET clause is **not inlined**: it computed all 50,000 rows (1.6 s, 3.4 s
+   under RLS) before the offering filter applied. Fix: no SET clause (0049: it is not a definer function and every name is schema-qualified).
+3. After inlining, the planner pulled the settings subquery into the row filter and called `atrisk_settings()` per row (530 ms): `OFFSET 0`
+   makes it a barrier, typed columns are cast once (0051). 530 ms -> 27 ms; the at-risk report 3.4 s -> 68 ms.
+4. JIT compilation cost 3-4x the run time of every rollup sub-call (a college without statistics makes cheap plans look expensive):
+   `jit = off` on the analytics functions (0049).
+5. `enable_nestloop = off` on `rollup_learners_apply` was SLOWER (101 ms vs 43 ms for a 250-learner offering, 91 vs 31 ms for 3 learners):
+   its joins probe unique keys. It was removed there (0050) and kept only where measured neutral (the two day-window functions).
+6. The course-health report with a correlated scan per offering took 1.1 s; aggregated once per offering, 62 ms.
+
+### Open
+
+The full refresh of a brand-new college (77 s for 50,000 enrolments) and the per-offering cost of a scattered incremental run are the
+figures to improve; the next step would be to skip the per-offering fixed work (two whole-offering score functions) for runs that touch only
+a few learners. Everything a person waits for is under 200 ms.

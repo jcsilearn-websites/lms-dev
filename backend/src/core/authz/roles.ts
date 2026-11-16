@@ -10,6 +10,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'platform.tenant.manage',
     'platform.audit.read',
     'platform.user.unlock',
+    'platform.usage.read',
   ]),
   // tenant host only. content.view is read-only access to every course of the tenant; editing,
   // publishing, assessments and grading need a course participation.
@@ -37,6 +38,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'gradebook.read',
     'gradebook.approve',
     'gradescale.manage',
+    'atrisk.view',
     'academic.read',
     'academic.manage',
     'profile.read_own',
@@ -73,6 +75,7 @@ export const PARTICIPATION_PERMISSIONS: Readonly<
     'gradebook.manage',
     'gradebook.enter_marks',
     'gradebook.override',
+    'atrisk.view',
   ]),
   assistant: new Set<Permission>([
     'content.view',
@@ -83,6 +86,7 @@ export const PARTICIPATION_PERMISSIONS: Readonly<
     'submission.grade',
     'gradebook.read',
     'gradebook.enter_marks',
+    'atrisk.view',
   ]),
   // grade.view_own additionally requires resource.ownerUserId === the caller (see policy.ts)
   learner: new Set<Permission>([

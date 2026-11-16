@@ -44,12 +44,14 @@ export const PERMISSION_GROUPS = {
     'gradebook.override',
     'gradebook.approve',
     'gradescale.manage',
+    'atrisk.view',
   ],
   platform: [
     'platform.tenant.read',
     'platform.tenant.manage',
     'platform.audit.read',
     'platform.user.unlock',
+    'platform.usage.read',
   ],
 } as const;
 
@@ -115,6 +117,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
   'gradebook.approve':
     'Approve or return a submitted gradebook, unlock a locked one (with a reason), see the approval queue',
   'gradescale.manage': 'Create, change and archive the college grade scales',
+  'atrisk.view':
+    'See which learners are flagged by the at-risk rules (and why) in an offering: instructors, assistants, institution admins',
   'assessment.create': 'Build assessments, set accommodations',
   'submission.create': 'Take assessments (start, answer and submit attempts)',
   'submission.grade': 'Grade answers and see attempts (instructors and assistants)',
@@ -124,4 +128,5 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
   'platform.tenant.manage': 'Create, rename, suspend colleges and invite their admins',
   'platform.audit.read': 'Read the platform audit log',
   'platform.user.unlock': 'Clear a login lockout (admin host)',
+  'platform.usage.read': 'Read the monthly usage of every college (aggregates only, admin host)',
 };

@@ -61,13 +61,15 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `gradebook.override` |  |  |  | yes |  |  | Override the mark of one learner in an item or the final, with a reason |
 | `gradebook.approve` |  | yes |  |  |  |  | Approve or return a submitted gradebook, unlock a locked one (with a reason), see the approval queue |
 | `gradescale.manage` |  | yes |  |  |  |  | Create, change and archive the college grade scales |
+| `atrisk.view` |  | yes |  | yes | yes |  | See which learners are flagged by the at-risk rules (and why) in an offering: instructors, assistants, institution admins |
 | **platform** | | | | | | | |
 | `platform.tenant.read` | yes |  |  |  |  |  | View colleges and (audited) their members |
 | `platform.tenant.manage` | yes |  |  |  |  |  | Create, rename, suspend colleges and invite their admins |
 | `platform.audit.read` | yes |  |  |  |  |  | Read the platform audit log |
 | `platform.user.unlock` | yes |  |  |  |  |  | Clear a login lockout (admin host) |
+| `platform.usage.read` | yes |  |  |  |  |  | Read the monthly usage of every college (aggregates only, admin host) |
 
-47 permissions. Notes:
+49 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
 - "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
@@ -87,6 +89,8 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/academic-years/:id/archive` | `academic.manage` |
 | POST | `/api/academic-years/:id/set-current` | `academic.manage` |
 | POST | `/api/academic-years/:id/unarchive` | `academic.manage` |
+| GET | `/api/analytics/settings` | `report.view` |
+| PATCH | `/api/analytics/settings` | `tenant.manage` |
 | GET | `/api/audit` | `audit.read` |
 | POST | `/api/auth/invites` | `member.invite` |
 | POST | `/api/auth/invites/accept` | public |
@@ -158,8 +162,10 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/imports/templates/faculty.csv` | `import.run` |
 | GET | `/api/imports/templates/students.csv` | `import.run` |
 | GET | `/api/me/courses` | any signed-in user |
+| GET | `/api/me/dashboard` | any signed-in user |
 | GET | `/api/me/profile` | `profile.read_own` |
 | GET | `/api/me/progress` | any signed-in user |
+| GET | `/api/me/teaching/dashboard` | any signed-in user |
 | GET | `/api/members` | `member.read` |
 | DELETE | `/api/members/:userId` | `member.remove` |
 | GET | `/api/members/:userId` | `member.read` |
@@ -175,6 +181,9 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/offerings/:id` | `content.view` in the offering |
 | PATCH | `/api/offerings/:id` | `offering.manage` in the offering |
 | POST | `/api/offerings/:id/archive` | `offering.manage` in the offering |
+| GET | `/api/offerings/:id/at-risk` | `atrisk.view` in the offering |
+| GET | `/api/offerings/:id/at-risk.csv` | `atrisk.view` in the offering |
+| GET | `/api/offerings/:id/at-risk.xlsx` | `atrisk.view` in the offering |
 | GET | `/api/offerings/:id/attempts/:attemptId` | `submission.create` in the offering |
 | PUT | `/api/offerings/:id/attempts/:attemptId/answers` | `submission.create` in the offering |
 | PUT | `/api/offerings/:id/attempts/:attemptId/feedback` | `submission.grade` in the offering |
@@ -185,6 +194,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/offerings/:id/attempts/:attemptId/submit` | `submission.create` in the offering |
 | POST | `/api/offerings/:id/copy` | `course.publish` in the offering |
 | GET | `/api/offerings/:id/copy-preview` | `course.publish` in the offering |
+| GET | `/api/offerings/:id/dashboard` | `progress.view_class` in the offering |
 | POST | `/api/offerings/:id/files` | `course.edit` in the offering |
 | GET | `/api/offerings/:id/gradebook` | `gradebook.read` in the offering |
 | POST | `/api/offerings/:id/gradebook/approve` | `gradebook.approve` in the offering |
@@ -273,6 +283,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | DELETE | `/api/offerings/:id/sections/:sectionId` | `offering.manage` in the offering |
 | POST | `/api/offerings/:id/unpublish` | `course.publish` in the offering |
 | POST | `/api/offerings/:id/videos` | `course.edit` in the offering |
+| GET | `/api/offerings/:id/videos/:itemId/engagement` | `progress.view_class` in the offering |
 | DELETE | `/api/offerings/:id/videos/:videoId` | `course.edit` in the offering |
 | GET | `/api/offerings/:id/videos/:videoId` | `course.edit` in the offering |
 | POST | `/api/offerings/:id/videos/:videoId/captions` | `course.edit` in the offering |
@@ -289,6 +300,8 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/platform/tenants/:id/members` | `platform.tenant.read` |
 | POST | `/api/platform/tenants/:id/reactivate` | `platform.tenant.manage` |
 | POST | `/api/platform/tenants/:id/suspend` | `platform.tenant.manage` |
+| GET | `/api/platform/usage` | `platform.usage.read` |
+| GET | `/api/platform/usage/export` | `platform.usage.read` |
 | GET | `/api/programs` | `academic.read` |
 | POST | `/api/programs` | `academic.manage` |
 | DELETE | `/api/programs/:id` | `academic.manage` |
@@ -296,6 +309,9 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | PATCH | `/api/programs/:id` | `academic.manage` |
 | POST | `/api/programs/:id/archive` | `academic.manage` |
 | POST | `/api/programs/:id/unarchive` | `academic.manage` |
+| GET | `/api/reports/:table` | `report.view` |
+| GET | `/api/reports/:table/export` | `report.view` |
+| GET | `/api/reports/active-users` | `report.view` |
 | GET | `/api/sections` | `academic.read` |
 | POST | `/api/sections` | `academic.manage` |
 | DELETE | `/api/sections/:id` | `academic.manage` |

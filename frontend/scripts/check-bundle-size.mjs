@@ -243,6 +243,34 @@ if (json) {
     );
   }
 }
+// ---- the dashboard charts (hand-written SVG, step 12) are loaded only by the analytics pages
+//   The learner's dashboard lives in the HOME page: it must stay light, so no file the login page or the home page loads
+//   (statically) may contain the chart code. The chart code is found by its own text ("Show as table" is in ChartFrame); the
+//   college / offering / platform dashboards are separate lazy routes, so only they carry it.
+const CHART_MARKER = 'Show as table';
+const chartFiles = [...new Set(allJsFiles())].filter((f) =>
+  readFileSync(join(DIST, f), 'utf8').includes(CHART_MARKER),
+);
+let chartReport = null;
+if (chartFiles.length === 0) {
+  failures.push('the chart code (ChartFrame, "Show as table") is not in the build');
+} else {
+  const homeKey = Object.keys(manifest).find((k) => /dashboard\/DashboardPage\.tsx$/.test(k));
+  const homeFiles = homeKey ? filesOf(staticGraph(homeKey)) : [];
+  for (const f of chartFiles) {
+    if (loginFiles.includes(f)) failures.push(`the login page loads chart code: ${f}`);
+    if (homeFiles.includes(f))
+      failures.push(`the home page (learner dashboard) loads chart code: ${f}`);
+  }
+  const homeOnly = total(homeFiles.filter((f) => !loginFiles.includes(f)));
+  chartReport = { home: Number(kb(homeOnly).toFixed(1)), files: chartFiles };
+}
+if (!json && chartReport)
+  console.log(
+    `
+Charts live in: ${chartReport.files.join(', ')}; the home page (with the learner dashboard) loads ${chartReport.home} KB gzip beyond the login page and no chart code`,
+  );
+
 if (failures.length > 0) {
   console.error(`\nBUNDLE BUDGET EXCEEDED:\n  - ${failures.join('\n  - ')}`);
   process.exit(1);

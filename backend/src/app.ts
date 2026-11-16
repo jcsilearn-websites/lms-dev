@@ -19,6 +19,7 @@ import { createBadSessionLimiter, registerSecurity } from './core/security';
 import { registerUploads } from './core/uploads';
 import type { Database } from './db/client';
 import { createAcademicsRoutes } from './modules/academics';
+import { createAnalyticsRoutes } from './modules/analytics';
 import { createAssessmentsRoutes } from './modules/assessments';
 import { createAssignmentsRoutes } from './modules/assignments';
 import { createAuditRoutes } from './modules/audit';
@@ -36,6 +37,7 @@ import { createQuestionsRoutes } from './modules/questions';
 import { createRubricsRoutes } from './modules/rubrics';
 import { createSessionsRoutes } from './modules/sessions';
 import { createTenantsRoutes } from './modules/tenants';
+import { createUsageRoutes } from './modules/usage';
 import { createUsersRoutes } from './modules/users';
 import { createPlaybackRoutes, createVideoRoutes, createVideoUploadRoutes } from './modules/video';
 
@@ -100,6 +102,14 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
     cookieName: modules.config.cookie.name,
   });
   registerRoutePolicy(app);
+  // Activity (one write per user and local day): recorded AFTER the response, so a request never waits for it. Polling and
+  // media-segment requests do not count as a person being active.
+  app.addHook('onResponse', async (request, reply) => {
+    const auth = request.auth;
+    if (!auth?.tenantId || reply.statusCode >= 400) return;
+    if (/^(\/api)?\/(auth\/me|health|video\/play|storage)(\/|\?|$)/.test(request.url)) return;
+    modules.analytics.service.noteActivity(auth);
+  });
   registerOpenApi(app, env);
 
   // background work (failed-login bookkeeping, reset emails) is awaited on shutdown
@@ -128,6 +138,10 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
       void api.register(createContentRoutes({ contentController: modules.content.controller }));
       void api.register(createFilesRoutes({ filesController: modules.files.controller }));
       void api.register(createProgressRoutes({ progressController: modules.progress.controller }));
+      void api.register(
+        createAnalyticsRoutes({ analyticsController: modules.analytics.controller }),
+      );
+      void api.register(createUsageRoutes({ usageController: modules.usage.controller }));
       void api.register(
         createAssessmentsRoutes({ assessmentsController: modules.assessments.controller }),
       );

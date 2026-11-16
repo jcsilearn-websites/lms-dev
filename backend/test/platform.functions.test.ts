@@ -35,6 +35,7 @@ const PLATFORM_FUNCTIONS = [
   'platform_admin_invite',
   'platform_create_tenant',
   'platform_get_tenant',
+  'platform_usage',
   'platform_list_audit',
   'platform_list_audit_v2',
   'platform_list_tenants',

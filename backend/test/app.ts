@@ -52,10 +52,15 @@ export function statementCounter() {
     reset: () => {
       statements = [];
     },
+    // The budgets of steps 1-11 are steady-state budgets: the ONE background `activity_touch` of a user's first request of the day
+    // (step 12, at most once per user and local day) is not part of them. `raw` has everything; the activity budget test uses it.
     get count() {
-      return statements.length;
+      return statements.filter((s) => !s.includes('lms.activity_touch')).length;
     },
     get statements() {
+      return statements.filter((s) => !s.includes('lms.activity_touch'));
+    },
+    get raw() {
       return [...statements];
     },
   };

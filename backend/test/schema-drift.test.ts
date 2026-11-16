@@ -10,6 +10,18 @@ import {
   terms,
 } from '../src/modules/academics/academics.model';
 import {
+  memberActivityDays,
+  rollupDirtyOfferings,
+  rollupDirtyParticipants,
+  rollupLearnerOffering,
+  rollupOfferingDay,
+  rollupOrgDay,
+  rollupState,
+  rollupTenantDay,
+  usageSnapshots,
+  videoWatchDays,
+} from '../src/modules/analytics/analytics.model';
+import {
   assessmentAccommodations,
   assessmentSlots,
   assessments,
@@ -171,6 +183,16 @@ const schema = {
   gradebookSnapshotRows,
   markImports,
   markImportCells,
+  memberActivityDays,
+  videoWatchDays,
+  rollupDirtyParticipants,
+  rollupDirtyOfferings,
+  rollupLearnerOffering,
+  rollupOfferingDay,
+  rollupOrgDay,
+  rollupTenantDay,
+  rollupState,
+  usageSnapshots,
 };
 
 import { testOwnerPool } from './support';

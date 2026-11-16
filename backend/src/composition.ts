@@ -37,6 +37,12 @@ import {
   createAcademicsService,
 } from './modules/academics';
 import {
+  createAnalyticsController,
+  createAnalyticsHandlers,
+  createAnalyticsRepository,
+  createAnalyticsService,
+} from './modules/analytics';
+import {
   createAssessmentsController,
   createAssessmentsHandlers,
   createAssessmentsRepository,
@@ -153,6 +159,13 @@ import {
   type TenantCacheOptions,
 } from './modules/tenants';
 import {
+  createUsageController,
+  createUsageHandlers,
+  createUsageRepository,
+  createUsageService,
+  parseRenditionMix,
+} from './modules/usage';
+import {
   createUsersController,
   createUsersHandlers,
   createUsersRepository,
@@ -182,6 +195,7 @@ export interface ModulesConfig {
   storage: StorageConfig;
   assessments: AssessmentsModuleConfig;
   assignments: AssignmentsModuleConfig;
+  analytics: AnalyticsModuleConfig;
   video: VideoModuleConfig;
   /** port of the web app for links in queued emails (development only) */
   publicPort: number | undefined;
@@ -198,6 +212,14 @@ export interface StorageConfig {
   urlTtlSeconds: number;
   purgeGraceHours: number;
   purgeEveryMs: number;
+}
+
+export interface AnalyticsModuleConfig {
+  rollupEveryMs: number;
+  rollupBatch: number;
+  usageCloseEveryMs: number;
+  /** assumed share of viewing per rendition, e.g. {"360p":0.2,...} */
+  renditionMix: Record<string, number>;
 }
 
 export interface AssignmentsModuleConfig {
@@ -285,6 +307,10 @@ export function modulesConfigFromEnv(
     | 'ASSESSMENT_SAVE_GRACE_SECONDS'
     | 'ASSESSMENT_SWEEP_SECONDS'
     | 'ASSESSMENT_SWEEP_BATCH'
+    | 'ANALYTICS_ROLLUP_SECONDS'
+    | 'ANALYTICS_ROLLUP_BATCH'
+    | 'USAGE_CLOSE_INTERVAL_SECONDS'
+    | 'USAGE_RENDITION_MIX'
     | 'ASSIGNMENT_UPLOAD_GRACE_MINUTES'
     | 'VIDEO_PROVIDER'
     | 'VIDEO_SIGNING_SECRET'
@@ -367,6 +393,12 @@ export function modulesConfigFromEnv(
       sweepBatch: env.ASSESSMENT_SWEEP_BATCH,
     },
     assignments: { graceSeconds: env.ASSIGNMENT_UPLOAD_GRACE_MINUTES * 60 },
+    analytics: {
+      rollupEveryMs: env.ANALYTICS_ROLLUP_SECONDS * 1000,
+      rollupBatch: env.ANALYTICS_ROLLUP_BATCH,
+      usageCloseEveryMs: env.USAGE_CLOSE_INTERVAL_SECONDS * 1000,
+      renditionMix: parseRenditionMix(env.USAGE_RENDITION_MIX),
+    },
     video: {
       provider: env.VIDEO_PROVIDER,
       signingSecret: env.VIDEO_SIGNING_SECRET,
@@ -544,6 +576,17 @@ export function createModules(db: Database, config: ModulesConfig) {
   });
   const coursesService = createCoursesService({ db, coursesRepo: createCoursesRepository() });
   const progressService = createProgressService({ db, progressRepo: createProgressRepository() });
+  const analyticsService = createAnalyticsService({
+    db,
+    analyticsRepo: createAnalyticsRepository(),
+    background,
+    config: { csvPage: 100, activityCacheMax: 50_000, rollupBatch: config.analytics.rollupBatch },
+  });
+  const usageService = createUsageService({
+    db,
+    usageRepo: createUsageRepository(),
+    config: { renditionMix: config.analytics.renditionMix },
+  });
   const assessmentsService = createAssessmentsService({
     db,
     assessmentsRepo: createAssessmentsRepository(),
@@ -588,6 +631,14 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createImportsHandlers({ importsService, purge: config.purge }),
     ...createContentHandlers({ contentService }),
     ...createProgressHandlers(),
+    ...createAnalyticsHandlers({
+      analyticsService,
+      refresh: { everyMs: config.analytics.rollupEveryMs },
+    }),
+    ...createUsageHandlers({
+      usageService,
+      close: { everyMs: config.analytics.usageCloseEveryMs },
+    }),
     ...createQuestionsHandlers({
       questionsService,
       purge: { everyMs: config.storage.purgeEveryMs },
@@ -650,6 +701,11 @@ export function createModules(db: Database, config: ModulesConfig) {
       service: questionsService,
       controller: createQuestionsController({ questionsService, filesService }),
     },
+    analytics: {
+      service: analyticsService,
+      controller: createAnalyticsController({ analyticsService }),
+    },
+    usage: { service: usageService, controller: createUsageController({ usageService }) },
     progress: {
       service: progressService,
       controller: createProgressController({ progressService }),

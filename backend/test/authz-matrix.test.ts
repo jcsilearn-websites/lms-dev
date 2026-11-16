@@ -360,6 +360,22 @@ const ROWS: Row[] = [
   tenantPerm('POST', '/grade-scales', 400, {}),
   tenantPerm('PUT', `/grade-scales/${U}`, 400, {}),
   tenantPerm('PATCH', `/grade-scales/${U}`, 404, { archived: true }),
+  // ---- dashboards, reports, at-risk and usage (step 12)
+  memberOnly('GET', '/me/dashboard', 200),
+  memberOnly('GET', '/me/teaching/dashboard', 200),
+  offeringScoped('GET', `/offerings/${U}/dashboard`, 404),
+  offeringScoped('GET', `/offerings/${U}/videos/${U}/engagement`, 404),
+  offeringScoped('GET', `/offerings/${U}/at-risk`, 404),
+  offeringScoped('GET', `/offerings/${U}/at-risk.csv`, 404),
+  offeringScoped('GET', `/offerings/${U}/at-risk.xlsx`, 404),
+  tenantPerm('GET', '/analytics/settings', 200),
+  tenantPerm('PATCH', '/analytics/settings', 200, {}),
+  tenantPerm('GET', '/reports/active-users', 200),
+  // course health ("Needs attention"): institution admins only, behind a college setting; the route key above covers the pattern
+  tenantPerm('GET', `/reports/${U}`, 400),
+  tenantPerm('GET', `/reports/${U}/export`, 400),
+  platformPerm('GET', '/platform/usage', 200),
+  platformPerm('GET', '/platform/usage/export', 400),
   // the local video provider's playback files: the token in the path is the credential, the session says who
   // asks; a made-up token is 403 for every signed-in caller (on the admin host a platform admin has no college)
   {

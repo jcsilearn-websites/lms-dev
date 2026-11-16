@@ -184,6 +184,38 @@ async function once<T>(path: string, opts: ApiOptions): Promise<T> {
   throw err;
 }
 
+/** Downloads any file (XLSX included) as bytes; the file name is chosen here, not by the server. */
+export async function downloadFile(path: string, fileName: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      credentials: 'include',
+      headers: { 'x-requested-with': 'lms' },
+    });
+  } catch {
+    throw new ApiError(0, 'network_error', 'Cannot reach the server');
+  }
+  if (!res.ok) {
+    const parsed: unknown = await res.json().catch(() => null);
+    if (isErrorBody(parsed))
+      throw new ApiError(
+        res.status,
+        parsed.error.code,
+        parsed.error.message,
+        parsed.error.requestId,
+      );
+    throw new ApiError(res.status, 'unknown_error', res.statusText || 'Request failed');
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = fileName;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 /** Downloads a text/CSV response as a file in the browser (credentials included). */
 export async function download(path: string, fileName: string): Promise<void> {
   const text = await api<string>(path);

@@ -293,6 +293,34 @@ const gradeScalesRoute = child(
   lazyPage(() => import('../features/gradebook/GradeScalesPage'), 'GradeScalesPage'),
   'gradescale.manage',
 );
+// analytics (step 12): every dashboard is its own lazy chunk (the learner's lives in the home page and loads no chart code)
+const teachingRoute = child(
+  '/teaching',
+  lazyPage(() => import('../features/analytics/TeachingDashboardPage'), 'TeachingDashboardPage'),
+);
+const offeringDashboardRoute = child(
+  '/offerings/$id/dashboard',
+  lazyPage(() => import('../features/analytics/OfferingDashboardPage'), 'OfferingDashboardPage'),
+);
+const atRiskRoute = child(
+  '/offerings/$id/at-risk',
+  lazyPage(() => import('../features/analytics/AtRiskPage'), 'AtRiskPage'),
+);
+const collegeDashboardRoute = child(
+  '/college-dashboard',
+  lazyPage(() => import('../features/analytics/AdminDashboardPage'), 'AdminDashboardPage'),
+  'report.view',
+);
+const analyticsSettingsRoute = child(
+  '/analytics-settings',
+  lazyPage(() => import('../features/analytics/AnalyticsSettingsPage'), 'AnalyticsSettingsPage'),
+  'tenant.manage',
+);
+const usageRoute = child(
+  '/usage',
+  lazyPage(() => import('../features/analytics/PlatformUsagePage'), 'PlatformUsagePage'),
+  'platform.usage.read',
+);
 const bankRoute = child(
   '/courses/$courseId/questions',
   lazyPage(() => import('../features/assessments/bank/BankPage'), 'BankPage'),
@@ -348,7 +376,7 @@ const publicRoutes = [loginRoute, forgotRoute, resetRoute, acceptRoute];
 function buildRouteTree() {
   const children =
     hostKind === 'admin'
-      ? [platformHomeRoute, collegesRoute, collegeRoute, platformAuditRoute]
+      ? [platformHomeRoute, collegesRoute, collegeRoute, usageRoute, platformAuditRoute]
       : [
           homeRoute,
           meRoute,
@@ -367,6 +395,11 @@ function buildRouteTree() {
           gradingRoute,
           assignmentBuilderRoute,
           gradebookRoute,
+          teachingRoute,
+          offeringDashboardRoute,
+          atRiskRoute,
+          collegeDashboardRoute,
+          analyticsSettingsRoute,
           myGradesRoute,
           approvalsRoute,
           gradeScalesRoute,
