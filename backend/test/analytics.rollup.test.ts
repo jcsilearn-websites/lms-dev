@@ -562,6 +562,8 @@ describe('rollups equal a direct computation from the source tables', () => {
       pids[0],
     ]);
     // marks exist now; a run with batch 0 recomputes nobody, so as_of must stay before the run time
+    // (a few ms later: both are compared in whole milliseconds, and a fast machine can land in the same one)
+    await new Promise((r) => setTimeout(r, 15));
     await owner.query('SELECT lms.rollup_run_tenant($1, now(), 0)', [A.tenantId]);
     const s2 = (
       await q(

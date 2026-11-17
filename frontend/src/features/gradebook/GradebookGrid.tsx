@@ -423,7 +423,6 @@ export function GradebookGrid(props: GradebookGridProps) {
                     aria-colindex={v.index + 2}
                     aria-selected={selected}
                     aria-readonly={!col.editable || undefined}
-                    aria-label={`${row.name}, ${col.kind === 'item' ? (itemTitle.get(col.itemId ?? '') ?? col.header) : col.header}: ${t.label}`}
                     tabIndex={-1}
                     onMouseDown={() => {
                       setSel({ row: vr.index, col: v.index });
@@ -475,7 +474,12 @@ export function GradebookGrid(props: GradebookGridProps) {
                         className="h-full w-full bg-surface text-right text-foreground outline-none"
                       />
                     ) : (
-                      t.text
+                      // The accessible name comes from the CONTENT (no aria-label: axe label-content-name-mismatch): the
+                      // learner and column in words, the short visible text hidden, then the same value spelled out.
+                      <>
+                        <span className="sr-only">{`${row.name}, ${col.kind === 'item' ? (itemTitle.get(col.itemId ?? '') ?? col.header) : col.header}: ${t.label}`}</span>
+                        <span aria-hidden="true">{t.text}</span>
+                      </>
                     )}
                   </div>
                 );

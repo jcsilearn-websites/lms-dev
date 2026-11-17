@@ -130,7 +130,7 @@ function setup(over: Partial<GradebookGridProps> = {}) {
 }
 const selected = () =>
   screen.getAllByRole('gridcell').filter((c) => c.getAttribute('aria-selected') === 'true');
-const label = () => selected()[0]?.getAttribute('aria-label') ?? '';
+const label = () => selected()[0]?.querySelector('.sr-only')?.textContent ?? '';
 
 describe('GradebookGrid', () => {
   it('is an ARIA grid: one tab stop, column headers, row headers (the learner), labelled cells', () => {
@@ -153,6 +153,16 @@ describe('GradebookGrid', () => {
       'aria-readonly',
       'true',
     );
+  });
+
+  it('names cells from their content, never with an aria-label that hides the visible text (axe label-content-name-mismatch)', () => {
+    setup();
+    for (const cell of screen.getAllByRole('gridcell')) {
+      expect(cell).not.toHaveAttribute('aria-label');
+    }
+    // the short visible marker ("wait", "—", "✎") is hidden; the spelled-out value carries the name
+    const chitra = screen.getByRole('gridcell', { name: /Chitra, Test 1: 45, adjusted/ });
+    expect(chitra.querySelector('[aria-hidden="true"]')?.textContent).toBe('45 ✎');
   });
 
   it('arrow keys, Home / End and Ctrl+Home / End move the selection like a spreadsheet', async () => {
