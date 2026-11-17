@@ -14,6 +14,7 @@ export const PERMISSION_GROUPS = {
   academic: ['academic.read', 'academic.manage'],
   profile: ['profile.read_own', 'profile.manage'],
   import: ['import.run'],
+  notification: ['notification.settings.manage', 'email.suppression.manage'],
   course: [
     'course.read',
     'course.create',
@@ -52,6 +53,7 @@ export const PERMISSION_GROUPS = {
     'platform.audit.read',
     'platform.user.unlock',
     'platform.usage.read',
+    'platform.email.manage',
   ],
 } as const;
 
@@ -129,4 +131,9 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
   'platform.audit.read': 'Read the platform audit log',
   'platform.user.unlock': 'Clear a login lockout (admin host)',
   'platform.usage.read': 'Read the monthly usage of every college (aggregates only, admin host)',
+  'platform.email.manage':
+    "Manage email delivery: clear any suppressed address, set a college's verified From address (admin host)",
+  'notification.settings.manage':
+    "Set the college's notification defaults, quiet hours, digest hour and email sender name",
+  'email.suppression.manage': "See and clear bouncing email addresses of the college's members",
 };

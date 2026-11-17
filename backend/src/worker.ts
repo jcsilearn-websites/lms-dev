@@ -75,6 +75,8 @@ export async function startWorker(env: WorkerEnv, logger: Logger): Promise<Worke
         logger.info('worker stopping');
         await scheduler.stop(); // no more scheduled enqueues
         await runner.stop(); // in-flight jobs finish within the grace period, the rest is released
+        // the SMTP provider keeps a small connection pool: close it (other providers have nothing to close)
+        (modules.email.provider as { close?: () => void }).close?.();
         await db.close();
         logger.info('worker stopped');
       })();

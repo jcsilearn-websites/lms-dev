@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { makeApp, type TestApp } from './app';
-import { lastTokenFor, TestClient } from './client';
+import { deliverEmails, lastTokenFor, TestClient } from './client';
 import { addMember } from './fixtures';
 import { createAuthFixture, createPlatformAdmin, TEST_PASSWORD, testOwnerPool } from './support';
 
@@ -65,9 +65,10 @@ describe('POST /platform/tenants', () => {
     expect(created.adminInvite.outcome).toBe('invited');
 
     // the invite goes to the first admin, with a link on the NEW college's own host
+    await deliverEmails(t);
     const mail = t.mailer.sent.filter((m) => m.to === created.adminEmail).at(-1);
     expect(mail?.text).toContain(`http://${slug}.localhost`);
-    const token = lastTokenFor(t, created.adminEmail);
+    const token = await lastTokenFor(t, created.adminEmail);
 
     const host = `${slug}.localhost`;
     const first = new TestClient(t, host);
@@ -230,7 +231,7 @@ describe('suspend / reactivate a college', () => {
 describe('POST /platform/tenants/:id/admin-invite', () => {
   it('invites a new institution admin (first invite expired / college lost its admin), audited in both logs', async () => {
     const c = await createTenant(uniq('pt-inv'));
-    const oldToken = lastTokenFor(t, c.adminEmail);
+    const oldToken = await lastTokenFor(t, c.adminEmail);
     const email = `second@${c.tenant.slug}.test`;
 
     const res = await root.post(`/platform/tenants/${c.tenant.id}/admin-invite`, {
@@ -239,7 +240,7 @@ describe('POST /platform/tenants/:id/admin-invite', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json().outcome).toBe('invited');
-    const token = lastTokenFor(t, email);
+    const token = await lastTokenFor(t, email);
 
     // both logs
     expect(
@@ -260,7 +261,7 @@ describe('POST /platform/tenants/:id/admin-invite', () => {
       email,
       displayName: 'Second Admin',
     });
-    const newer = lastTokenFor(t, email);
+    const newer = await lastTokenFor(t, email);
     expect(newer).not.toBe(token);
     const host = new TestClient(t, `${c.tenant.slug}.localhost`);
     expect(
@@ -312,6 +313,7 @@ describe('POST /platform/tenants/:id/admin-invite', () => {
     expect(res.statusCode).toBe(201);
     expect(res.json().outcome).toBe('promoted');
     // (a) the member is told, by email, without any link or token
+    await deliverEmails(t);
     const note = t.mailer.sent.filter((m) => m.to === f.memberEmail).at(-1);
     expect(note?.subject).toBe(`You are now an institution admin of Tenant ${f.slug}`);
     expect(note?.text).toContain('signed out');
@@ -329,6 +331,7 @@ describe('POST /platform/tenants/:id/admin-invite', () => {
       displayName: 'Member',
     });
     expect(again.statusCode).toBe(409);
+    await deliverEmails(t);
     expect(t.mailer.sent.length).toBe(mailsBefore);
 
     const s = await addMember(owner, f.tenantId, `${uniq('susp')}@pt.test`, {
@@ -340,6 +343,7 @@ describe('POST /platform/tenants/:id/admin-invite', () => {
     });
     expect(refused.statusCode).toBe(409);
     expect(refused.json().error.code).toBe('member_suspended');
+    await deliverEmails(t);
     expect(t.mailer.sent.length).toBe(mailsBefore); // no notification for a refused promotion
 
     expect(

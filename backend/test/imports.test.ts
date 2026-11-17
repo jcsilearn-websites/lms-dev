@@ -601,13 +601,14 @@ describe('processing', () => {
     const times = queued.rows.map((r) => new Date(r.run_at).getTime());
     expect((times[2] ?? 0) - (times[0] ?? 0)).toBeGreaterThanOrEqual(350);
 
-    const inviter = startRunner(t, { queues: ['invites.send'] });
+    // invites.send queues the email in the outbox; email.send delivers it
+    const inviter = startRunner(t, { queues: ['invites.send', 'email.send'] });
     await waitFor(() => t.mailer.sent.filter((x) => x.to.endsWith('@im-p.test')).length === 3);
     await inviter.stop();
     const link = t.mailer.sent.find((x) => x.to === 'p1@im-p.test');
     expect(link?.text).toContain(`http://${A.host}`);
     // and the invite works: the member sets a password and signs in
-    const token = lastTokenFor(t, 'p1@im-p.test');
+    const token = await lastTokenFor(t, 'p1@im-p.test');
     const fresh = new TestClient(t, A.host);
     expect(
       (await fresh.post('/auth/invites/accept', { token, password: TEST_PASSWORD })).statusCode,

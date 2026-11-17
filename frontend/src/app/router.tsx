@@ -75,6 +75,18 @@ const acceptRoute = createRoute({
   ),
 });
 
+// the page behind an email's "stop emails about ..." link: public, the signed token decides (opening it changes nothing)
+const unsubscribeRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/unsubscribe',
+  validateSearch: (s: Record<string, unknown>): { t?: string } =>
+    typeof s.t === 'string' ? { t: s.t } : {},
+  component: lazyRouteComponent(
+    () => import('../features/notifications/UnsubscribePage'),
+    'UnsubscribePage',
+  ),
+});
+
 // ---- signed-in frame
 const appRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -351,6 +363,35 @@ const settingsRoute = child(
   'tenant.manage',
 );
 
+// ---- notifications (step 13): the list on both hosts, preferences for members, settings and suppressions for admins
+const notificationsRoute = child(
+  '/notifications',
+  lazyPage(() => import('../features/notifications/NotificationsPage'), 'NotificationsPage'),
+);
+const myNotificationsRoute = child(
+  '/me/notifications',
+  lazyPage(
+    () => import('../features/notifications/NotificationPreferencesPage'),
+    'NotificationPreferencesPage',
+  ),
+);
+const notificationSettingsRoute = child(
+  '/settings/notifications',
+  lazyPage(
+    () => import('../features/notifications/NotificationSettingsPage'),
+    'NotificationSettingsPage',
+  ),
+  'notification.settings.manage',
+);
+const emailSuppressionsRoute = child(
+  '/settings/email',
+  lazyPage(
+    () => import('../features/notifications/EmailSuppressionsPage'),
+    'EmailSuppressionsPage',
+  ),
+  'email.suppression.manage',
+);
+
 const collegesRoute = child(
   '/colleges',
   lazyPage(() => import('../features/platform/CollegesPage'), 'CollegesPage'),
@@ -367,7 +408,7 @@ const platformAuditRoute = child(
   'platform.audit.read',
 );
 
-const publicRoutes = [loginRoute, forgotRoute, resetRoute, acceptRoute];
+const publicRoutes = [loginRoute, forgotRoute, resetRoute, acceptRoute, unsubscribeRoute];
 
 /**
  * ONE tree per host kind. addChildren() mutates the route objects it is called on, so the two trees
@@ -376,7 +417,14 @@ const publicRoutes = [loginRoute, forgotRoute, resetRoute, acceptRoute];
 function buildRouteTree() {
   const children =
     hostKind === 'admin'
-      ? [platformHomeRoute, collegesRoute, collegeRoute, usageRoute, platformAuditRoute]
+      ? [
+          platformHomeRoute,
+          collegesRoute,
+          collegeRoute,
+          usageRoute,
+          platformAuditRoute,
+          notificationsRoute,
+        ]
       : [
           homeRoute,
           meRoute,
@@ -411,6 +459,10 @@ function buildRouteTree() {
           importRoute,
           auditRoute,
           settingsRoute,
+          notificationsRoute,
+          myNotificationsRoute,
+          notificationSettingsRoute,
+          emailSuppressionsRoute,
         ];
   return rootRoute.addChildren([...publicRoutes, appRoute.addChildren(children)]);
 }

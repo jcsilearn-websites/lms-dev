@@ -219,6 +219,13 @@ await withStack(
             await a.pg.goto(`${origin('e2e-one')}/analytics-settings`);
             await a.pg.getByRole('heading', { name: 'Analytics settings' }).waitFor();
             await a.snapFull('analytics-settings');
+            // notifications and email (step 13): the college's settings and its bouncing addresses
+            await a.pg.goto(`${origin('e2e-one')}/settings/notifications`);
+            await a.pg.getByRole('heading', { name: 'Notification settings' }).waitFor();
+            await a.snapFull('notification-settings');
+            await a.pg.goto(`${origin('e2e-one')}/settings/email`);
+            await a.pg.getByRole('heading', { name: 'Bouncing addresses' }).waitFor();
+            await a.snap('email-suppressions');
             await a.c.close();
 
             const t = await signedIn(demo.instructorEmail);
@@ -308,6 +315,18 @@ await withStack(
             await l.pg.goto(`${origin('e2e-one')}/offerings/${demo.offeringId}/grades`);
             await l.pg.getByTestId('final-marks').waitFor();
             await l.snap('my-grades');
+            // notifications (step 13): the bell open, the full list, the member's own preferences
+            await l.pg.goto(`${origin('e2e-one')}/`);
+            await l.pg.getByRole('button', { name: /^Notifications/ }).click();
+            await l.pg.getByRole('region', { name: 'Latest notifications' }).waitFor();
+            await l.snap('notification-bell');
+            await l.pg.keyboard.press('Escape');
+            await l.pg.goto(`${origin('e2e-one')}/notifications`);
+            await l.pg.getByRole('heading', { name: 'Notifications' }).waitFor();
+            await l.snap('notifications');
+            await l.pg.goto(`${origin('e2e-one')}/me/notifications`);
+            await l.pg.getByRole('checkbox', { name: 'Email: Account and security' }).waitFor();
+            await l.snap('my-notification-settings');
             await l.c.close();
             const t2 = await signedIn(demo.instructorEmail);
             await t2.pg.goto(`${origin('e2e-one')}/courses/${demo.courseId}/questions`);

@@ -469,7 +469,7 @@ describe('removing a member (soft) keeps the academic history', () => {
     // invited again and accepted: the same membership, and the participations come back
     for (const p of [teacher, learner]) {
       ok(await admin.post('/auth/invites', { email: p.email, role: 'member' }));
-      const token = lastTokenFor(t, p.email);
+      const token = await lastTokenFor(t, p.email);
       expect(
         (
           await new TestClient(t, A.host).post('/auth/invites/accept', {

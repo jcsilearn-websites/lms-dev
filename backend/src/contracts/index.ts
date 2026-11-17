@@ -14,6 +14,7 @@ export * from './gradebook';
 export * from './health';
 export * from './imports';
 export * from './members';
+export * from './notifications';
 export * from './platform';
 export * from './profiles';
 export * from './progress';

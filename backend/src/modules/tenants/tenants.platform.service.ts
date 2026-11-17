@@ -2,9 +2,6 @@ import { can } from '../../core/authz';
 import type { RequestContext } from '../../core/context';
 import { assertValidEmail } from '../../core/email';
 import { ForbiddenError } from '../../core/errors';
-import { buildOrigin } from '../../core/host';
-import { inviteEmail } from '../../core/invite-email';
-import type { Mailer } from '../../core/mailer';
 import { buildPage, normalizePage, type Page } from '../../core/pagination';
 import { prefixPattern } from '../../core/search';
 import { generateToken, hashToken } from '../../core/tokens';
@@ -62,12 +59,11 @@ export function createTenantsPlatformService(deps: {
   platformRepo: TenantsPlatformRepository;
   auditService: Pick<AuditService, 'withPlatformAdminAccess'>;
   membershipsService: Pick<MembershipsService, 'listPageIn'>;
-  mailer: Mailer;
   config: PlatformConfig;
   /** Drops the slug cache (a created / suspended tenant must be visible at once on this instance). */
   clearSlugCache: () => void;
 }) {
-  const { db, platformRepo, auditService, membershipsService, mailer, config } = deps;
+  const { db, platformRepo, auditService, membershipsService, config } = deps;
 
   /** Admin host only (tenantId is null) and the named platform permission. */
   function assertPlatform(
@@ -75,22 +71,6 @@ export function createTenantsPlatformService(deps: {
     permission: 'platform.tenant.read' | 'platform.tenant.manage',
   ): void {
     if (ctx.tenantId !== null || !can(ctx, permission)) throw new ForbiddenError();
-  }
-
-  async function sendInvite(email: string, slug: string, token: string, scope: AdminScope) {
-    const origin = buildOrigin(
-      { kind: 'tenant', slug, portSuffix: scope.portSuffix },
-      config.baseDomain,
-      config.secure,
-    );
-    await mailer.send({
-      to: email,
-      ...inviteEmail({
-        origin: origin ?? '',
-        token,
-        days: Math.round(config.inviteTtlSeconds / 86400),
-      }),
-    });
   }
 
   return {
@@ -123,7 +103,7 @@ export function createTenantsPlatformService(deps: {
     async create(
       ctx: RequestContext,
       input: { name: string; slug: string; adminEmail: string; adminName: string },
-      scope: AdminScope,
+      _scope: AdminScope,
     ): Promise<{ tenant: PlatformTenantDetailRow; invite: AdminInviteResult }> {
       assertPlatform(ctx, 'platform.tenant.manage');
       const slug = input.slug.trim().toLowerCase();
@@ -166,7 +146,8 @@ export function createTenantsPlatformService(deps: {
       deps.clearSlugCache();
       const tenant = await db.withoutTenant((exec) => platformRepo.get(exec, ctx.userId, tenantId));
       if (!tenant) throw new TenantNotFoundError();
-      await sendInvite(email, slug, token, scope);
+      // the invite email was queued by the function's audit row (trigger audit_log_notify); the worker
+      // mints the token it sends, so `token` above is never mailed (it is voided by that mint)
       return { tenant, invite: { outcome: 'invited', ...created } };
     },
 
@@ -220,7 +201,7 @@ export function createTenantsPlatformService(deps: {
       ctx: RequestContext,
       tenantId: string,
       input: { email: string; displayName: string },
-      scope: AdminScope,
+      _scope: AdminScope,
     ): Promise<AdminInviteResult> {
       assertPlatform(ctx, 'platform.tenant.manage');
       const email = assertValidEmail(input.email);
@@ -245,19 +226,9 @@ export function createTenantsPlatformService(deps: {
       if (r.status === 'suspended') throw new InviteeSuspendedError();
       const userId = r.userId as string;
       const membershipId = r.membershipId as string;
-      if (r.status === 'promoted') {
-        // their privileges changed: the function already revoked their sessions in this college;
-        // tell them (no link, no token: nothing to click)
-        await mailer.send({
-          to: email,
-          subject: `You are now an institution admin of ${r.tenantName ?? 'your college'}`,
-          text: `You are now an institution admin of ${r.tenantName ?? 'your college'}. For your security you have been signed out: sign in again to use the new access.`,
-        });
-        return { outcome: 'promoted', userId, membershipId };
-      }
-      const tenant = await db.withoutTenant((exec) => platformRepo.get(exec, ctx.userId, tenantId));
-      if (!tenant) throw new TenantNotFoundError();
-      await sendInvite(email, tenant.slug, token, scope);
+      // the email (invite, or "you are now an administrator" after a promotion, whose sessions the function
+      // already revoked) was queued by the function's audit row in the same transaction (audit_log_notify)
+      if (r.status === 'promoted') return { outcome: 'promoted', userId, membershipId };
       return { outcome: 'invited', userId, membershipId };
     },
 

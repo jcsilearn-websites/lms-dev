@@ -11,7 +11,19 @@ description = "PostgreSQL connection string with an inline password"
 regex = '''postgres(?:ql)?://[^:\s/@'"<>]+:[^@\s'"<>$]{4,}@[^\s'"]+'''
 keywords = ["postgres://", "postgresql://"]
 
-[allowlist]
+# A fake SendGrid API key in ONE unit test (step 13). Both conditions must hold (AND): this file AND exactly this value, so the same
+# string anywhere else, or any other key-looking value in this file, is still flagged. The test only needs a 10+ character value to
+# pass the env schema (`SENDGRID_API_KEY`: minLength 10) and read the default SENDGRID_API_URL; it is sequential digits, not a real
+# key (real ones are `SG.` + 22 characters + `.` + 43 characters) and it is never sent anywhere.
+[[allowlists]]
+description = "Fake SendGrid key of the env validation unit test"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^backend/src/config/__tests__/env\.unit\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^SG\.0123456789$''']
+
+[[allowlists]]
 description = "Known dead / throwaway values"
 regexTarget = "match"
 regexes = [

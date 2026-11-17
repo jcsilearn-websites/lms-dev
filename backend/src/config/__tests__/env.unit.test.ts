@@ -237,7 +237,9 @@ describe('video provider policy', () => {
     ...dev,
     NODE_ENV: 'production',
     APP_BASE_DOMAIN: 'example.com',
-    MAILER: 'none',
+    EMAIL_PROVIDER: 'smtp',
+    SMTP_HOST: 'smtp.example.com',
+    EMAIL_FROM_DEFAULT: 'no-reply@notify.example.com',
     STORAGE_DRIVER: 'gcs',
     STORAGE_GCS_BUCKET: 'prod-files',
     DB_SSL: 'verify-full',
@@ -312,7 +314,9 @@ describe('DB_SSL policy', () => {
       ...base,
       NODE_ENV: 'production',
       APP_BASE_DOMAIN: 'example.com',
-      MAILER: 'none',
+      EMAIL_PROVIDER: 'smtp',
+      SMTP_HOST: 'smtp.example.com',
+      EMAIL_FROM_DEFAULT: 'no-reply@notify.example.com',
       STORAGE_DRIVER: 'gcs',
       STORAGE_GCS_BUCKET: 'prod-files',
       VIDEO_PROVIDER: 'gcp',
@@ -364,7 +368,9 @@ describe('DB_SSL policy', () => {
       const prod = {
         NODE_ENV: 'production',
         APP_BASE_DOMAIN: 'example.com',
-        MAILER: 'none',
+        EMAIL_PROVIDER: 'smtp',
+        SMTP_HOST: 'smtp.example.com',
+        EMAIL_FROM_DEFAULT: 'no-reply@notify.example.com',
         ...off,
       };
       expect(() => parseApiEnv({ DATABASE_APP_URL: local.devApp, ...prod })).toThrow(
@@ -428,9 +434,14 @@ describe('auth configuration policy', () => {
     });
   });
 
-  it('production requires an explicit APP_BASE_DOMAIN and refuses the console (link-logging) mailer', () => {
+  it('production requires an explicit APP_BASE_DOMAIN and refuses the console (link-logging) provider', () => {
+    const prodMail = {
+      EMAIL_PROVIDER: 'smtp',
+      SMTP_HOST: 'smtp.example.com',
+      EMAIL_FROM_DEFAULT: 'no-reply@notify.example.com',
+    };
     expect(() =>
-      parseApiEnv({ ...base, NODE_ENV: 'production', DB_SSL: 'verify-full', MAILER: 'none' }),
+      parseApiEnv({ ...base, ...prodMail, NODE_ENV: 'production', DB_SSL: 'verify-full' }),
     ).toThrow(/APP_BASE_DOMAIN/);
     expect(() =>
       parseApiEnv({
@@ -438,11 +449,13 @@ describe('auth configuration policy', () => {
         NODE_ENV: 'production',
         DB_SSL: 'verify-full',
         APP_BASE_DOMAIN: 'example.com',
+        EMAIL_FROM_DEFAULT: 'no-reply@notify.example.com',
       }),
-    ).toThrow(/MAILER/);
+    ).toThrow(/"console" is a dev provider/);
   });
 
-  it('MAILER=file needs MAIL_FILE and is refused in production (it writes links to disk)', () => {
+  it('EMAIL_PROVIDER=file needs MAIL_FILE and is refused in production (it writes links to disk); MAILER still works as the alias', () => {
+    expect(() => parseApiEnv({ ...base, EMAIL_PROVIDER: 'file' })).toThrow(/MAIL_FILE/);
     expect(() => parseApiEnv({ ...base, MAILER: 'file' })).toThrow(/MAIL_FILE/);
     expect(parseApiEnv({ ...base, MAILER: 'file', MAIL_FILE: '.mail/outbox.jsonl' }).MAILER).toBe(
       'file',
@@ -453,10 +466,45 @@ describe('auth configuration policy', () => {
         NODE_ENV: 'production',
         DB_SSL: 'verify-full',
         APP_BASE_DOMAIN: 'example.com',
-        MAILER: 'file',
+        EMAIL_FROM_DEFAULT: 'no-reply@notify.example.com',
+        EMAIL_PROVIDER: 'file',
         MAIL_FILE: '/tmp/outbox.jsonl',
       }),
     ).toThrow(/"file" writes links to disk/);
+  });
+
+  it('production refuses `none` (drops mail), SMTP without TLS, and a missing From address; real providers need their settings', () => {
+    const prod = {
+      ...base,
+      NODE_ENV: 'production',
+      DB_SSL: 'verify-full',
+      APP_BASE_DOMAIN: 'example.com',
+    };
+    expect(() =>
+      parseApiEnv({ ...prod, EMAIL_PROVIDER: 'none', EMAIL_FROM_DEFAULT: 'a@b.example' }),
+    ).toThrow(/"none" drops every email/);
+    expect(() =>
+      parseApiEnv({
+        ...prod,
+        EMAIL_PROVIDER: 'smtp',
+        SMTP_HOST: 'smtp.example.com',
+        SMTP_TLS: 'off',
+        EMAIL_FROM_DEFAULT: 'a@b.example',
+      }),
+    ).toThrow(/SMTP_TLS/);
+    expect(() =>
+      parseApiEnv({ ...prod, EMAIL_PROVIDER: 'smtp', SMTP_HOST: 'smtp.example.com' }),
+    ).toThrow(/EMAIL_FROM_DEFAULT/);
+    expect(() => parseApiEnv({ ...base, EMAIL_PROVIDER: 'smtp' })).toThrow(/SMTP_HOST/);
+    expect(() => parseApiEnv({ ...base, EMAIL_PROVIDER: 'sendgrid' })).toThrow(/SENDGRID_API_KEY/);
+    expect(
+      parseApiEnv({ ...base, EMAIL_PROVIDER: 'sendgrid', SENDGRID_API_KEY: 'SG.0123456789' })
+        .SENDGRID_API_URL,
+    ).toBe('https://api.sendgrid.com');
+    // the worker sends the mail: the same policy
+    expect(() =>
+      parseWorkerEnv({ ...prod, EMAIL_PROVIDER: 'console', EMAIL_FROM_DEFAULT: 'a@b.example' }),
+    ).toThrow(/"console" is a dev provider/);
   });
 
   it('cookies are Secure (and __Host- prefixed) unless explicitly local', () => {

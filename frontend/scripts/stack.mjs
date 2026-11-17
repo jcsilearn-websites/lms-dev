@@ -64,8 +64,11 @@ export async function withStack(fn, { extraMembers = 0 } = {}) {
     DB_SSL: db.ssl,
     APP_BASE_DOMAIN: 'localhost',
     APP_PUBLIC_PORT: String(WEB_PORT),
-    MAILER: 'file',
+    EMAIL_PROVIDER: 'file',
     MAIL_FILE,
+    EMAIL_FROM_DEFAULT: 'no-reply@notify.localhost',
+    // notifications (step 13): the scan for reminders and digests every few seconds, so a spec does not wait minutes
+    NOTIFY_SCAN_SECONDS: '5',
     LOG_LEVEL: 'warn',
     // one machine, one IP, many sign-ins: the in-memory limits would otherwise get in the way
     RATE_LIMIT_MAX: '100000',

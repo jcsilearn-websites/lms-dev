@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fakeDb } from '../../../../test/fakes';
-import { createBackgroundTasks } from '../../../core/mailer';
+import { createBackgroundTasks } from '../../../core/background';
 import type { PasswordHasher } from '../../../core/password';
 import { newId } from '../../../core/uuid';
 import { InvalidCredentialsError, InvalidTokenError, PasswordRequiredError } from '../auth.errors';
@@ -70,7 +70,7 @@ function setup(
     purgeTokens: vi.fn().mockResolvedValue(0),
     ...opts.repo,
   } as unknown as AuthRepository;
-  const mailer = { send: vi.fn().mockResolvedValue(undefined) };
+  const securityMail = { enqueue: vi.fn().mockResolvedValue(true) };
   const background = createBackgroundTasks(() => {});
   const sessionsService = {
     completeLogin: vi.fn().mockResolvedValue(
@@ -100,7 +100,7 @@ function setup(
     db: fakeDb(),
     authRepo,
     hasher,
-    mailer,
+    securityMail,
     background,
     sessionsService,
     usersService,
@@ -112,7 +112,7 @@ function setup(
     service,
     hasher,
     authRepo,
-    mailer,
+    securityMail,
     background,
     sessionsService,
     membershipsService,
@@ -304,24 +304,53 @@ describe('auth service: login (fake repositories)', () => {
 describe('auth service: password reset, change, invites (fake repositories)', () => {
   const scope = { tenant, origin: 'http://alpha.localhost:5173' };
 
-  it('forgot for an unknown email creates nothing and sends nothing; for a known one it emails a link', async () => {
+  it('forgot for an unknown email queues nothing; for a known one it queues the reset mail (no token in the request)', async () => {
     const unknown = setup({ repo: { findLogin: vi.fn().mockResolvedValue(undefined) } });
     await unknown.service.requestPasswordReset({ email: 'x@y.zz', scope, client });
     await unknown.background.drain();
-    expect(unknown.authRepo.createToken).not.toHaveBeenCalled();
-    expect(unknown.mailer.send).not.toHaveBeenCalled();
+    expect(unknown.securityMail.enqueue).not.toHaveBeenCalled();
 
     const known = setup();
     await known.service.requestPasswordReset({ email: 'x@y.zz', scope, client });
     await known.background.drain();
-    expect(known.authRepo.createToken).toHaveBeenCalledWith(
+    // the token is minted by the worker when it sends, never stored in the outbox
+    expect(known.authRepo.createToken).not.toHaveBeenCalled();
+    expect(known.securityMail.enqueue).toHaveBeenCalledWith(
+      expect.objectContaining({ tenantId: tenant.id, template: 'password_reset', params: {} }),
+    );
+  });
+
+  it('the worker mints a 30-minute reset token, and an invite token only for a still-pending member', async () => {
+    const s = setup();
+    const r = await s.service.mintResetToken(newId());
+    expect(r.minutes).toBe(30);
+    expect(r.token).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(s.authRepo.createToken).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ purpose: 'password_reset', ttlSeconds: 1800 }),
     );
-    const mail = known.mailer.send.mock.calls[0]?.[0] as { text: string };
-    expect(mail.text).toMatch(
-      /^.*http:\/\/alpha\.localhost:5173\/reset-password\?token=[A-Za-z0-9_-]{43}/m,
-    );
+    const pending = setup({
+      repo: {
+        inviteTarget: vi.fn().mockResolvedValue({
+          slug: 'alpha',
+          status: 'pending',
+          email: 'p@x.co',
+          userId: newId(),
+        }),
+      },
+    });
+    await expect(pending.service.mintInviteToken(tenant.id, newId())).resolves.toMatchObject({
+      days: 7,
+    });
+    const accepted = setup({
+      repo: {
+        inviteTarget: vi
+          .fn()
+          .mockResolvedValue({ slug: 'alpha', status: 'active', email: 'p@x.co', userId: newId() }),
+      },
+    });
+    await expect(accepted.service.mintInviteToken(tenant.id, newId())).resolves.toBeNull();
+    expect(accepted.authRepo.createToken).not.toHaveBeenCalled();
   });
 
   it('reset rejects weak passwords before touching the token, and unknown tokens generically', async () => {
@@ -397,11 +426,12 @@ describe('auth service: password reset, change, invites (fake repositories)', ()
     await expect(
       s.service.createInvite(admin, { email: 'New@X.co', role: 'member', scope }),
     ).resolves.toBeUndefined();
-    expect(s.authRepo.createToken).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ purpose: 'invite', ttlSeconds: 604_800, tenantId: tenant.id }),
+    // no token in the request: the audit row queues the invite email (trigger), the worker mints the token
+    expect(s.authRepo.createToken).not.toHaveBeenCalled();
+    expect(s.auditService.record).toHaveBeenCalledWith(
+      tenant.id,
+      expect.objectContaining({ action: 'auth.invite_created', targetType: 'membership' }),
     );
-    expect(s.mailer.send).toHaveBeenCalledWith(expect.objectContaining({ to: 'new@x.co' }));
   });
 
   it('acceptInvite maps the database status to the right error', async () => {

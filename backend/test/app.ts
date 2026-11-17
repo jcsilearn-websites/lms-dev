@@ -2,7 +2,7 @@ import { Writable } from 'node:stream';
 import { buildApp } from '../src/app';
 import { type ApiEnv, apiEnvSchema, parseEnv } from '../src/config/env';
 import { createLogger } from '../src/config/logger';
-import { createCapturingMailer } from '../src/core/mailer';
+import { createCapturingProvider } from '../src/core/mail';
 import { createDb, type Database } from '../src/db/client';
 import { getTestDatabases, testAppDbOptions } from './support';
 
@@ -71,8 +71,11 @@ export interface TestApp {
   db: Database;
   /** Round trips since the last reset(). */
   statements: ReturnType<typeof statementCounter>;
-  /** Captures every email the app would send (invite and reset links live here). */
-  mailer: ReturnType<typeof createCapturingMailer>;
+  /**
+   * Captures every email the app's outbox delivered (invite and reset links live here). Mail is queued in the outbox and
+   * sent by the `email.send` job: call deliverEmails(t) (test/client.ts) to run the queued jobs before reading this.
+   */
+  mailer: ReturnType<typeof createCapturingProvider>;
   logs: Record<string, unknown>[];
   close(): Promise<void>;
 }
@@ -84,8 +87,8 @@ export function makeApp(
   const statements = statementCounter();
   const db = opts.db ?? createDb({ ...testAppDbOptions(2), onStatement: statements.record });
   const { lines, stream } = logCapture();
-  const mailer = createCapturingMailer();
-  const app = buildApp({ env, db, logger: createLogger(env, stream), mailer });
+  const mailer = createCapturingProvider();
+  const app = buildApp({ env, db, logger: createLogger(env, stream), emailProvider: mailer });
   return {
     app,
     db,

@@ -1,7 +1,7 @@
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { makeApp, type TestApp } from './app';
-import { lastTokenFor, TestClient, waitForMail } from './client';
+import { deliverEmails, lastTokenFor, TestClient, waitForMail } from './client';
 import { addMember } from './fixtures';
 import {
   type AuthFixture,
@@ -163,7 +163,7 @@ describe('password reset', () => {
     expect(known.statusCode).toBe(202);
     expect(unknown.statusCode).toBe(202);
     expect(known.json()).toEqual(unknown.json());
-    await t.app.modules.background.drain();
+    await deliverEmails(t);
     expect(t.mailer.sent.some((m) => m.to === u.email)).toBe(true);
     expect(t.mailer.sent.some((m) => m.to === 'nobody@tenant-a.test')).toBe(false);
   });
@@ -175,7 +175,7 @@ describe('password reset', () => {
 
     await client().post('/auth/password/forgot', { email: u.email });
     await waitForMail(t, u.email);
-    const token = lastTokenFor(t, u.email);
+    const token = await lastTokenFor(t, u.email);
 
     // the account is locked at the time of the reset
     await owner.query(
@@ -209,7 +209,7 @@ describe('invites', () => {
       displayName: 'Newbie',
     });
     expect(invite.statusCode).toBe(201);
-    const token = lastTokenFor(t, 'newbie@tenant-a.test');
+    const token = await lastTokenFor(t, 'newbie@tenant-a.test');
 
     // pending: cannot log in yet (no credentials at all)
     expect((await client().login('newbie@tenant-a.test', TEST_PASSWORD)).statusCode).toBe(401);
@@ -246,7 +246,7 @@ describe('invites', () => {
     });
     expect(res.statusCode).toBe(201);
     expect(res.json()).toEqual({ status: 'invited' });
-    const token = lastTokenFor(t, other.memberEmail);
+    const token = await lastTokenFor(t, other.memberEmail);
     expect((await client().post('/auth/invites/accept', { token })).statusCode).toBe(200);
     const c = client();
     expect((await c.login(other.memberEmail, TEST_PASSWORD)).json().role).toBe('institution_admin');

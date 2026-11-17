@@ -1,10 +1,9 @@
 import { isMembershipRole, type MeResponse } from '../../contracts';
 import { ALL_PERMISSIONS, can } from '../../core/authz';
+import type { BackgroundTasks } from '../../core/background';
 import type { ClientInfo, RequestContext } from '../../core/context';
 import { assertValidEmail, normalizeEmail } from '../../core/email';
 import { BadRequestError, ForbiddenError, NotFoundError } from '../../core/errors';
-import { inviteEmail } from '../../core/invite-email';
-import type { BackgroundTasks, Mailer } from '../../core/mailer';
 import type { PasswordHasher } from '../../core/password';
 import { generateToken, hashToken } from '../../core/tokens';
 import { newId } from '../../core/uuid';
@@ -60,17 +59,24 @@ export function createAuthService(deps: {
   db: Pick<Database, 'withoutTenant' | 'withTenant'>;
   authRepo: AuthRepository;
   hasher: PasswordHasher;
-  mailer: Mailer;
+  /** Security mail goes through the outbox (step 13): one definer call, mandatory, never a token in the row. */
+  securityMail: {
+    enqueue(o: {
+      tenantId: string | null;
+      userId: string;
+      template: 'invite' | 'password_reset';
+      params: Record<string, unknown>;
+      key: string;
+    }): Promise<boolean>;
+  };
   background: BackgroundTasks;
   sessionsService: Pick<SessionsService, 'completeLogin' | 'logout'>;
   usersService: Pick<UsersService, 'ensureUser'>;
   membershipsService: Pick<MembershipsService, 'getMembership' | 'invite'>;
   auditService: Pick<AuditService, 'record' | 'recordPlatform'>;
   config?: Partial<AuthConfig>;
-  /** The origin of a college (scheme + slug + base domain [+ port]) for links in queued emails. */
-  tenantOrigin?: (slug: string) => string;
 }) {
-  const { db, authRepo, hasher, mailer, background, sessionsService, usersService } = deps;
+  const { db, authRepo, hasher, securityMail, background, sessionsService, usersService } = deps;
   const { membershipsService, auditService } = deps;
   const config: AuthConfig = { ...DEFAULT_AUTH_CONFIG, ...deps.config };
 
@@ -210,8 +216,8 @@ export function createAuthService(deps: {
 
     /**
      * Always succeeds from the caller's point of view (202): whether the email exists is never
-     * revealed. The token is created and the mail sent in the background so the response time is
-     * the same either way.
+     * revealed. The email is queued in the background so the response time is the same either way;
+     * the worker mints the single-use token when it sends (the outbox never holds a token).
      */
     async requestPasswordReset(input: {
       email: string;
@@ -222,23 +228,12 @@ export function createAuthService(deps: {
       const record = await db.withoutTenant((exec) => authRepo.findLogin(exec, email));
       if (!record) return;
       background.run(async () => {
-        const token = await generateToken();
-        await db.withoutTenant((exec) =>
-          authRepo.createToken(exec, {
-            id: newId(),
-            purpose: 'password_reset',
-            tokenHash: hashToken(token),
-            userId: record.userId,
-            tenantId: null,
-            membershipId: null,
-            ttlSeconds: config.resetTtlSeconds,
-            createdBy: null,
-          }),
-        );
-        await mailer.send({
-          to: email,
-          subject: 'Reset your password',
-          text: `Use this link within 30 minutes to choose a new password:\n${input.scope.origin}/reset-password?token=${token}\n\nIf you did not ask for this, ignore this email.`,
+        await securityMail.enqueue({
+          tenantId: input.scope.tenant?.id ?? null,
+          userId: record.userId,
+          template: 'password_reset',
+          params: {},
+          key: `reset:${newId()}`,
         });
         await audit(
           input.scope.tenant?.id ?? null,
@@ -251,6 +246,55 @@ export function createAuthService(deps: {
           input.client,
         );
       });
+    },
+
+    /**
+     * The worker's half of a reset email: a fresh single-use token (30 minutes) for the user. Called
+     * only by the email.send handler, right before it hands the message to the provider.
+     */
+    async mintResetToken(userId: string): Promise<{ token: string; minutes: number }> {
+      const token = await generateToken();
+      await db.withoutTenant((exec) =>
+        authRepo.createToken(exec, {
+          id: newId(),
+          purpose: 'password_reset',
+          tokenHash: hashToken(token),
+          userId,
+          tenantId: null,
+          membershipId: null,
+          ttlSeconds: config.resetTtlSeconds,
+          createdBy: null,
+        }),
+      );
+      return { token, minutes: Math.round(config.resetTtlSeconds / 60) };
+    },
+
+    /**
+     * The worker's half of an invite email: a fresh token for a membership that is STILL pending
+     * (it voids the previous unused one). null = no longer pending: the email is skipped.
+     */
+    async mintInviteToken(
+      tenantId: string,
+      membershipId: string,
+    ): Promise<{ token: string; days: number } | null> {
+      const target = await db.withTenant(tenantId, (tx) =>
+        authRepo.inviteTarget(tx, tenantId, membershipId),
+      );
+      if (target?.status !== 'pending') return null;
+      const token = await generateToken();
+      await db.withoutTenant((exec) =>
+        authRepo.createToken(exec, {
+          id: newId(),
+          purpose: 'invite',
+          tokenHash: hashToken(token),
+          userId: target.userId,
+          tenantId,
+          membershipId,
+          ttlSeconds: config.inviteTtlSeconds,
+          createdBy: null,
+        }),
+      );
+      return { token, days: Math.round(config.inviteTtlSeconds / 86400) };
     },
 
     /**
@@ -330,27 +374,8 @@ export function createAuthService(deps: {
         userId,
         role: input.role,
       });
-      const token = await generateToken();
-      await db.withoutTenant((exec) =>
-        authRepo.createToken(exec, {
-          id: newId(),
-          purpose: 'invite',
-          tokenHash: hashToken(token),
-          userId,
-          tenantId: ctx.tenantId,
-          membershipId: membership.id,
-          ttlSeconds: config.inviteTtlSeconds,
-          createdBy: ctx.userId,
-        }),
-      );
-      await mailer.send({
-        to: email,
-        ...inviteEmail({
-          origin: input.scope.origin,
-          token,
-          days: Math.round(config.inviteTtlSeconds / 86400),
-        }),
-      });
+      // the audit row queues the invite email in the same transaction (trigger audit_log_notify); the
+      // worker mints the token when it sends
       await audit(
         ctx.tenantId,
         {
@@ -368,70 +393,44 @@ export function createAuthService(deps: {
      * POST /members/:userId/resend-invite: a new invite email for a member who has not accepted yet.
      * The previous invite token stops working (auth_create_token voids it). Pending members only.
      */
-    async resendInvite(ctx: RequestContext, userId: string, scope: HostScope): Promise<void> {
+    async resendInvite(ctx: RequestContext, userId: string, _scope: HostScope): Promise<void> {
       if (!ctx.tenantId || !can(ctx, 'member.invite')) throw new ForbiddenError();
       const tenantId = ctx.tenantId;
-      const token = await generateToken();
       const r = await db.withTenant(tenantId, (tx) =>
         authRepo.resendInvite(tx, {
           tenantId,
           userId,
-          tokenId: newId(),
-          tokenHash: hashToken(token),
-          ttlSeconds: config.inviteTtlSeconds,
           actorUserId: ctx.userId,
           auditId: newId(),
         }),
       );
       if (!r) throw new MemberNotFoundError();
       if (!r.issued) throw new MemberNotPendingError();
-      await mailer.send({
-        to: r.email,
-        ...inviteEmail({
-          origin: scope.origin,
-          token,
-          days: Math.round(config.inviteTtlSeconds / 86400),
-        }),
-      });
     },
 
     /**
-     * The `invites.send` job: emails the invite for a membership created by a bulk import. Runs on the
-     * queue (never inside the import transaction), at the bounded rate the import staggered the jobs to.
-     * Skipped when the member is no longer pending (accepted, suspended or removed since).
+     * The `invites.send` job: queues the invite email for a membership created by a bulk import (the
+     * import staggers these jobs to INVITE_RATE_PER_SECOND). Skipped when the member is no longer
+     * pending (accepted, suspended or removed since): the outbox function checks that too.
      */
     async sendQueuedInvite(
       tenantId: string,
-      input: { membershipId: string },
+      input: { membershipId: string; userId?: string },
     ): Promise<{ sent: number; skipped: number }> {
-      const target = await db.withTenant(tenantId, (tx) =>
-        authRepo.inviteTarget(tx, tenantId, input.membershipId),
-      );
-      if (target?.status !== 'pending' || !deps.tenantOrigin) {
-        return { sent: 0, skipped: 1 };
-      }
-      const token = await generateToken();
-      await db.withoutTenant((exec) =>
-        authRepo.createToken(exec, {
-          id: newId(),
-          purpose: 'invite',
-          tokenHash: hashToken(token),
-          userId: target.userId,
-          tenantId,
-          membershipId: input.membershipId,
-          ttlSeconds: config.inviteTtlSeconds,
-          createdBy: null,
-        }),
-      );
-      await mailer.send({
-        to: target.email,
-        ...inviteEmail({
-          origin: deps.tenantOrigin(target.slug),
-          token,
-          days: Math.round(config.inviteTtlSeconds / 86400),
-        }),
+      const target = input.userId
+        ? { userId: input.userId, status: 'pending' }
+        : await db.withTenant(tenantId, (tx) =>
+            authRepo.inviteTarget(tx, tenantId, input.membershipId),
+          );
+      if (target?.status !== 'pending') return { sent: 0, skipped: 1 };
+      const queued = await securityMail.enqueue({
+        tenantId,
+        userId: target.userId,
+        template: 'invite',
+        params: { membershipId: input.membershipId },
+        key: `invite:import:${input.membershipId}`,
       });
-      return { sent: 1, skipped: 0 };
+      return queued ? { sent: 1, skipped: 0 } : { sent: 0, skipped: 1 };
     },
 
     /** Public: redeems an invite token on the tenant it was issued for, activating the membership. */

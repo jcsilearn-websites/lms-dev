@@ -41,15 +41,28 @@ const must = async (res, what) => {
   return res.json();
 };
 
-function inviteToken(email) {
-  const lines = readFileSync(MAIL_FILE, 'utf8')
-    .split('\n')
-    .filter(Boolean)
-    .map((l) => JSON.parse(l));
-  const mail = [...lines].reverse().find((m) => m.to === email);
-  const link = mail && /(https?:\/\/\S+\?token=[A-Za-z0-9_-]+)/.exec(mail.text)?.[1];
-  if (!link) throw new Error(`no invitation mail for ${email}`);
-  return new URL(link).searchParams.get('token');
+/**
+ * The token in the newest invitation mail to `email`. Mail is queued in the outbox and sent by the WORKER (step 13), so it arrives
+ * a moment after the invite call: wait for it (up to 30 s).
+ */
+async function inviteToken(email) {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    let lines = [];
+    try {
+      lines = readFileSync(MAIL_FILE, 'utf8')
+        .split('\n')
+        .filter(Boolean)
+        .map((l) => JSON.parse(l));
+    } catch {
+      // the file may not exist yet
+    }
+    const mail = [...lines].reverse().find((m) => m.to === email);
+    const link = mail && /(https?:\/\/\S+\?token=[A-Za-z0-9_-]+)/.exec(mail.text)?.[1];
+    if (link) return new URL(link).searchParams.get('token');
+    if (Date.now() > deadline) throw new Error(`no invitation mail for ${email}`);
+    await new Promise((r) => setTimeout(r, 250));
+  }
 }
 
 /**
@@ -156,7 +169,9 @@ export async function seedCourseDemo({ webPort, password }) {
   if (!inv.ok()) throw new Error(`demo invite failed: ${inv.status()}`);
   const anon = await api(webPort);
   await must(
-    await anon.post('auth/invites/accept', { data: { token: inviteToken(LEARNER), password } }),
+    await anon.post('auth/invites/accept', {
+      data: { token: await inviteToken(LEARNER), password },
+    }),
     'accept invite',
   );
   await anon.dispose();
@@ -201,7 +216,9 @@ export async function seedCourseDemo({ webPort, password }) {
     if (!invite.ok()) throw new Error(`demo invite of ${email} failed: ${invite.status()}`);
     const who = await api(webPort);
     await must(
-      await who.post('auth/invites/accept', { data: { token: inviteToken(email), password } }),
+      await who.post('auth/invites/accept', {
+        data: { token: await inviteToken(email), password },
+      }),
       'accept invite',
     );
     await who.dispose();

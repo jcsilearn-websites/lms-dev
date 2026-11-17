@@ -2,6 +2,8 @@ import type {
   ImportDto,
   Member,
   MeResponse,
+  MyEmailStatus,
+  NotificationPage,
   ProfileDto,
   TenantDto,
   TenantInfo,
@@ -30,6 +32,8 @@ export const ADMIN_PERMISSIONS = [
   'profile.read_own',
   'profile.manage',
   'import.run',
+  'notification.settings.manage',
+  'email.suppression.manage',
   'course.read',
   'course.create',
   'course.manage',
@@ -154,6 +158,28 @@ export const errorBody = (code: string, message: string) => ({
   error: { code, message, requestId: 'req-test' },
 });
 
+/**
+ * The shell's notification calls (step 13): an empty bell, an address that is not suppressed. Every signed-in page renders the
+ * shell, so these are part of mockSignedIn; a test that exercises notifications overrides them with server.use().
+ */
+export function notificationDefaults() {
+  const empty: NotificationPage = { items: [], nextCursor: null };
+  const status: MyEmailStatus = {
+    email: 'admin@alpha.test',
+    suppressed: false,
+    reason: null,
+    since: null,
+  };
+  return [
+    http.get(`${API}/notifications/unread-count`, () =>
+      HttpResponse.json({ unread: 0 }, { headers: { etag: 'W/"0.0"' } }),
+    ),
+    http.get(`${API}/notifications`, () => HttpResponse.json(empty)),
+    http.get(`${API}/platform/notifications`, () => HttpResponse.json(empty)),
+    http.get(`${API}/me/email-status`, () => HttpResponse.json(status)),
+  ];
+}
+
 /** The default handlers of a signed-in administrator; individual tests override what they exercise. */
 export function mockSignedIn(me: MeResponse = adminMe) {
   server.use(
@@ -175,6 +201,8 @@ export function mockSignedIn(me: MeResponse = adminMe) {
     ),
     // learning progress (step 8): none unless a test says otherwise
     http.get(`${API}/me/progress`, () => HttpResponse.json({ offerings: [], resume: null })),
+    // notifications (step 13): the shell's bell polls the count and the banner reads the email status
+    ...notificationDefaults(),
     http.get(`${API}/offerings/:id/progress`, () =>
       HttpResponse.json({
         participant: false,

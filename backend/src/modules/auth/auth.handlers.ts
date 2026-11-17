@@ -10,14 +10,17 @@ export function createAuthHandlers(deps: {
 }): HandlerMap {
   const { authService, purge } = deps;
   return {
-    // enqueued (in the import transaction) for every member a bulk import created; sends the invite email
+    // enqueued (in the import transaction) for every member a bulk import created; queues the invite email (outbox)
     'invites.send': {
       run: async (payload, ctx) => {
-        const membershipId = (payload as { membershipId?: string }).membershipId;
-        if (!ctx.tenantId || !membershipId) {
+        const p = payload as { membershipId?: string; userId?: string };
+        if (!ctx.tenantId || !p.membershipId) {
           throw new Error('invites.send needs a tenant and a membershipId');
         }
-        return authService.sendQueuedInvite(ctx.tenantId, { membershipId });
+        return authService.sendQueuedInvite(ctx.tenantId, {
+          membershipId: p.membershipId,
+          ...(p.userId ? { userId: p.userId } : {}),
+        });
       },
     },
     'auth.purge_tokens': {

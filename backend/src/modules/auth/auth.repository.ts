@@ -171,18 +171,16 @@ export function createAuthRepository() {
     },
 
     /**
-     * Resend an invite in ONE statement: lock the membership, issue a fresh token for it (this voids
-     * the previous unused invite token, see auth_create_token) and write the audit entry. The token is
-     * issued only while the membership is still pending. Returns null when there is no such member.
+     * Resend an invite in ONE statement: lock the membership and write the audit entry, only while it is
+     * still pending. The audit row queues the invite email in the same transaction (trigger
+     * audit_log_notify, migration 0053); the worker mints the fresh token when it sends (which voids the
+     * previous unused one, see auth_create_token). Returns null when there is no such member.
      */
     async resendInvite(
       tx: Executor,
       a: {
         tenantId: string;
         userId: string;
-        tokenId: string;
-        tokenHash: Buffer;
-        ttlSeconds: number;
         actorUserId: string;
         auditId: string;
       },
@@ -207,16 +205,10 @@ export function createAuthRepository() {
             FROM lms.tenant_memberships mm JOIN lms.users u ON u.id = mm.user_id
            WHERE mm.tenant_id = ${a.tenantId}::uuid AND mm.user_id = ${a.userId}::uuid
              FOR UPDATE OF mm
-        ), tok AS (
-          SELECT lms.auth_create_token(${a.tokenId}::uuid, 'invite', ${a.tokenHash}::bytea, m.user_id,
-                                       ${a.tenantId}::uuid, m.id, ${a.ttlSeconds}::int, ${a.actorUserId}::uuid) AS id
-            FROM m WHERE m.status = 'pending'
         ), aud AS (${audit})
-        SELECT m.status::text AS status, m.email, (SELECT count(*) FROM tok) AS issued FROM m`);
-      const r = res.rows[0] as
-        | { status: string; email: string; issued: string | number }
-        | undefined;
-      return r ? { status: r.status, email: r.email, issued: Number(r.issued) > 0 } : null;
+        SELECT m.status::text AS status, m.email, (m.status = 'pending') AS issued FROM m`);
+      const r = res.rows[0] as { status: string; email: string; issued: boolean } | undefined;
+      return r ? { status: r.status, email: r.email, issued: r.issued === true } : null;
     },
 
     /** The slug, status and email of a membership, for the queued invite email (one statement). */

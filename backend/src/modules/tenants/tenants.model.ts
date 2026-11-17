@@ -8,6 +8,8 @@ export const tenants = lms.table('tenants', {
   slug: text('slug').notNull().unique(),
   name: text('name').notNull(),
   status: tenantStatus('status').notNull().default('active'),
+  // the verified From address (step 13): set only by a platform admin (platform_set_email_sender)
+  emailFrom: text('email_from'),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

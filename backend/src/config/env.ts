@@ -71,6 +71,54 @@ const dbAppFields = {
   DB_SSL_CA: Type.Optional(Type.String({ minLength: 1, description: 'Path to CA certificate' })),
 };
 
+/**
+ * Email delivery and notifications (step 13, ADR 0021). EMAIL_PROVIDER picks the delivery (falls back to MAILER):
+ * smtp and sendgrid are real; console / file / none are development tools and are refused in production.
+ */
+const emailFields = {
+  EMAIL_PROVIDER: Type.Optional(
+    Type.Union([
+      Type.Literal('smtp'),
+      Type.Literal('sendgrid'),
+      Type.Literal('console'),
+      Type.Literal('file'),
+      Type.Literal('none'),
+    ]),
+  ),
+  // the From of mail with no verified college address: "<College> via JCS iLearn" <EMAIL_FROM_DEFAULT>
+  EMAIL_FROM_DEFAULT: Type.Optional(
+    Type.String({ pattern: '^[^\\s@<>",]+@[^\\s@<>",]+\\.[^\\s@<>",]+$' }),
+  ),
+  EMAIL_FROM_NAME: Type.String({ minLength: 1, maxLength: 80, default: 'JCS iLearn' }),
+  // sends per second per worker process (token bucket); the provider sees at most this x the number of workers
+  EMAIL_RATE_PER_SECOND: Type.Number({ minimum: 0.1, maximum: 1000, default: 10 }),
+  // finished outbox rows (and provider webhook events) are deleted after this many days
+  EMAIL_OUTBOX_RETENTION_DAYS: Type.Integer({ minimum: 1, maximum: 365, default: 30 }),
+  EMAIL_SEND_TIMEOUT_MS: Type.Integer({ minimum: 1000, maximum: 120_000, default: 20_000 }),
+  SMTP_HOST: Type.Optional(Type.String({ minLength: 1 })),
+  SMTP_PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 587 }),
+  // implicit = TLS from the first byte (465); starttls = upgrade required (587); off = development only
+  SMTP_TLS: Type.Union([Type.Literal('starttls'), Type.Literal('implicit'), Type.Literal('off')], {
+    default: 'starttls',
+  }),
+  SMTP_USER: Type.Optional(Type.String({ minLength: 1 })),
+  SMTP_PASSWORD: Type.Optional(Type.String({ minLength: 1 })),
+  SMTP_MAX_CONNECTIONS: Type.Integer({ minimum: 1, maximum: 20, default: 3 }),
+  SENDGRID_API_KEY: Type.Optional(Type.String({ minLength: 10 })),
+  SENDGRID_API_URL: Type.String({ pattern: '^https://', default: 'https://api.sendgrid.com' }),
+  // the PUBLIC key of SendGrid's signed event webhook (base64 DER or PEM); absent = the webhook answers 503
+  SENDGRID_WEBHOOK_PUBLIC_KEY: Type.Optional(Type.String({ minLength: 40 })),
+  // a webhook whose timestamp is further than this from now is refused (replay)
+  EMAIL_WEBHOOK_TOLERANCE_SECONDS: Type.Integer({ minimum: 30, maximum: 3600, default: 300 }),
+  // HMAC key of the unsubscribe tokens (>= 32 characters). Absent: derived (HKDF, own label) from STORAGE_SIGNING_SECRET.
+  NOTIFY_SIGNING_SECRET: Type.Optional(Type.String({ minLength: 32 })),
+  UNSUBSCRIBE_TOKEN_DAYS: Type.Integer({ minimum: 1, maximum: 365, default: 90 }),
+  // the scan for reminders, digests and weekly summaries runs this often
+  NOTIFY_SCAN_SECONDS: Type.Integer({ minimum: 5, maximum: 3600, default: 300 }),
+  // read in-app notifications are deleted after this many days (unread ones are kept)
+  NOTIFICATIONS_READ_RETENTION_DAYS: Type.Integer({ minimum: 1, maximum: 3650, default: 90 }),
+};
+
 /** Authentication settings, shared by the API and the worker (all have safe defaults). */
 const authFields = {
   APP_BASE_DOMAIN: Type.String({
@@ -91,11 +139,13 @@ const authFields = {
   PASSWORD_HASH_CONCURRENCY: Type.Integer({ minimum: 1, maximum: 8, default: 2 }),
   TENANT_CACHE_TTL_MS: Type.Integer({ minimum: 0, default: 60_000 }),
   TENANT_CACHE_MAX: Type.Integer({ minimum: 1, default: 1000 }),
+  // DEPRECATED alias of EMAIL_PROVIDER (step 13; kept one step for existing .env files): console | file | none
   MAILER: Type.Union([Type.Literal('console'), Type.Literal('file'), Type.Literal('none')], {
     default: 'console',
   }),
-  // MAILER=file: the JSONL outbox (dev / E2E only). Git-ignored location by convention: .mail/outbox.jsonl
+  // EMAIL_PROVIDER=file: the JSONL outbox (dev / E2E only). Git-ignored location by convention: .mail/outbox.jsonl
   MAIL_FILE: Type.Optional(Type.String({ minLength: 1 })),
+  ...emailFields,
   // cleanup of dead sessions and used/expired tokens (run by the worker)
   PURGE_RETENTION_DAYS: Type.Integer({ minimum: 0, default: 30 }),
   PURGE_INTERVAL_SECONDS: Type.Integer({ minimum: 1, default: 3600 }),
@@ -379,26 +429,67 @@ export function assertVideoPolicy(env: {
   if (issues.length > 0) throw new EnvError(issues);
 }
 
-/** Production must configure the base domain explicitly and may not use the console mailer. */
+/** The delivery the environment chose: EMAIL_PROVIDER, else the deprecated MAILER. */
+export function emailProviderOf(env: {
+  EMAIL_PROVIDER?: string | undefined;
+  MAILER: string;
+}): 'smtp' | 'sendgrid' | 'console' | 'file' | 'none' {
+  return (env.EMAIL_PROVIDER ?? env.MAILER) as 'smtp' | 'sendgrid' | 'console' | 'file' | 'none';
+}
+
+/**
+ * Production must configure the base domain explicitly and deliver mail for real: the console provider logs links, the file
+ * provider writes them to disk, `none` drops every email. A real provider needs its settings, a From address and TLS.
+ */
 export function assertAuthPolicy(
-  env: { NODE_ENV: string; MAILER: string; MAIL_FILE?: string | undefined },
+  env: {
+    NODE_ENV: string;
+    MAILER: string;
+    MAIL_FILE?: string | undefined;
+    EMAIL_PROVIDER?: string | undefined;
+    EMAIL_FROM_DEFAULT?: string | undefined;
+    SMTP_HOST?: string | undefined;
+    SMTP_TLS?: string | undefined;
+    SENDGRID_API_KEY?: string | undefined;
+    NOTIFY_SIGNING_SECRET?: string | undefined;
+    STORAGE_SIGNING_SECRET?: string | undefined;
+  },
   source: Record<string, string | undefined>,
 ): void {
-  if (env.MAILER === 'file' && !env.MAIL_FILE) {
-    throw new EnvError(['MAIL_FILE: required when MAILER=file']);
-  }
-  if (env.NODE_ENV !== 'production') return;
+  const provider = emailProviderOf(env);
   const issues: string[] = [];
-  if (!source.APP_BASE_DOMAIN) issues.push('APP_BASE_DOMAIN: required when NODE_ENV=production');
-  if (env.MAILER === 'console') {
+  if (provider === 'file' && !env.MAIL_FILE)
+    issues.push('MAIL_FILE: required when EMAIL_PROVIDER=file');
+  if (provider === 'smtp' && !env.SMTP_HOST)
+    issues.push('SMTP_HOST: required when EMAIL_PROVIDER=smtp');
+  if (provider === 'sendgrid' && !env.SENDGRID_API_KEY) {
+    issues.push('SENDGRID_API_KEY: required when EMAIL_PROVIDER=sendgrid');
+  }
+  if (!env.NOTIFY_SIGNING_SECRET && !env.STORAGE_SIGNING_SECRET) {
     issues.push(
-      'MAILER: "console" is a dev mailer (it logs links) and is not allowed in production',
+      'NOTIFY_SIGNING_SECRET: required (32+ characters) when there is no STORAGE_SIGNING_SECRET',
     );
   }
-  if (env.MAILER === 'file') {
-    issues.push(
-      'MAILER: "file" writes links to disk in clear text and is not allowed in production',
-    );
+  if (env.NODE_ENV === 'production') {
+    if (!source.APP_BASE_DOMAIN) issues.push('APP_BASE_DOMAIN: required when NODE_ENV=production');
+    if (provider === 'console') {
+      issues.push(
+        'EMAIL_PROVIDER: "console" is a dev provider (it logs links) and is not allowed in production',
+      );
+    }
+    if (provider === 'file') {
+      issues.push(
+        'EMAIL_PROVIDER: "file" writes links to disk in clear text and is not allowed in production',
+      );
+    }
+    if (provider === 'none') {
+      issues.push('EMAIL_PROVIDER: "none" drops every email and is not allowed in production');
+    }
+    if (provider === 'smtp' && env.SMTP_TLS === 'off') {
+      issues.push('SMTP_TLS: "off" sends mail without TLS and is not allowed in production');
+    }
+    if (!env.EMAIL_FROM_DEFAULT)
+      issues.push('EMAIL_FROM_DEFAULT: required when NODE_ENV=production');
   }
   if (issues.length > 0) throw new EnvError(issues);
 }
@@ -414,6 +505,8 @@ export function parseWorkerEnv(
 ): WorkerEnv {
   const env = parseEnv(workerEnvSchema, source);
   assertSslPolicy(env, [env.DATABASE_APP_URL]);
+  // the worker SENDS the mail (step 13): the same delivery policy as the API
+  assertAuthPolicy(env, source);
   assertStoragePolicy(env);
   assertVideoPolicy(env);
   return env;

@@ -1,16 +1,23 @@
 import type { ApiEnv, WorkerEnv } from './config/env';
-import { cookieSettings } from './config/env';
+import { cookieSettings, emailProviderOf } from './config/env';
 import type { AuthContext } from './core/auth-context';
 import type { AuthRateLimitConfig } from './core/auth-rate-limit';
+import { createBackgroundTasks } from './core/background';
 import type { HandlerMap } from './core/handlers';
-import { buildOrigin } from './core/host';
 import {
-  createBackgroundTasks,
-  createCapturingMailer,
-  createConsoleMailer,
-  createFileMailer,
-  type Mailer,
-} from './core/mailer';
+  type BounceWebhookAdapter,
+  createCapturingProvider,
+  createConsoleProvider,
+  createFileProvider,
+  createNullProvider,
+  createSendgridProvider,
+  createSendgridWebhookAdapter,
+  createSmtpProvider,
+  createTokenBucket,
+  createUnsubscribeTokens,
+  type EmailProvider,
+  unsubscribeKey,
+} from './core/mail';
 import { createPasswordHasher } from './core/password';
 import {
   createGcsStorage,
@@ -61,6 +68,7 @@ import {
 } from './modules/audit';
 import {
   type AuthConfig,
+  type AuthService,
   createAuthController,
   createAuthHandlers,
   createAuthRepository,
@@ -80,6 +88,12 @@ import {
   createCoursesRepository,
   createCoursesService,
 } from './modules/courses';
+import {
+  createEmailController,
+  createEmailHandlers,
+  createEmailRepository,
+  createEmailService,
+} from './modules/email';
 import {
   createFilesController,
   createFilesHandlers,
@@ -118,6 +132,12 @@ import {
   createMembershipsRepository,
   createMembershipsService,
 } from './modules/memberships';
+import {
+  createNotificationsController,
+  createNotificationsHandlers,
+  createNotificationsRepository,
+  createNotificationsService,
+} from './modules/notifications';
 import {
   createProfilesController,
   createProfilesHandlers,
@@ -199,8 +219,23 @@ export interface ModulesConfig {
   video: VideoModuleConfig;
   /** port of the web app for links in queued emails (development only) */
   publicPort: number | undefined;
-  mailer: Mailer;
+  email: EmailModuleConfig;
   onBackgroundError: (err: unknown) => void;
+}
+
+/** Email delivery and notifications (step 13). */
+export interface EmailModuleConfig {
+  provider: EmailProvider;
+  webhooks: readonly BounceWebhookAdapter[];
+  ratePerSecond: number;
+  fromDefault: string;
+  fromName: string;
+  /** HMAC key of the unsubscribe tokens */
+  unsubscribeSecret: string;
+  unsubscribeTtlSeconds: number;
+  outboxRetentionDays: number;
+  readRetentionDays: number;
+  scanEveryMs: number;
 }
 
 export interface StorageConfig {
@@ -277,6 +312,26 @@ export function modulesConfigFromEnv(
     | 'TENANT_CACHE_MAX'
     | 'MAILER'
     | 'MAIL_FILE'
+    | 'EMAIL_PROVIDER'
+    | 'EMAIL_FROM_DEFAULT'
+    | 'EMAIL_FROM_NAME'
+    | 'EMAIL_RATE_PER_SECOND'
+    | 'EMAIL_OUTBOX_RETENTION_DAYS'
+    | 'EMAIL_SEND_TIMEOUT_MS'
+    | 'SMTP_HOST'
+    | 'SMTP_PORT'
+    | 'SMTP_TLS'
+    | 'SMTP_USER'
+    | 'SMTP_PASSWORD'
+    | 'SMTP_MAX_CONNECTIONS'
+    | 'SENDGRID_API_KEY'
+    | 'SENDGRID_API_URL'
+    | 'SENDGRID_WEBHOOK_PUBLIC_KEY'
+    | 'EMAIL_WEBHOOK_TOLERANCE_SECONDS'
+    | 'NOTIFY_SIGNING_SECRET'
+    | 'UNSUBSCRIBE_TOKEN_DAYS'
+    | 'NOTIFY_SCAN_SECONDS'
+    | 'NOTIFICATIONS_READ_RETENTION_DAYS'
     | 'PURGE_RETENTION_DAYS'
     | 'PURGE_INTERVAL_SECONDS'
     | 'PURGE_BATCH_SIZE'
@@ -330,7 +385,7 @@ export function modulesConfigFromEnv(
     | 'VIDEO_FFMPEG_THREADS'
   > & { READY_TIMEOUT_MS?: number },
   logger: Logging,
-  mailer?: Mailer,
+  emailProvider?: EmailProvider,
 ): ModulesConfig {
   return {
     readyTimeoutMs: env.READY_TIMEOUT_MS ?? 2000,
@@ -420,15 +475,73 @@ export function modulesConfigFromEnv(
     publicPort: env.APP_PUBLIC_PORT,
     baseDomain: env.APP_BASE_DOMAIN,
     cookie: cookieSettings(env),
-    mailer:
-      mailer ??
-      (env.MAILER === 'console'
-        ? createConsoleMailer((obj, msg) => logger.info(obj, msg))
-        : env.MAILER === 'file' && env.MAIL_FILE
-          ? createFileMailer(env.MAIL_FILE)
-          : createCapturingMailer()),
+    email: {
+      provider: emailProvider ?? emailProviderFromEnv(env, logger),
+      webhooks: [
+        createSendgridWebhookAdapter({
+          publicKey: env.SENDGRID_WEBHOOK_PUBLIC_KEY,
+          toleranceSeconds: env.EMAIL_WEBHOOK_TOLERANCE_SECONDS,
+        }),
+      ],
+      ratePerSecond: env.EMAIL_RATE_PER_SECOND,
+      fromDefault: env.EMAIL_FROM_DEFAULT ?? `no-reply@${env.APP_BASE_DOMAIN}`,
+      fromName: env.EMAIL_FROM_NAME,
+      unsubscribeSecret: unsubscribeKey({
+        notifySecret: env.NOTIFY_SIGNING_SECRET,
+        storageSecret: env.STORAGE_SIGNING_SECRET,
+      }),
+      unsubscribeTtlSeconds: env.UNSUBSCRIBE_TOKEN_DAYS * 86_400,
+      outboxRetentionDays: env.EMAIL_OUTBOX_RETENTION_DAYS,
+      readRetentionDays: env.NOTIFICATIONS_READ_RETENTION_DAYS,
+      scanEveryMs: env.NOTIFY_SCAN_SECONDS * 1000,
+    },
     onBackgroundError: (err) => logger.error({ err }, 'background task failed'),
   };
+}
+
+/** The delivery chosen by EMAIL_PROVIDER (the env policy already refused dev providers in production). */
+function emailProviderFromEnv(
+  env: Pick<
+    ApiEnv & WorkerEnv,
+    | 'MAILER'
+    | 'MAIL_FILE'
+    | 'EMAIL_PROVIDER'
+    | 'EMAIL_SEND_TIMEOUT_MS'
+    | 'SMTP_HOST'
+    | 'SMTP_PORT'
+    | 'SMTP_TLS'
+    | 'SMTP_USER'
+    | 'SMTP_PASSWORD'
+    | 'SMTP_MAX_CONNECTIONS'
+    | 'SENDGRID_API_KEY'
+    | 'SENDGRID_API_URL'
+  >,
+  logger: Logging,
+): EmailProvider {
+  switch (emailProviderOf(env)) {
+    case 'smtp':
+      return createSmtpProvider({
+        host: env.SMTP_HOST ?? '',
+        port: env.SMTP_PORT,
+        tls: env.SMTP_TLS,
+        user: env.SMTP_USER,
+        password: env.SMTP_PASSWORD,
+        maxConnections: env.SMTP_MAX_CONNECTIONS,
+        timeoutMs: env.EMAIL_SEND_TIMEOUT_MS,
+      });
+    case 'sendgrid':
+      return createSendgridProvider({
+        apiKey: env.SENDGRID_API_KEY ?? '',
+        apiUrl: env.SENDGRID_API_URL,
+        timeoutMs: env.EMAIL_SEND_TIMEOUT_MS,
+      });
+    case 'console':
+      return createConsoleProvider((obj, msg) => logger.info(obj, msg));
+    case 'file':
+      return env.MAIL_FILE ? createFileProvider(env.MAIL_FILE) : createCapturingProvider();
+    default:
+      return createNullProvider();
+  }
 }
 
 /**
@@ -479,7 +592,6 @@ export function createModules(db: Database, config: ModulesConfig) {
     platformRepo: createTenantsPlatformRepository(),
     auditService,
     membershipsService,
-    mailer: config.mailer,
     config: {
       baseDomain: config.baseDomain,
       secure: config.cookie.secure,
@@ -487,24 +599,60 @@ export function createModules(db: Database, config: ModulesConfig) {
     },
     clearSlugCache: () => tenantsService.clearCache(),
   });
+  // ---- email (step 13): the outbox worker mints the tokens of security mail through the auth service, and the auth
+  // service queues security mail through the email service: bound late, both stay plain factories.
+  const unsubscribeTokens = createUnsubscribeTokens(config.email.unsubscribeSecret, {
+    ttlSeconds: config.email.unsubscribeTtlSeconds,
+  });
+  let authRef: Pick<AuthService, 'mintInviteToken' | 'mintResetToken'> | null = null;
+  const minter = () => {
+    if (!authRef) throw new Error('auth service not wired');
+    return authRef;
+  };
+  const emailService = createEmailService({
+    db,
+    emailRepo: createEmailRepository(),
+    provider: config.email.provider,
+    rate: createTokenBucket(config.email.ratePerSecond),
+    unsubscribe: unsubscribeTokens,
+    webhooks: config.email.webhooks,
+    tokens: {
+      invite: (tenantId, membershipId) => minter().mintInviteToken(tenantId, membershipId),
+      reset: (userId) => minter().mintResetToken(userId),
+    },
+    config: {
+      baseDomain: config.baseDomain,
+      secure: config.cookie.secure,
+      publicPort: config.publicPort,
+      fromDefault: config.email.fromDefault,
+      fromName: config.email.fromName,
+      unsubscribeTtlSeconds: config.email.unsubscribeTtlSeconds,
+      outboxRetentionDays: config.email.outboxRetentionDays,
+      purgeBatchSize: config.purge.batchSize,
+    },
+  });
+  const notificationsService = createNotificationsService({
+    db,
+    notificationsRepo: createNotificationsRepository(),
+    unsubscribe: unsubscribeTokens,
+    config: {
+      readRetentionDays: config.email.readRetentionDays,
+      purgeBatchSize: config.purge.batchSize,
+    },
+  });
   const authService = createAuthService({
     db,
     authRepo: createAuthRepository(),
     hasher,
-    mailer: config.mailer,
+    securityMail: { enqueue: (o) => emailService.enqueueSecurity(o) },
     background,
     sessionsService,
     usersService,
     membershipsService,
     auditService,
     config: config.auth,
-    tenantOrigin: (slug) =>
-      buildOrigin(
-        { kind: 'tenant', slug, portSuffix: config.publicPort ? `:${config.publicPort}` : '' },
-        config.baseDomain,
-        config.cookie.secure,
-      ) ?? '',
   });
+  authRef = authService;
   const importsService = createImportsService({
     db,
     importsRepo: createImportsRepository(),
@@ -626,6 +774,12 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createSessionsHandlers({ sessionsService, purge: config.purge }),
     ...createAuthHandlers({ authService, purge: config.purge }),
     ...createJobsHandlers({ jobsService, purge: config.purge }),
+    ...createEmailHandlers({ emailService, purge: { everyMs: config.purge.everyMs } }),
+    ...createNotificationsHandlers({
+      notificationsService,
+      scan: { everyMs: config.email.scanEveryMs },
+      purge: { everyMs: config.purge.everyMs },
+    }),
     ...createAcademicsHandlers({ academicsService }),
     ...createProfilesHandlers({ profilesService }),
     ...createImportsHandlers({ importsService, purge: config.purge }),
@@ -664,6 +818,16 @@ export function createModules(db: Database, config: ModulesConfig) {
     background,
     config,
     jobs: { service: jobsService },
+    email: {
+      service: emailService,
+      provider: config.email.provider,
+      controller: createEmailController({ emailService }),
+    },
+    notifications: {
+      service: notificationsService,
+      unsubscribe: unsubscribeTokens,
+      controller: createNotificationsController({ notificationsService }),
+    },
     imports: {
       service: importsService,
       controller: createImportsController({ importsService }),

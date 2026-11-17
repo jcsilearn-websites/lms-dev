@@ -11,6 +11,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'platform.audit.read',
     'platform.user.unlock',
     'platform.usage.read',
+    'platform.email.manage',
   ]),
   // tenant host only. content.view is read-only access to every course of the tenant; editing,
   // publishing, assessments and grading need a course participation.
@@ -44,6 +45,8 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'profile.read_own',
     'profile.manage',
     'import.run',
+    'notification.settings.manage',
+    'email.suppression.manage',
   ]),
   // every active member reads the academic structure and their own profile; `profile_type`
   // (student / faculty / staff) is only a LABEL and grants nothing

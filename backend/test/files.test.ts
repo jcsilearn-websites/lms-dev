@@ -486,7 +486,12 @@ describe('configuration', () => {
     DB_SSL: 'verify-full',
     DB_SSL_CA: 'ca.pem',
     APP_BASE_DOMAIN: 'example.org',
-    MAILER: 'none',
+    // a real provider: the delivery policy (step 13) is checked before the storage policy this test is about
+    EMAIL_PROVIDER: 'smtp',
+    SMTP_HOST: 'smtp.example.org',
+    EMAIL_FROM_DEFAULT: 'no-reply@notify.example.org',
+    // production on the GCS driver has no storage signing key to derive the unsubscribe-token key from
+    NOTIFY_SIGNING_SECRET: 'n'.repeat(40),
     COOKIE_SECURE: 'true',
   };
 

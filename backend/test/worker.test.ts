@@ -20,13 +20,15 @@ describe('worker lifecycle', () => {
   it('boots, connects to the database and shuts down gracefully (idempotent stop)', async () => {
     const worker = await startWorker(env(), silent);
     // the purges are scheduled: a system job per time slot on the queue
-    expect(worker.scheduled).toBe(13);
+    expect(worker.scheduled).toBe(16);
     expect(Object.keys(worker.handlers).sort()).toEqual([
       'analytics.rollup', // the dashboard rollups: scheduled
       'assessments.sweep', // auto-submit: scheduled every few seconds
       'auth.purge_tokens',
       'content.copy', // enqueued by a large copy: not scheduled
       'courses.sync', // queued by database triggers: not scheduled
+      'email.purge', // finished outbox rows: scheduled
+      'email.send', // one job per outbox row, queued with the event: not scheduled
       'files.purge',
       'gradebook.purge_imports',
       'imports.process', // enqueued by confirm: not scheduled
@@ -34,6 +36,8 @@ describe('worker lifecycle', () => {
       'imports.reap',
       'invites.send', // enqueued by the import: not scheduled
       'jobs.purge',
+      'notifications.purge', // read notifications: scheduled
+      'notifications.scan', // reminders, digests, summaries: scheduled
       'questions.purge_imports',
       'sessions.purge_dead',
       'usage.close_months', // freezes the months that ended: scheduled

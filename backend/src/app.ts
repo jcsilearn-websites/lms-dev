@@ -12,7 +12,7 @@ import {
   registerReceipts,
 } from './core/deadline';
 import { registerErrorHandling } from './core/error-handler';
-import type { Mailer } from './core/mailer';
+import type { EmailProvider } from './core/mail';
 import { registerOpenApi } from './core/openapi';
 import { genReqId, registerRequestId } from './core/request-id';
 import { createBadSessionLimiter, registerSecurity } from './core/security';
@@ -26,11 +26,13 @@ import { createAuditRoutes } from './modules/audit';
 import { createAuthRoutes } from './modules/auth';
 import { createContentRoutes } from './modules/content';
 import { createCoursesRoutes } from './modules/courses';
+import { createEmailRoutes } from './modules/email';
 import { createFilesRoutes, createStorageRoutes } from './modules/files';
 import { createGradebookRoutes } from './modules/gradebook';
 import { createHealthRoutes } from './modules/health';
 import { createImportsRoutes } from './modules/imports';
 import { createMembershipsRoutes } from './modules/memberships';
+import { createNotificationsRoutes } from './modules/notifications';
 import { createProfilesRoutes } from './modules/profiles';
 import { createProgressRoutes } from './modules/progress';
 import { createQuestionsRoutes } from './modules/questions';
@@ -45,8 +47,8 @@ export interface AppDeps {
   env: ApiEnv;
   db: Database;
   logger: FastifyBaseLogger;
-  /** Overrides the mailer chosen by env.MAILER (tests inject a capturing one). */
-  mailer?: Mailer;
+  /** Overrides the email provider chosen by EMAIL_PROVIDER (tests inject a capturing one). */
+  emailProvider?: EmailProvider;
 }
 
 /**
@@ -56,7 +58,7 @@ export interface AppDeps {
 /** Prefix of every application route (health probes are also served at the root). */
 export const API_PREFIX = '/api';
 
-export function buildApp({ env, db, logger, mailer }: AppDeps) {
+export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     logController: new LogController({ requestIdLogLabel: 'request_id' }),
@@ -69,7 +71,7 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
     routerOptions: { maxParamLength: 2048 },
   }).withTypeProvider<TypeBoxTypeProvider>();
 
-  const modules = createModules(db, modulesConfigFromEnv(env, logger, mailer));
+  const modules = createModules(db, modulesConfigFromEnv(env, logger, emailProvider));
 
   // Order matters: error handling, cross-cutting plugins (rate limit, CSRF), tenant + session
   // resolution, then module routes.
@@ -107,7 +109,12 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
   app.addHook('onResponse', async (request, reply) => {
     const auth = request.auth;
     if (!auth?.tenantId || reply.statusCode >= 400) return;
-    if (/^(\/api)?\/(auth\/me|health|video\/play|storage)(\/|\?|$)/.test(request.url)) return;
+    if (
+      /^(\/api)?\/(auth\/me|health|video\/play|storage|notifications\/unread-count|me\/email-status)(\/|\?|$)/.test(
+        request.url,
+      )
+    )
+      return;
     modules.analytics.service.noteActivity(auth);
   });
   registerOpenApi(app, env);
@@ -176,6 +183,10 @@ export function buildApp({ env, db, logger, mailer }: AppDeps) {
         );
       }
       void api.register(createAuditRoutes({ auditController: modules.audit.controller }));
+      void api.register(
+        createNotificationsRoutes({ notificationsController: modules.notifications.controller }),
+      );
+      void api.register(createEmailRoutes({ emailController: modules.email.controller }));
       void api.register(createSessionsRoutes({ sessionsController: modules.sessions.controller }));
       void api.register(
         createAuthRoutes({

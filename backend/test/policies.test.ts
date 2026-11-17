@@ -71,7 +71,19 @@ describe('RLS policy audit (schema lms)', () => {
 
 describe('tables reachable only through SECURITY DEFINER functions', () => {
   it('have no policy and no privilege for lms_app (deny by default)', async () => {
-    for (const table of ['user_credentials', 'auth_tokens', 'platform_audit_log']) {
+    for (const table of [
+      'user_credentials',
+      'auth_tokens',
+      'platform_audit_log',
+      // step 13: the outbox (it holds addresses), suppressions, provider events, the platform inbox, the scan state
+      'email_outbox',
+      'email_suppressions',
+      'email_events',
+      'platform_notifications',
+      'notify_content_marks',
+      'notify_scan_state',
+      'notify_runs',
+    ]) {
       const { rows } = await owner.query<{ roles: string[] }>(
         "SELECT roles::text[] AS roles FROM pg_policies WHERE schemaname = 'lms' AND tablename = $1",
         [table],

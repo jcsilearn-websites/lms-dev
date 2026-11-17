@@ -31,6 +31,9 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `profile.manage` |  | yes |  |  |  |  | View and change member profiles; move students between sections |
 | **import** | | | | | | | |
 | `import.run` |  | yes |  |  |  |  | Upload, validate, confirm and monitor bulk CSV imports |
+| **notification** | | | | | | | |
+| `notification.settings.manage` |  | yes |  |  |  |  | Set the college's notification defaults, quiet hours, digest hour and email sender name |
+| `email.suppression.manage` |  | yes |  |  |  |  | See and clear bouncing email addresses of the college's members |
 | **course** | | | | | | | |
 | `course.read` |  | yes |  |  |  |  | View the course catalog of the college |
 | `course.create` |  | yes |  |  |  |  | Create courses |
@@ -68,8 +71,9 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `platform.audit.read` | yes |  |  |  |  |  | Read the platform audit log |
 | `platform.user.unlock` | yes |  |  |  |  |  | Clear a login lockout (admin host) |
 | `platform.usage.read` | yes |  |  |  |  |  | Read the monthly usage of every college (aggregates only, admin host) |
+| `platform.email.manage` | yes |  |  |  |  |  | Manage email delivery: clear any suppressed address, set a college's verified From address (admin host) |
 
-49 permissions. Notes:
+52 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
 - "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
@@ -142,6 +146,9 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | PATCH | `/api/departments/:id` | `academic.manage` |
 | POST | `/api/departments/:id/archive` | `academic.manage` |
 | POST | `/api/departments/:id/unarchive` | `academic.manage` |
+| GET | `/api/email/suppressions` | `email.suppression.manage` |
+| DELETE | `/api/email/suppressions/:id` | `email.suppression.manage` |
+| POST | `/api/email/webhooks/:provider` | public |
 | POST | `/api/files/:id/confirm` | any signed-in user |
 | GET | `/api/grade-scales` | any signed-in user |
 | POST | `/api/grade-scales` | `gradescale.manage` |
@@ -163,6 +170,9 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/imports/templates/students.csv` | `import.run` |
 | GET | `/api/me/courses` | any signed-in user |
 | GET | `/api/me/dashboard` | any signed-in user |
+| GET | `/api/me/email-status` | any signed-in user |
+| GET | `/api/me/notification-preferences` | any signed-in user |
+| PUT | `/api/me/notification-preferences` | any signed-in user |
 | GET | `/api/me/profile` | `profile.read_own` |
 | GET | `/api/me/progress` | any signed-in user |
 | GET | `/api/me/teaching/dashboard` | any signed-in user |
@@ -176,6 +186,15 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/members/:userId/resend-invite` | `member.invite` |
 | PATCH | `/api/members/:userId/role` | `member.update_role` |
 | POST | `/api/members/:userId/suspend` | `member.suspend` |
+| GET | `/api/notifications` | any signed-in user |
+| POST | `/api/notifications/:id/read` | any signed-in user |
+| POST | `/api/notifications/read-all` | any signed-in user |
+| GET | `/api/notifications/settings` | `notification.settings.manage` |
+| PATCH | `/api/notifications/settings` | `notification.settings.manage` |
+| GET | `/api/notifications/unread-count` | any signed-in user |
+| GET | `/api/notifications/unsubscribe` | public |
+| POST | `/api/notifications/unsubscribe` | public |
+| POST | `/api/notifications/unsubscribe/one-click` | public |
 | GET | `/api/offerings` | `course.read` |
 | POST | `/api/offerings` | `offering.manage` |
 | GET | `/api/offerings/:id` | `content.view` in the offering |
@@ -292,11 +311,16 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/offerings/:id/videos/:videoId/upload` | `course.edit` in the offering |
 | PATCH | `/api/offerings/:id/videos/:videoId/upload` | `course.edit` in the offering |
 | GET | `/api/platform/audit` | `platform.audit.read` |
+| GET | `/api/platform/email/suppressions` | `platform.email.manage` |
+| DELETE | `/api/platform/email/suppressions/:id` | `platform.email.manage` |
+| GET | `/api/platform/notifications` | `platform.usage.read` |
+| POST | `/api/platform/notifications/read` | `platform.usage.read` |
 | GET | `/api/platform/tenants` | `platform.tenant.read` |
 | POST | `/api/platform/tenants` | `platform.tenant.manage` |
 | GET | `/api/platform/tenants/:id` | `platform.tenant.read` |
 | PATCH | `/api/platform/tenants/:id` | `platform.tenant.manage` |
 | POST | `/api/platform/tenants/:id/admin-invite` | `platform.tenant.manage` |
+| PUT | `/api/platform/tenants/:id/email-sender` | `platform.email.manage` |
 | GET | `/api/platform/tenants/:id/members` | `platform.tenant.read` |
 | POST | `/api/platform/tenants/:id/reactivate` | `platform.tenant.manage` |
 | POST | `/api/platform/tenants/:id/suspend` | `platform.tenant.manage` |

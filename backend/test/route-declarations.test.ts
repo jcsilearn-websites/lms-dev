@@ -1,6 +1,8 @@
 import Fastify from 'fastify';
 import { describe, expect, it } from 'vitest';
 import { declarationCount, type RouteDeclaration, registerRoutePolicy } from '../src/core/authz';
+import { CSRF_EXEMPT_ROUTES, registerCsrf } from '../src/core/csrf';
+import { registerErrorHandling } from '../src/core/error-handler';
 import { makeApp } from './app';
 
 // Every registered route must declare exactly one of config.permission / config.authenticated /
@@ -28,6 +30,48 @@ describe('route declarations', () => {
     } finally {
       await t.close();
     }
+  });
+
+  it('exactly two routes are CSRF-exempt (RFC 8058 one-click, the signed provider webhook), both public', async () => {
+    expect(CSRF_EXEMPT_ROUTES).toEqual({
+      'POST /api/notifications/unsubscribe/one-click': 'rfc8058-one-click',
+      'POST /api/email/webhooks/:provider': 'signed-webhook',
+    });
+    const t = makeApp();
+    const exempt: { route: string; reason: unknown; isPublic: boolean }[] = [];
+    t.app.addHook('onRoute', (route) => {
+      const config = route.config as { csrfExempt?: unknown; public?: boolean } | undefined;
+      if (config?.csrfExempt !== undefined) {
+        exempt.push({
+          route: `${String(route.method)} ${route.url}`,
+          reason: config.csrfExempt,
+          isPublic: config.public === true,
+        });
+      }
+    });
+    try {
+      await t.app.ready();
+      expect(exempt).toEqual([
+        {
+          route: 'POST /api/notifications/unsubscribe/one-click',
+          reason: 'rfc8058-one-click',
+          isPublic: true,
+        },
+        { route: 'POST /api/email/webhooks/:provider', reason: 'signed-webhook', isPublic: true },
+      ]);
+    } finally {
+      await t.close();
+    }
+  });
+
+  it('a csrfExempt declaration on a route NOT in the list is ignored (the CSRF check still runs)', async () => {
+    const app = Fastify();
+    registerErrorHandling(app);
+    registerCsrf(app);
+    app.post('/api/elsewhere', { config: { csrfExempt: 'signed-webhook' } }, async () => 'x');
+    const res = await app.inject({ method: 'POST', url: '/api/elsewhere' });
+    expect(res.statusCode).toBe(403);
+    await app.close();
   });
 
   it('refuses to register a route without a declaration or with two', async () => {

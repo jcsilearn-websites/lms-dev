@@ -2,7 +2,11 @@ import '@testing-library/jest-dom/vitest';
 import { cleanup, configure } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll } from 'vitest';
 import { resetToasts } from '../src/shared/ui/toast';
+import { afterLoad } from '../src/shared/utils/afterLoad';
 import { server } from './server';
+
+// the bell's first poll and the email banner are deferred until the page is idle in the browser: not in tests
+afterLoad.delayMs = 0;
 
 // The default 1 s is tight when the machine is busy (the whole app renders in jsdom per test).
 configure({ asyncUtilTimeout: 5000 });

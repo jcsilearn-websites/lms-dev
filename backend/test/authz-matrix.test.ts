@@ -376,6 +376,56 @@ const ROWS: Row[] = [
   tenantPerm('GET', `/reports/${U}/export`, 400),
   platformPerm('GET', '/platform/usage', 200),
   platformPerm('GET', '/platform/usage/export', 400),
+  // ---- notifications and email (step 13)
+  memberOnly('GET', '/notifications', 200),
+  // the bell: members of a college, and a platform admin on the admin host (their own inbox)
+  authenticated('GET', '/notifications/unread-count', 200),
+  memberOnly('POST', '/notifications/read-all', 200),
+  memberOnly('POST', `/notifications/${U}/read`, 200),
+  memberOnly('GET', '/me/notification-preferences', 200),
+  memberOnly('PUT', '/me/notification-preferences', 400, {}),
+  tenantPerm('GET', '/notifications/settings', 200),
+  tenantPerm('PATCH', '/notifications/settings', 200, {}),
+  authenticated('GET', '/me/email-status', 200),
+  tenantPerm('GET', '/email/suppressions', 200),
+  tenantPerm('DELETE', `/email/suppressions/${U}`, 404),
+  platformPerm('GET', '/platform/email/suppressions', 200),
+  platformPerm('DELETE', `/platform/email/suppressions/${U}`, 404),
+  platformPerm('PUT', `/platform/tenants/${U}/email-sender`, 404, { fromAddress: null }),
+  platformPerm('GET', '/platform/notifications', 200),
+  platformPerm('POST', '/platform/notifications/read', 200, {}),
+  // unsubscribe: public, the signed token is the credential; a made-up one is 400 for everybody on every host
+  {
+    endpoint: 'GET /notifications/unsubscribe',
+    method: 'GET',
+    url: `/notifications/unsubscribe?t=${'x'.repeat(24)}`,
+    tenantHost: [400, 400, 400, 400, 400],
+    adminHost: [400, 400, 400, 400],
+  },
+  {
+    endpoint: 'POST /notifications/unsubscribe',
+    method: 'POST',
+    url: '/notifications/unsubscribe',
+    body: { token: 'x'.repeat(24) },
+    tenantHost: [400, 400, 400, 400, 400],
+    adminHost: [400, 400, 400, 400],
+  },
+  {
+    endpoint: 'POST /notifications/unsubscribe/one-click',
+    method: 'POST',
+    url: `/notifications/unsubscribe/one-click?t=${'x'.repeat(24)}`,
+    tenantHost: [400, 400, 400, 400, 400],
+    adminHost: [400, 400, 400, 400],
+  },
+  // the provider webhook: public, the signature is the credential; without a configured key it answers 503
+  {
+    endpoint: `POST /email/webhooks/${U}`,
+    method: 'POST',
+    url: '/email/webhooks/sendgrid',
+    body: [],
+    tenantHost: [503, 503, 503, 503, 503],
+    adminHost: [503, 503, 503, 503],
+  },
   // the local video provider's playback files: the token in the path is the credential, the session says who
   // asks; a made-up token is 403 for every signed-in caller (on the admin host a platform admin has no college)
   {

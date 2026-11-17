@@ -305,7 +305,7 @@ describe('suspend / reactivate', () => {
       status: 'pending',
     });
     await admin.post(`/members/${u.userId}/resend-invite`);
-    const token = lastTokenFor(t, u.email);
+    const token = await lastTokenFor(t, u.email);
     await owner.query("UPDATE lms.tenant_memberships SET status = 'suspended' WHERE id = $1", [
       u.membershipId,
     ]);
@@ -381,7 +381,7 @@ describe('DELETE /members/:userId', () => {
       [A.tenantId, m.userId],
     );
     expect(now.rows).toEqual([{ id: m.membershipId, status: 'pending' }]); // one row, the same id
-    const token = lastTokenFor(t, email);
+    const token = await lastTokenFor(t, email);
     const accepted = await new TestClient(t, A.host).post('/auth/invites/accept', {
       token,
       password: TEST_PASSWORD,
@@ -409,7 +409,7 @@ describe('DELETE /members/:userId', () => {
       status: 'pending',
     });
     await admin.post(`/members/${u.userId}/resend-invite`);
-    const token = lastTokenFor(t, u.email);
+    const token = await lastTokenFor(t, u.email);
     expect((await admin.delete(`/members/${u.userId}`)).statusCode).toBe(200);
     expect(
       (await new TestClient(t, A.host).post('/auth/invites/accept', { token })).statusCode,
@@ -424,12 +424,12 @@ describe('POST /members/:userId/resend-invite', () => {
       (await admin.post('/auth/invites', { email, role: 'member', displayName: 'New Person' }))
         .statusCode,
     ).toBe(201);
-    const first = lastTokenFor(t, email);
+    const first = await lastTokenFor(t, email);
     const userId = (await allMembers(admin, `q=${email}`))[0]?.userId as string;
 
     const res = await admin.post(`/members/${userId}/resend-invite`);
     expect(res.statusCode).toBe(200);
-    const second = lastTokenFor(t, email);
+    const second = await lastTokenFor(t, email);
     expect(second).not.toBe(first);
 
     const anon = new TestClient(t, A.host);

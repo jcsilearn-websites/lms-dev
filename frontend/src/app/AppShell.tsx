@@ -3,6 +3,8 @@ import { Link, Outlet, useNavigate } from '@tanstack/react-router';
 import { useState } from 'react';
 import { logout } from '../features/auth/auth.api';
 import { usePermissions } from '../features/auth/useMe';
+import { EmailStatusBanner } from '../features/notifications/EmailStatusBanner';
+import { NotificationBell } from '../features/notifications/NotificationBell';
 import { useTenantInfo } from '../features/tenant/useTenantInfo';
 import { hostKind } from './host';
 import { getThemePref, setThemePref, type ThemePref } from './theme';
@@ -109,6 +111,7 @@ export function AppShell() {
               </Link>
             ))}
           </nav>
+          <NotificationBell platform={hostKind === 'admin'} />
           <details className="relative">
             <summary className="flex min-h-11 list-none items-center rounded-md border border-input px-3 text-sm sm:min-h-9">
               <span className="max-w-32 truncate">{me?.user.displayName ?? 'Account'}</span>
@@ -116,9 +119,20 @@ export function AppShell() {
             <div className="absolute right-0 z-40 mt-1 w-60 rounded-md border border-border bg-surface py-1 shadow-lg">
               <p className="truncate px-3 py-2 text-xs text-muted-foreground">{me?.user.email}</p>
               {hostKind === 'tenant' && (
-                <Link to={'/me' as '/'} className={navLink}>
-                  My profile
-                </Link>
+                <>
+                  <Link to={'/me' as '/'} className={navLink}>
+                    My profile
+                  </Link>
+                  <Link to={'/me/notifications' as '/'} className={navLink}>
+                    My notification settings
+                  </Link>
+                  {has('notification.settings.manage') && (
+                    // in the account menu, not the main navigation: the administrators' header is already full at 1280 px
+                    <Link to={'/settings/notifications' as '/'} className={navLink}>
+                      College notification settings
+                    </Link>
+                  )}
+                </>
               )}
               <ThemeChoice />
               <button
@@ -144,6 +158,7 @@ export function AppShell() {
           ))}
         </nav>
       </header>
+      <EmailStatusBanner canManage={has('email.suppression.manage')} />
       <main id="main" className="mx-auto max-w-6xl px-4 py-6">
         <Outlet />
       </main>

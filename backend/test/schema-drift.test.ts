@@ -56,6 +56,7 @@ import {
   participantStatus,
   participationType,
 } from '../src/modules/courses/courses.model';
+import { emailEvents, emailOutbox, emailSuppressions } from '../src/modules/email/email.model';
 import { files } from '../src/modules/files/files.model';
 import {
   gradebookCategories,
@@ -85,6 +86,14 @@ import {
   membershipStatus,
   tenantMemberships,
 } from '../src/modules/memberships/memberships.model';
+import {
+  notificationPreferences,
+  notifications,
+  notifyContentMarks,
+  notifyRuns,
+  notifyScanState,
+  platformNotifications,
+} from '../src/modules/notifications/notifications.model';
 import { memberProfiles, profileType } from '../src/modules/profiles/profiles.model';
 import { itemProgress } from '../src/modules/progress/progress.model';
 import {
@@ -193,6 +202,15 @@ const schema = {
   rollupTenantDay,
   rollupState,
   usageSnapshots,
+  notifications,
+  notificationPreferences,
+  platformNotifications,
+  notifyContentMarks,
+  notifyScanState,
+  notifyRuns,
+  emailOutbox,
+  emailSuppressions,
+  emailEvents,
 };
 
 import { testOwnerPool } from './support';

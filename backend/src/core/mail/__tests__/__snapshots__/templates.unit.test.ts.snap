@@ -1,0 +1,729 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`templates > accommodation_updated: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your arrangements for Quiz 2 were updated</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your arrangements were updated</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">Your arrangements for “Quiz 2” in Physics I were updated.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">Open JCS iLearn to see the details.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/items/q" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open it</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/items/q</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Your arrangements for Quiz 2 were updated",
+  "text": "Your arrangements were updated
+
+Your arrangements for “Quiz 2” in Physics I were updated.
+Open JCS iLearn to see the details.
+
+Open it:
+https://stjosephs.jcs-ilearn.example/offerings/o/items/q
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > admin_promoted: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>You are now an institution admin of St. Joseph’s College</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">You are now an institution admin</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">You are now an institution admin of St. Joseph’s College.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">For your security you have been signed out: sign in again to use the new access.</p>
+
+
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "You are now an institution admin of St. Joseph’s College",
+  "text": "You are now an institution admin
+
+You are now an institution admin of St. Joseph’s College.
+For your security you have been signed out: sign in again to use the new access.
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
+exports[`templates > atrisk_weekly: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>This week: 4 learners flagged in your courses</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Learners who may need help</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">The at-risk rules flagged 4 learners in your courses:</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">The at-risk page of each course shows which rules fired, and why.</p>
+<ul style="margin:0 0 12px;padding-left:20px;font-size:15px;line-height:1.5"><li>Physics I: 4</li></ul>
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/teaching" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open your teaching dashboard</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/teaching</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "This week: 4 learners flagged in your courses",
+  "text": "Learners who may need help
+
+The at-risk rules flagged 4 learners in your courses:
+The at-risk page of each course shows which rules fired, and why.
+
+- Physics I: 4
+
+Open your teaching dashboard:
+https://stjosephs.jcs-ilearn.example/teaching
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > content_digest: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>New in Physics I: 7 items</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">New in Physics I</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">7 new items are available in Physics I:</p>
+<ul style="margin:0 0 12px;padding-left:20px;font-size:15px;line-height:1.5"><li>Week 4 slides</li><li>Reading</li><li>Video: optics</li><li>Notes</li><li>Lab sheet</li><li>and 2 mores</li></ul>
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open the course</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "New in Physics I: 7 items",
+  "text": "New in Physics I
+
+7 new items are available in Physics I:
+
+- Week 4 slides
+- Reading
+- Video: optics
+- Notes
+- Lab sheet
+- and 2 mores
+
+Open the course:
+https://stjosephs.jcs-ilearn.example/offerings/o
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > course_health_weekly: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>This week: 3 courses need attention</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Courses that need attention</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">3 running courses need attention (no new content for a while, or work waiting to be graded for too long).</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/college-dashboard" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open the college dashboard</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/college-dashboard</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "This week: 3 courses need attention",
+  "text": "Courses that need attention
+
+3 running courses need attention (no new content for a while, or work waiting to be graded for too long).
+
+Open the college dashboard:
+https://stjosephs.jcs-ilearn.example/college-dashboard
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > due_reminder: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Due in 24 hours: Lab 3</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Due in 24 hours</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">“Lab 3” in Physics I is due Tue, 17 Nov 2026, 18:00 GMT+5:30.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">You have not handed anything in yet.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/items/i/assignment" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open the assignment</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/items/i/assignment</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Due in 24 hours: Lab 3",
+  "text": "Due in 24 hours
+
+“Lab 3” in Physics I is due Tue, 17 Nov 2026, 18:00 GMT+5:30.
+You have not handed anything in yet.
+
+Open the assignment:
+https://stjosephs.jcs-ilearn.example/offerings/o/items/i/assignment
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > extension_granted: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your deadline for Lab 3 was changed</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your deadline was changed</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">Your deadline for “Lab 3” in Physics I was changed.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">Open JCS iLearn to see the new date.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/items/i" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open it</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/items/i</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Your deadline for Lab 3 was changed",
+  "text": "Your deadline was changed
+
+Your deadline for “Lab 3” in Physics I was changed.
+Open JCS iLearn to see the new date.
+
+Open it:
+https://stjosephs.jcs-ilearn.example/offerings/o/items/i
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > grade_released: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your work on Lab 3 has been returned</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your work has been returned</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">Your work on “Lab 3” in Physics I has been graded and returned. Your instructor also left feedback.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">Open JCS iLearn to see it.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/items/i/assignment" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">View it in JCS iLearn</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/items/i/assignment</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Your work on Lab 3 has been returned",
+  "text": "Your work has been returned
+
+Your work on “Lab 3” in Physics I has been graded and returned. Your instructor also left feedback.
+Open JCS iLearn to see it.
+
+View it in JCS iLearn:
+https://stjosephs.jcs-ilearn.example/offerings/o/items/i/assignment
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > gradebook_approved: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gradebook approved: Physics I</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your gradebook was approved</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">The gradebook of Physics I (version 2) was approved and locked.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/gradebook" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open the gradebook</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/gradebook</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Gradebook approved: Physics I",
+  "text": "Your gradebook was approved
+
+The gradebook of Physics I (version 2) was approved and locked.
+
+Open the gradebook:
+https://stjosephs.jcs-ilearn.example/offerings/o/gradebook
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > gradebook_returned: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gradebook returned: Physics I</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your gradebook was returned</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">The gradebook of Physics I (version 2) was returned for changes.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">The reviewer&#39;s comment is in JCS iLearn.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/gradebook" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open the gradebook</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/gradebook</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Gradebook returned: Physics I",
+  "text": "Your gradebook was returned
+
+The gradebook of Physics I (version 2) was returned for changes.
+The reviewer's comment is in JCS iLearn.
+
+Open the gradebook:
+https://stjosephs.jcs-ilearn.example/offerings/o/gradebook
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > gradebook_submitted: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gradebook submitted for approval: Physics I</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">A gradebook is waiting for approval</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">The gradebook of Physics I (version 2) was submitted for approval.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/gradebooks" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Review gradebooks</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/gradebooks</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Gradebook submitted for approval: Physics I",
+  "text": "A gradebook is waiting for approval
+
+The gradebook of Physics I (version 2) was submitted for approval.
+
+Review gradebooks:
+https://stjosephs.jcs-ilearn.example/gradebooks
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > grading_digest: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>12 submissions waiting to be graded</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Work waiting to be graded</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">12 hand-ins and attempts are waiting:</p>
+<ul style="margin:0 0 12px;padding-left:20px;font-size:15px;line-height:1.5"><li>Physics I: 9</li><li>Physics II: 3</li></ul>
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/teaching" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open your teaching dashboard</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/teaching</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "12 submissions waiting to be graded",
+  "text": "Work waiting to be graded
+
+12 hand-ins and attempts are waiting:
+
+- Physics I: 9
+- Physics II: 3
+
+Open your teaching dashboard:
+https://stjosephs.jcs-ilearn.example/teaching
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > import_finished: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Import finished: students.csv</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your import has finished</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">The import of “students.csv” finished: 480 rows applied, 20 failed.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/imports/x" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open the import</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/imports/x</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Import finished: students.csv",
+  "text": "Your import has finished
+
+The import of “students.csv” finished: 480 rows applied, 20 failed.
+
+Open the import:
+https://stjosephs.jcs-ilearn.example/imports/x
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > invite: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>You&#39;re invited to St. Joseph’s College on JCS iLearn</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">You&#39;re invited</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">St. Joseph’s College has invited you to its learning site on JCS iLearn.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">Accept the invitation within 7 days to set up your account.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/accept-invite?token=TOKEN_abc-123" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Accept the invitation</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/accept-invite?token=TOKEN_abc-123</p>
+<p style="margin:12px 0 0;font-size:13px;color:#475569">If you did not expect this invitation, you can ignore this email.</p>
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "You're invited to St. Joseph’s College on JCS iLearn",
+  "text": "You're invited
+
+St. Joseph’s College has invited you to its learning site on JCS iLearn.
+Accept the invitation within 7 days to set up your account.
+
+Accept the invitation:
+https://stjosephs.jcs-ilearn.example/accept-invite?token=TOKEN_abc-123
+
+If you did not expect this invitation, you can ignore this email.
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
+exports[`templates > password_changed: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your password was changed</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your password was changed</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">The password of your account was just changed, and your other sessions were signed out.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">If this was not you, reset your password now and tell your college&#39;s administrator.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/forgot-password" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Reset your password</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/forgot-password</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Your password was changed",
+  "text": "Your password was changed
+
+The password of your account was just changed, and your other sessions were signed out.
+If this was not you, reset your password now and tell your college's administrator.
+
+Reset your password:
+https://stjosephs.jcs-ilearn.example/forgot-password
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
+exports[`templates > password_reset: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Reset your password</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Reset your password</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">Someone asked to reset the password of your account.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">Use this link within 30 minutes to choose a new password. It works once.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/reset-password?token=TOKEN_reset" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Choose a new password</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/reset-password?token=TOKEN_reset</p>
+<p style="margin:12px 0 0;font-size:13px;color:#475569">If you did not ask for this, ignore this email: your password stays the same.</p>
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Reset your password",
+  "text": "Reset your password
+
+Someone asked to reset the password of your account.
+Use this link within 30 minutes to choose a new password. It works once.
+
+Choose a new password:
+https://stjosephs.jcs-ilearn.example/reset-password?token=TOKEN_reset
+
+If you did not ask for this, ignore this email: your password stays the same.
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
+exports[`templates > quiz_closes: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Closes in 24 hours: Quiz 2</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Closes in 24 hours</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">“Quiz 2” in Physics I closes Wed, 18 Nov 2026, 10:00 GMT+5:30.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">You have not submitted it yet.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/items/q" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open it</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/items/q</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Closes in 24 hours: Quiz 2",
+  "text": "Closes in 24 hours
+
+“Quiz 2” in Physics I closes Wed, 18 Nov 2026, 10:00 GMT+5:30.
+You have not submitted it yet.
+
+Open it:
+https://stjosephs.jcs-ilearn.example/offerings/o/items/q
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > quiz_opens: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Opens in 1 hour: Quiz 2</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Opens in 1 hour</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">“Quiz 2” in Physics I opens Tue, 17 Nov 2026, 10:00 GMT+5:30.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/items/q" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open it</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/items/q</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Opens in 1 hour: Quiz 2",
+  "text": "Opens in 1 hour
+
+“Quiz 2” in Physics I opens Tue, 17 Nov 2026, 10:00 GMT+5:30.
+
+Open it:
+https://stjosephs.jcs-ilearn.example/offerings/o/items/q
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > usage_closed: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Usage closed for October 2026</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1e293b;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Monthly usage closed</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">The usage of 14 colleges for October 2026 was closed and frozen.</p>
+
+<p style="margin:20px 0"><a href="https://admin.jcs-ilearn.example/usage" style="display:inline-block;background:#1e293b;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open platform usage</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://admin.jcs-ilearn.example/usage</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from JCS iLearn.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Usage closed for October 2026",
+  "text": "Monthly usage closed
+
+The usage of 14 colleges for October 2026 was closed and frozen.
+
+Open platform usage:
+https://admin.jcs-ilearn.example/usage
+
+--
+You receive this email from JCS iLearn.",
+}
+`;
+
+exports[`templates > video_failed: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Video could not be processed: lecture-4.mov</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your video could not be processed</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">“lecture-4.mov” in Physics I could not be processed.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">The course builder shows the reason.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/build" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open the course builder</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/build</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Video could not be processed: lecture-4.mov",
+  "text": "Your video could not be processed
+
+“lecture-4.mov” in Physics I could not be processed.
+The course builder shows the reason.
+
+Open the course builder:
+https://stjosephs.jcs-ilearn.example/offerings/o/build
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;
+
+exports[`templates > video_ready: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Video ready: lecture-4.mp4</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your video is ready</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">“lecture-4.mp4” in Physics I was processed and can be watched now.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/offerings/o/build" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Open the course builder</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/offerings/o/build</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">You receive this email from St. Joseph’s College on JCS iLearn.</p><p style="margin:0 0 6px"><a href="https://stjosephs.jcs-ilearn.example/me/notifications" style="color:#334155">Choose which emails you get</a></p><p style="margin:0"><a href="https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def" style="color:#334155">Stop emails about grades and results</a></p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Video ready: lecture-4.mp4",
+  "text": "Your video is ready
+
+“lecture-4.mp4” in Physics I was processed and can be watched now.
+
+Open the course builder:
+https://stjosephs.jcs-ilearn.example/offerings/o/build
+
+--
+You receive this email from St. Joseph’s College on JCS iLearn.
+Choose which emails you get: https://stjosephs.jcs-ilearn.example/me/notifications
+Stop emails about grades and results: https://stjosephs.jcs-ilearn.example/unsubscribe?t=v1.abc.def",
+}
+`;

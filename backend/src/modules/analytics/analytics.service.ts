@@ -7,10 +7,10 @@ import type {
   UpdateAnalyticsSettingsRequest,
 } from '../../contracts';
 import { can, type Permission, participationsGranting } from '../../core/authz';
+import type { BackgroundTasks } from '../../core/background';
 import type { RequestContext } from '../../core/context';
 import { csvLine } from '../../core/csv';
 import { ForbiddenError } from '../../core/errors';
-import type { BackgroundTasks } from '../../core/mailer';
 import { type XlsxCell, xlsxStream } from '../../core/xlsx';
 import type { Database } from '../../db/client';
 import { type AccessSpec, assertAccess } from '../courses';

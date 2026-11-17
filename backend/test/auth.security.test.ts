@@ -115,7 +115,7 @@ describe('lockout', () => {
     await new TestClient(t, A.host).post('/auth/password/forgot', { email: u.email });
     await waitForMail(t, u.email);
     const reset = await new TestClient(t, A.host).post('/auth/password/reset', {
-      token: lastTokenFor(t, u.email),
+      token: await lastTokenFor(t, u.email),
       newPassword: 'unlocked by reset 2024',
     });
     expect(reset.statusCode).toBe(200);
@@ -320,7 +320,7 @@ describe('tokens', () => {
     const forgot = async () => {
       await new TestClient(t, A.host).post('/auth/password/forgot', { email: u.email });
       await t.app.modules.background.drain();
-      return lastTokenFor(t, u.email);
+      return await lastTokenFor(t, u.email);
     };
     const reset = (token: string) =>
       new TestClient(t, A.host).post('/auth/password/reset', {
@@ -349,7 +349,7 @@ describe('tokens', () => {
     const admin = new TestClient(t, A.host);
     await admin.login(A.adminEmail, TEST_PASSWORD);
     await admin.post('/auth/invites', { email: 'inv1@sec-a.test', role: 'member' });
-    const token = lastTokenFor(t, 'inv1@sec-a.test');
+    const token = await lastTokenFor(t, 'inv1@sec-a.test');
     const pw = 'invite accepts a passphrase';
     expect(
       (await new TestClient(t, B.host).post('/auth/invites/accept', { token, password: pw }))
@@ -365,7 +365,7 @@ describe('tokens', () => {
     ).toBe(400);
 
     await admin.post('/auth/invites', { email: 'inv1@sec-a.test', role: 'member' }); // re-invite
-    const fresh = lastTokenFor(t, 'inv1@sec-a.test');
+    const fresh = await lastTokenFor(t, 'inv1@sec-a.test');
     expect(fresh).not.toBe(token);
     expect(
       (await new TestClient(t, A.host).post('/auth/invites/accept', { token: fresh, password: pw }))
@@ -383,7 +383,7 @@ describe('tokens', () => {
     const admin = new TestClient(t, S.host);
     await admin.login(S.adminEmail, TEST_PASSWORD);
     await admin.post('/auth/invites', { email: 'late@sec-inv-susp.test', role: 'member' });
-    const token = lastTokenFor(t, 'late@sec-inv-susp.test');
+    const token = await lastTokenFor(t, 'late@sec-inv-susp.test');
     await owner.query("UPDATE lms.tenants SET status = 'suspended' WHERE id = $1", [S.tenantId]);
     const res = await new TestClient(t, S.host).post('/auth/invites/accept', {
       token,
@@ -525,7 +525,7 @@ describe('secrets never leak', () => {
     track(await c.get('/auth/sessions'));
     track(await c.post('/auth/password/forgot', { email: u.email }));
     await t.app.modules.background.drain();
-    const reset = lastTokenFor(t, u.email);
+    const reset = await lastTokenFor(t, u.email);
     seen.push(reset);
     const newPassword = 'rotated passphrase for logs 92';
     track(
@@ -535,7 +535,7 @@ describe('secrets never leak', () => {
     const admin = new TestClient(t, A.host);
     await admin.login(A.adminEmail, TEST_PASSWORD);
     track(await admin.post('/auth/invites', { email: 'logsinvite@sec-a.test', role: 'member' }));
-    const invite = lastTokenFor(t, 'logsinvite@sec-a.test');
+    const invite = await lastTokenFor(t, 'logsinvite@sec-a.test');
     seen.push(invite);
     track(
       await new TestClient(t, A.host).post('/auth/invites/accept', {

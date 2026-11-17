@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { createBackgroundTasks } from '../background';
 import { assertValidEmail, normalizeEmail } from '../email';
 import { buildOrigin, parseHost } from '../host';
-import { createBackgroundTasks, createCapturingMailer } from '../mailer';
+import { createCapturingProvider } from '../mail';
 import { createPasswordHasher, needsRehash } from '../password';
 import { generateToken, hashToken } from '../tokens';
 
@@ -100,7 +101,7 @@ describe('password hasher (argon2id)', () => {
   });
 });
 
-describe('background tasks and mailer', () => {
+describe('background tasks and the capturing email provider', () => {
   it('drain waits for pending work and swallows task errors into the handler', async () => {
     const errors: unknown[] = [];
     const bg = createBackgroundTasks((e) => errors.push(e));
@@ -117,9 +118,20 @@ describe('background tasks and mailer', () => {
     expect(errors).toHaveLength(1);
   });
 
-  it('the capturing mailer remembers what was sent', async () => {
-    const m = createCapturingMailer();
-    await m.send({ to: 'a@b.co', subject: 's', text: 't' });
-    expect(m.sent).toEqual([{ to: 'a@b.co', subject: 's', text: 't' }]);
+  it('the capturing provider remembers what was sent and can fail on demand', async () => {
+    const m = createCapturingProvider();
+    const email = {
+      from: '"X" <x@b.co>',
+      to: 'a@b.co',
+      subject: 's',
+      text: 't',
+      html: '<p>t</p>',
+      headers: {},
+      messageId: '<1@b.co>',
+    };
+    m.failNext(1);
+    await expect(m.send(email)).rejects.toThrow('provider unavailable');
+    await m.send(email);
+    expect(m.sent).toEqual([email]);
   });
 });

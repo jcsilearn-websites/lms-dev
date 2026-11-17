@@ -33,6 +33,13 @@ afterAll(async () => {
 
 const PLATFORM_FUNCTIONS = [
   'platform_admin_invite',
+  // step 13 (migration 0052): email suppressions, the verified From address, the platform admins' inbox
+  'platform_email_suppression_clear',
+  'platform_email_suppressions',
+  'platform_notifications_page',
+  'platform_notifications_read',
+  'platform_notifications_unread',
+  'platform_set_email_sender',
   'platform_create_tenant',
   'platform_get_tenant',
   'platform_usage',

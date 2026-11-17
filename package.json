@@ -7,7 +7,8 @@
     "node": ">=24"
   },
   "scripts": {
-    "dev": "pnpm --parallel --filter @lms/backend --filter @lms/frontend run dev",
+    "dev": "pnpm --parallel --filter @lms/backend --filter @lms/frontend run \"/^dev(:worker)?$/\"",
+    "dev:no-worker": "pnpm --parallel --filter @lms/backend --filter @lms/frontend run dev",
     "dev:worker": "pnpm --filter @lms/backend run dev:worker",
     "build": "pnpm --filter @lms/backend run build && pnpm --filter @lms/frontend run build",
     "lint": "biome check . && pnpm run lint:deps",
