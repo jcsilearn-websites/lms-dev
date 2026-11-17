@@ -9,7 +9,8 @@ lessons behind provider interfaces; backend + frontend), 8 (learning progress tr
 exams: question bank, assessments, attempt engine, grading; backend + frontend) and 10 (assignments: submissions, rubrics, grading,
 blind grading, late penalties, bulk ZIP, and the offering copy of assessments and assignments; backend + frontend) and 11 (the gradebook:
 categories, exact calculation, approval and immutable snapshots, exports; backend + frontend) and 12 (dashboards, rollups, at-risk learners,
-usage metering; backend + frontend) are built. Do not
+usage metering; backend + frontend) and 13 (notifications and real email: outbox, SMTP + SendGrid, bounce webhooks, suppression, unsubscribe,
+in-app bell, preferences, reminders and digests; backend + frontend) are built. Do not
 build features beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -52,13 +53,15 @@ backend/
     contracts/      shared TypeBox schemas + types exported to the frontend (leaf folder)
     core/storage/   StorageProvider (local signed-URL driver, GCS stub), file types + magic bytes
     core/zip.ts     streaming store-only ZIP writer (ZIP64, data descriptors); core/filenames.ts safeFileName (zip-slip, device names)
+    core/mail/      EmailProvider (smtp, sendgrid, console, file), BounceWebhookAdapter, templates, unsubscribe tokens, send-rate limiter
     core/video/     VideoProvider (local = ffmpeg + HLS served by the API; gcp / bunny stubs), playback tokens, ffmpeg/ffprobe runner
     modules/<module>/   health, tenants (+tenant_settings), users, memberships, audit, sessions, auth,
                         jobs (queue), academics, profiles, imports, courses, content, files, video, progress,
                         questions (bank, versions, CSV import), assessments (settings, attempts, grading, regrade),
                         rubrics (per course, versioned), assignments (settings, submissions, grading, blind keys, ZIP, extensions),
                         gradebook (categories, items, exact calculation, marks, CSV import, overrides, approval, snapshots, export, grade scales),
-                        analytics (activity, rollups, dashboards, at-risk, reports + exports), usage (monthly metering, platform usage)
+                        analytics (activity, rollups, dashboards, at-risk, reports + exports), usage (monthly metering, platform usage),
+                        email (outbox delivery, suppressions, provider webhooks), notifications (in-app, preferences, settings, unsubscribe, reminder / digest scan)
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
@@ -551,6 +554,54 @@ Full reasoning, the estimation method and its accuracy limits: `docs/adr/0020-an
   (focusable, named). Text links inside text are underlined (axe). The learner section lives in the home page and loads no chart code (`pnpm bundle:check` fails
   otherwise); the college / offering dashboards use the desktop Lighthouse preset (the third and fourth documented exceptions, with the gradebook grid and grading view).
 
+## Notifications and email (step 13)
+
+Full reasoning, the provider choice, the duplicate-send window and the privacy design: `docs/adr/0021-notifications-email.md`. DNS and sender
+setup: `docs/email-deliverability.md`. Numbers: `docs/benchmarks.md` (Step 13).
+- **Outbox on our job queue** (`email` module + `lms.notify_fanout`): every email is an `email_outbox` row inserted IN THE SAME TRANSACTION as its event,
+  with its `email.send` job; the key is unique **per (event, RECIPIENT)** (a digest has one event key: a key without the recipient emailed 1 of 60
+  learners; found by the benchmark, pinned by tests). The worker claims (`email_claim` re-checks suppression, the member's preference, membership,
+  quiet hours, expiry), renders, waits for the send-rate token (`EMAIL_RATE_PER_SECOND` PER WORKER PROCESS), sends and marks: 2 statements. Transient
+  failure -> queue retry with backoff; permanent (5xx / 400) or last attempt -> `dead`. A deterministic Message-ID narrows (cannot close) the window
+  "provider accepted, worker crashed".
+- **Providers** (`core/mail`): `EMAIL_PROVIDER=smtp|sendgrid|console|file|none` (`MAILER` is the deprecated alias). SMTP (nodemailer 10.4.1, pinned) is
+  first-class; SendGrid v3 is the reference HTTP adapter. Business code never names a vendor. **Bounce webhooks** sit behind
+  `BounceWebhookAdapter` (verify signature over the RAW body -> normalised events): SendGrid (ECDSA) is built; Amazon SES via SNS and Zoho ZeptoMail
+  are one new file + one registry line in `composition.ts`.
+- **Suppression** (`email_suppressions`, global by address, definer functions only): a hard bounce stops ALL mail incl. security; a complaint stops
+  all but security; `blocked` / `deferred` are not bounces. The member sees a banner (`GET /me/email-status`); institution admins list / clear THEIR
+  members' entries (audited), platform admins all. Reason and time are recorded.
+- **Unsubscribe**: non-security mail has `List-Unsubscribe` + `List-Unsubscribe-Post` (RFC 8058) with a signed token (`v1.<payload>.<HMAC>`, 90 days,
+  `NOTIFY_SIGNING_SECRET` or HKDF of `STORAGE_SIGNING_SECRET`); a GET changes nothing; security categories never get a token and the API refuses them.
+  Unsubscribing turns EMAIL off for one category; the bell stays.
+- **Templates** (`core/mail/templates.ts`): typed, HTML + text from one description, every value escaped, subjects single-line, links only from the
+  validated slug. **PRIVACY IS STRUCTURAL**: template params are schemas with `additionalProperties: false` and NO field for a mark, score, feedback,
+  reason or at-risk evidence; an undeclared param makes the row `dead`. `notifications.events.test.ts` ends with a sentinel over every row and email.
+  A new event = audience + `notify_fanout` + a template schema + a line in the sentinel.
+- **In-app**: `notifications` (RLS on tenant AND user; the app can only set `read_at`), keyset list, mark read / all. The bell is
+  `GET /notifications/unread-count`: **2 round trips**, count capped at 100, ETag + 304 (saves the body, not the query). The browser polls ONLY while
+  the tab is visible (60 s +-10 %, 5 min after 30 min idle, stops on 401 / 403): `notificationPoller.ts`. No SSE / WebSocket yet (ADR 0021 says when).
+  Platform admins have `platform_notifications`. Retention: read notifications after `NOTIFICATIONS_READ_RETENTION_DAYS`, outbox after
+  `EMAIL_OUTBOX_RETENTION_DAYS`, in batches.
+- **Events**: triggers in the change's transaction (audit rows -> security mail; released grades; quiz results; extension / accommodation WITHOUT the
+  reason; gradebook workflow; video; import; usage month) and the scan `notifications.scan` (`lms.notify_scan_tenant`, ONE statement per college every
+  `NOTIFY_SCAN_SECONDS`): assignment reminders 24 h / 1 h only for learners with no submission (at their extended date), quizzes opening / closing,
+  results visible by the clock, daily digests (content ONE per course per learner per day; work waiting to be graded) and Monday summaries (at-risk
+  COUNTS, course health) at the college's digest hour, keyed by the LOCAL date. A threshold is acted on when it falls in `(scanned_until, now]`, at
+  most 24 h back. **Planner rule**: find the few assignments in the window first (`MATERIALIZED`, one row each), then reach the learners by a
+  `LATERAL ... OFFSET 0` probe (measured 9.4 s -> 0.36 s without statistics); a new scan statement gets the same shape.
+- **Preferences**: 7 categories (`security` mandatory, `learning_deadlines|grades|content`, `teaching_grading|updates`, `admin`), per member, per channel;
+  only OVERRIDES are stored; college defaults, quiet hours (default 22:00-07:00, email only, wrap past midnight, DST-safe), digest hour, sender name
+  and reply-to in `tenant_settings` key `notifications` (institution admins, audited). A change applies at once, also to mail already queued. A
+  college's verified From ADDRESS is set by a platform admin only (provider-side DKIM is JCS's job).
+- **Permissions**: `notification.settings.manage`, `email.suppression.manage` (institution admin), `platform.email.manage` (platform admin); members'
+  own endpoints are `authenticated`. **Budgets**: the bell 2; list / mark read / preferences read and write 4; settings read 4, PATCH 5; suppression
+  list / clear 2; public unsubscribe calls and the webhook 1; the platform inbox 2; an invite / resend / reset adds NO round trip (the audit row queues the mail).
+- **Frontend** (`features/notifications`): the bell is in the app shell (small, no chart or editor code), `/notifications`, `/me/notifications`
+  (preferences), `/settings/notifications` and `/settings/email` (admins), the public `/unsubscribe`, the banner under the header. Shared MSW defaults for
+  the bell and the banner live in `test/server.ts` `mockSignedIn()`: a new shell request needs a default there (an unhandled request logs
+  "intercepted a request without a matching request handler" and can time a test out).
+
 ## Deadline fairness under load (step 10b)
 
 Full reasoning: `docs/adr/0018-assignments.md` ("Deadline fairness under load"). Numbers: `docs/benchmarks.md` (Step 10b).
@@ -618,7 +669,9 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
   locked for 60 s doubling, **capped at 15 min**; attempts while locked are not counted; reset/unlock clears it at once.
   Institution admins unlock members of their tenant (`POST /auth/members/:userId/unlock`), platform admins on the admin host.
 - **CSRF**: every POST/PUT/PATCH/DELETE needs an Origin (or Referer) equal to the request host AND `X-Requested-With: lms`.
-  Nothing is exempt. The SPA and dev proxy must send both.
+  Nothing is exempt EXCEPT exactly two routes that cannot send our headers and are authenticated by something else (step 13): the RFC 8058
+  one-click unsubscribe POST (signed token) and the email provider's webhook (signature). A route needs BOTH `config.csrfExempt` AND its path in
+  `CSRF_EXEMPT_ROUTES` (`core/csrf.ts`); `route-declarations.test.ts` pins the list. The SPA and dev proxy must send both.
 - **Rate limits** (in-memory): stricter per-IP and per-email limits on login, password-reset request and invite accept.
 - **Request context**: `registerAuthContext` (core) sets `request.auth` / `request.tenant`; controllers build a plain
   `RequestContext` for services (`contextFrom(request)`); services never see the request. `core/auth-guards.ts` only
@@ -628,9 +681,9 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
   access inside a tenant must use `auditService.withPlatformAdminAccess` (audit entry in the same transaction); no
   endpoint uses it yet: platform admins cannot log into tenant hosts in step 2. Never log passwords, tokens or hashes
   (logger redaction + a test that fails if one appears).
-- **Email** goes through the `Mailer` interface in core (`MAILER=console` for dev; it logs links, so it is rejected in
-  production; tests use the capturing fake). Invite tokens last 7 days, reset tokens 30 minutes, both single-use and
-  stored only as SHA-256.
+- **Email** (step 13, see "Notifications and email"): invites, resets and password-changed mail are rows in the OUTBOX sent by the worker
+  (`core/mail` providers; `console` / `file` / `none` are refused in production). The worker MINTS the token when it sends (the outbox never holds
+  one). Invite tokens last 7 days, reset tokens 30 minutes, both single-use and stored only as SHA-256.
 - **Bootstrap**: `pnpm admin:create --email you@example.com` creates the first platform admin (password from a hidden
   prompt or `ADMIN_PASSWORD`, never from arguments). `pnpm db:seed` gives seeded users `SEED_USER_PASSWORD` and refuses
   to run in production.
@@ -758,6 +811,8 @@ every extra statement also holds a pooled connection longer. So round trips are 
   Step 12: the learner dashboard **2**; every staff dashboard / at-risk / report / settings read and each export (first page) 4; `PATCH /analytics/settings` 5 (read,
   merge, write: a rare admin action); platform usage 2; the heartbeat is still **2** (the watch log is written inside the same definer call); the FIRST request of a
   local day adds ONE background statement (`activity_touch`), every later one none.
+  Step 13: the bell **2**; notification list / mark read / preferences 4; college notification settings 4 (PATCH 5); suppressions and the platform inbox 2; the public
+  unsubscribe calls and the provider webhook 1; creating / resending an invite adds NO round trip (the audit row queues the email); sending happens in the worker.
   Step 5: academics reads 4, every academic change 4 (one fused statement), profile read / upsert / section moves 4,
   `GET /members` with profile filters 4, `GET /imports*` 4 (`/rows` and `/errors.csv` 5: the import and its page share a
   transaction), confirm / cancel 4, `POST /imports` = 7 + 1 per 1,000 rows staged (10,000 rows: 16 statements). The worker
@@ -803,8 +858,8 @@ every extra statement also holds a pooled connection longer. So round trips are 
 
 ```
 pnpm install
-pnpm dev                 backend API :3000 + frontend :5173 (proxies /health) in parallel
-pnpm dev:worker          background worker (tsx watch)
+pnpm dev                 backend API :3000 + frontend :5173 + the WORKER in parallel (email is sent by the worker: an invite / reset needs it)
+pnpm dev:no-worker       API + frontend only    | pnpm dev:worker   the worker alone (tsx watch)
 pnpm build               backend (tsup) then frontend (tsc + vite)
 pnpm lint                Biome + dependency-cruiser (layering rules)   | lint:fix | lint:deps | format
 pnpm typecheck           pnpm test        (backend: unit + db in parallel, then the serial files; then frontend; needs .env TEST_ vars)
@@ -823,6 +878,7 @@ pnpm --filter @lms/backend run bench:assessments  1,500 learners start / autosav
 pnpm --filter @lms/backend run bench:assignments  1,500 learners in the deadline burst (2 MB PDFs, text, 3 files), grading queue for 500, ZIP of 500 (peak memory)
 pnpm --filter @lms/backend run bench:gradebook  500 and 1,200 learners x 60 items: compute, grid chunk, lock, one learner (needs DATABASE_URL of a migrated DB)
 pnpm --filter @lms/backend run bench:analytics  10,000 students x 200 offerings: rollup refresh (full / incremental, fresh vs ANALYZEd), every dashboard's DB time, activity upsert (scratch DB)
+pnpm --filter @lms/backend run bench:notifications  10,000 students x 200 offerings x 60: reminder audience / enqueue, send throughput, unread count, digests (scratch DB, autovacuum off)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
@@ -863,7 +919,9 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - A platform admin cannot sign in on a tenant host; the only cross-tenant access is the audited member view.
 - Production gateway: `/api/*` -> API service, everything else -> SPA, no rewrite (README "Production routing"); logos for the
   college branding come with file storage.
-- Real mail provider (only `console`, `file` (dev/E2E) and capturing mailers exist); the auth rate limits are per instance.
+- Email (step 13): the send-rate token bucket is per worker process (the provider sees N workers x `EMAIL_RATE_PER_SECOND`); no new-login alerts; no per-learner quiet hours; no push / SMS; no shared
+  (Redis) limiter; a plain SMTP relay has no bounce feed of its own (the provider behind it posts to its adapter, or an admin handles it by hand); the provider-accepted-then-crash window is narrowed by a
+  deterministic Message-ID, not closed; no SES / ZeptoMail webhook adapter yet; the auth rate limits are per instance.
 - Re-run the full suite on Node 24 (local machine was on 22).
 - Upgrade TypeScript to 7.x once dependency-cruiser supports it.
 - **Assessments (step 9)**: no proctoring (the integrity log is information, not proof); no per-question time limits; the question bank is
@@ -895,7 +953,7 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - **Open after step 11c** (owner decisions, none started): stored per-learner gradebook results (the way to the 300 / 800 ms class targets); notifications
   (behind learners, released grades, gradebook submitted / returned / approved); GPA / credits / transcript across courses; copying a gradebook with an
   offering; a mark history view in the grid; malware scanning of assignment files (before the first production college); the shared rate limiter.
-- **Open for the GCP step** (collected here so nothing is lost): the real mail provider; the GCS storage driver and the GCP
+- **Open for the GCP step** (collected here so nothing is lost): the client's choice of email provider (SMTP and SendGrid are built; SES / ZeptoMail webhook adapters are one file each) and the DNS of docs/email-deliverability.md; the GCS storage driver and the GCP
   Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
   Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s
   over HTTP on the dev laptop).
@@ -903,13 +961,13 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 ## Current state / handoff (read after the sections above)
 
 Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/benchmarks.md` or the code.
-- **Where we are**: steps 1-12 are built (12 = dashboards, rollups, at-risk, usage metering; see its section). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are**: steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
   payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
   205, E2E 41, lint, typecheck, `bundle:check`, Lighthouse, gitleaks. **Latest full verification (end of step 11c): backend 1,500 + 65 serial
-  (1 skipped), frontend 303, E2E 60, lint, typecheck, `bundle:check`, Lighthouse (all budgets), gitleaks, `docs:permissions --check`. Do not
-  start step 12 unasked.**
+  (1 skipped), frontend 303, E2E 60, lint, typecheck, `bundle:check`, Lighthouse (all budgets), gitleaks, `docs:permissions --check`. Step 12 and 13 verification:
+  see the step reports. Do not start the next step unasked.**
 - **Working agreement**: the owner commits and pushes. Never stage, commit, push or rewrite history. At the end of a step give a
   commit plan with EXACT `git add` commands per commit (full paths or directories, every changed file covered exactly once, checked
   with a script against `git status`) and the commit messages; a file that mixes two commits (e.g. CLAUDE.md) is split with a patch
@@ -946,6 +1004,9 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
     `GRADEBOOK_BENCH_KEEP=1`, `GRADEBOOK_BENCH_TIMEOUT_MS` (scratch database only).
   - **Lighthouse desktop exceptions**: only the gradebook grid and the grading view use the desktop preset (instructors use laptops; the grading
     view flapped between 84 and 91 on mobile); every other page is mobile; the budget of 90 stays under both (`frontend/scripts/lighthouse.mjs`).
+- **Step 13 migrations**: 0052 (tables, the settings and quiet-hours helpers, `notify_fanout`, the outbox / suppression / webhook / unsubscribe / purge functions), 0053 (the event triggers and
+  `notify_scan_tenant`). NOT applied to the dev database by the agent (the same rule as 0039-0051): `pnpm db:migrate` applies them. They were edited while still uncommitted (the benchmark found
+  the per-recipient key and the planner shape); once committed they are never edited.
 - **Step 12 migrations**: 0043 (time zone helpers, activity, the heartbeat's watch log, change marks, rollup and snapshot tables), 0044 (the refresh functions), 0045 (learner
   dashboard, usage), 0046 (at-risk), 0047 (`as_of`), 0048-0051 (planner fixes found by the benchmark: day aggregation, `jit`, nested loops, `atrisk_flags` inlining).
   NONE is applied to the dev database by the agent (the same rule as 0039-0042): `pnpm db:migrate` applies them all.

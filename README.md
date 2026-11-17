@@ -47,13 +47,22 @@ docs/       ADRs, benchmarks, Cloud SQL migration guide
 pnpm install
 pnpm db:migrate     # applies SQL migrations, sets the lms_app password from LMS_APP_PASSWORD
 pnpm db:seed        # 1 platform admin, 2 demo tenants (admin + 4 members each), all with SEED_USER_PASSWORD
-pnpm dev            # backend API http://localhost:3000 (docs at /docs) + frontend http://localhost:5173
+pnpm dev            # backend API http://localhost:3000 (docs at /docs) + frontend http://localhost:5173 + the WORKER
 pnpm lint           # Biome + dependency-cruiser (architecture/layering rules)
 pnpm typecheck && pnpm build
 pnpm test           # backend (unit + real-DB tests) then frontend
 pnpm bench
 ```
 `DB_POOL_MAX` defaults to 5 in development/test and 10 in production.
+
+**The worker is part of `pnpm dev`** (`pnpm dev:worker` runs it alone, `pnpm dev:no-worker` starts only the API and the frontend). It is
+not optional: **every email is sent by the worker** from the outbox (invitations, password resets, reminders, digests), as are video
+transcoding, imports, the enrolment sync and the scheduled purges / rollups / notification scan. Without a worker, an invite or a reset
+link never arrives.
+
+Email in development: `EMAIL_PROVIDER=console` (the default; `MAILER` is the old name) prints each email, links included, in the
+**worker's** log (not the API's); `EMAIL_PROVIDER=file` + `MAIL_FILE=.mail/outbox.jsonl` writes one JSON line per email (the E2E tests read
+it). `smtp` and `sendgrid` are the real providers and the only ones allowed in production (`.env.example`, `docs/email-deliverability.md`).
 
 `pnpm test` runs the unit and database tests in parallel (one database per worker: `lms_test_1 ... _N`, N = CPU cores - 1,
 `TEST_DB_WORKERS` overrides), then the few files that must run alone. `REMOTE_DB=1` selects the slow-remote-database profile.
@@ -71,7 +80,7 @@ screens in `frontend/src/features/<feature>`, shared pieces in `frontend/src/sha
 [ADR 0012](docs/adr/0012-frontend.md).
 
 ```
-pnpm dev                      # API :3000 + web :5173 (hot reload)
+pnpm dev                      # API :3000 + web :5173 + the worker (hot reload)
 pnpm --filter @lms/frontend run test        # component tests (Vitest + Testing Library + MSW)
 pnpm e2e                      # Playwright end-to-end tests against the real stack and PostgreSQL (below)
 pnpm bundle:check             # bundle budgets (after `pnpm build`): login <= 125 KB gzip, any route <= 150 KB
@@ -105,7 +114,7 @@ That is a convenience, **not a security boundary**: the API checks every request
 migrated, truncated and seeded before every run; the guard refuses anything that could be `lms_dev` or a unit-test database),
 builds the SPA, starts the API, the worker and a production-like web server (`frontend/scripts/serve.mjs`: compression,
 SPA fallback, `/api` proxy) on ports 3100 / 4173 and runs Playwright serially. Emails go to a git-ignored file
-(`MAILER=file` -> `.mail/e2e-outbox.jsonl`) which the tests read for invite and reset links. First time only:
+(`EMAIL_PROVIDER=file` -> `.mail/e2e-outbox.jsonl`, written by the worker) which the tests read for invite and reset links. First time only:
 `pnpm --filter @lms/frontend exec playwright install chromium`. On a machine with little free memory close other
 heavy applications (a browser with many tabs) before running it.
 

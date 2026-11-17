@@ -828,3 +828,65 @@ user and day (budget test: the first request of a day adds one background statem
 The full refresh of a brand-new college (77 s for 50,000 enrolments) and the per-offering cost of a scattered incremental run are the
 figures to improve; the next step would be to skip the per-offering fixed work (two whole-offering score functions) for runs that touch only
 a few learners. Everything a person waits for is under 200 ms.
+
+## Step 13: notifications and email
+
+`pnpm --filter @lms/backend run bench:notifications` (a scratch database it creates and drops; `BENCH_KEEP=1` keeps it). A college of 10,000
+students, **200 offerings x 60 learners** (12,000 enrolments), an assignment due in an hour in every offering, 30 % of the learners already
+handed in (3,591 in the run below), so the audience of the 1-hour reminder is the other **8,409**. Autovacuum is switched off on the scratch
+tables so "no statistics" stays true until the benchmark itself says `ANALYZE` (autovacuum had analyzed the freshly loaded tables mid-run and
+hidden the problem in the first attempts: the lesson of steps 8, 11 and 12, again). 2-core laptop, local PostgreSQL 17, Node 26.
+
+### Due-date reminder, 1 hour before (ONE statement: `lms.notify_scan_tenant`)
+
+|                                 | audience selection alone | the whole statement (selection + 8,409 in-app rows + 8,429 outbox rows + 8,429 jobs) | idle tick (nothing due) |
+| ------------------------------- | ------------------------ | ------------------------------------------------------------------------------------ | ----------------------- |
+| fresh college, NO statistics    | 356 ms                   | 2.96 s                                                                               | 11 ms                   |
+| after ANALYZE                   | 56 ms                    | 2.31 s                                                                               | 3.4 ms                  |
+| fresh again (idempotent re-run) | 54 ms                    | 2.17 s                                                                               | 2.0 ms                  |
+
+Enqueue is ~2.1-2.6 s for three inserts per recipient (an in-app row, an outbox row, a job, each with its indexes): ~3,600 notifications/s.
+The **idle tick** is what every college pays every `NOTIFY_SCAN_SECONDS` (300 s): 2-11 ms. The audience is exactly the learners who have not
+handed in and are still enrolled (the benchmark fails if the count differs from the expected one).
+
+### Send throughput against a fake provider (claim + render + mark, 2 statements per email)
+
+| concurrent senders | emails/s | p50     | p99     |
+| ------------------ | -------- | ------- | ------- |
+| 1                  | 258      | 3.0 ms  | 7.9 ms  |
+| 4                  | 580      | 5.6 ms  | 11.6 ms |
+| 8                  | 621      | 12.7 ms | 40.7 ms |
+
+The database is never the limit: the real limit is the provider's rate (`EMAIL_RATE_PER_SECOND` per worker process, default 10). A 8,409-email
+reminder at 10/s per worker takes ~14 minutes on one worker, which is why reminders carry `expires_at` (a 1-hour reminder that cannot leave
+before its deadline becomes `expired`, not late), and why `run_after` and the job queue's concurrency, not the scan, pace the send.
+
+### The unread-count endpoint under load (64 connections, 10 s, 99 signed-in members, 30 unread each)
+
+|                                           | req/s | p50    | p99    |
+| ----------------------------------------- | ----- | ------ | ------ |
+| HTTP, 200 (the count changed)             | 707   | 86 ms  | 171 ms |
+| HTTP, 304 (ETag sent, nothing changed)    | 772   | 81 ms  | 111 ms |
+| the definer function alone, 8 connections | 3,252 | 1.7 ms | 6.9 ms |
+
+A college of 10,000 open tabs polling every 60 s is ~170 req/s: a quarter of what this laptop serves. The ETag saves the response body, not the
+query (both cost 2 statements): said plainly in ADR 0021, and the reason SSE is not worth it yet.
+
+### Daily digests at the digest hour (ONE statement)
+
+12,000 learner digests (1,000 new items -> one digest per course per learner) + 20 grading digests (one per instructor): **3.6 s**, 12,020
+in-app rows and 12,020 outbox rows.
+
+### What the benchmark found
+
+1. **A correctness bug, not a speed problem.** The outbox key was the event's dedupe key without the RECIPIENT. A digest has one key for a
+   whole course, so 12,020 notifications wrote only **201** outbox rows: 59 of 60 learners of a course would never have been emailed (and
+   only the first admin of "gradebook submitted"). Fix: the key is per event AND recipient (`notify_fanout`); regression tests send a digest
+   to two learners and a gradebook event to three admins and check every inbox. Our tests had looked at the first recipient only.
+2. **The planner, again.** The first version of the reminder selection joined the participants of every assignment in the window directly.
+   On a college without statistics: **9.4 s** for the audience alone and **13.6 s** for the whole statement. Fix: find the few assignments in
+   the window first (one row each, `MATERIALIZED`, the course title once per assignment), then reach the learners through a `LATERAL ... OFFSET 0`
+   probe of the offering's participants with unique-key checks. 9.4 s -> 0.36 s (26x) and 13.6 s -> 3.0 s with no statistics, and the fresh
+   plan is now within 30 % of the analyzed one. Quizzes got the same shape.
+3. `lms.notify_quiet_release` was a plpgsql call per row; it is the same value for every row of a college in one statement, so it is computed
+   once per college.
