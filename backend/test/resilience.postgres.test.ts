@@ -72,9 +72,12 @@ describe('PostgreSQL restarts under traffic', () => {
     const samples: Sample[] = [];
     const t0 = Date.now();
     const DURATION = 7000;
-    let n = 0;
 
     const worker = async (id: number) => {
+      // The kind of the next request comes from THIS worker's own counter, so every worker cycles through read, write and ready for the
+      // whole run. (A counter shared by all workers locked each worker onto ONE kind when they ran in step: some runs had no readiness
+      // probe at all during the outage, and the test failed for lack of a sample, not because the API misbehaved.)
+      let n = 0;
       while (Date.now() - t0 < DURATION) {
         const kind = (['read', 'write', 'ready'] as const)[(n++ + id) % 3] as Sample['kind'];
         const startedAt = Date.now();
@@ -117,7 +120,12 @@ describe('PostgreSQL restarts under traffic', () => {
     expect(afterOutage.length).toBeGreaterThan(10);
     const firstGood = Math.min(...afterOutage.map((s) => s.startedAt));
     expect(firstGood).toBeLessThan(3500 + 3500);
-    // readiness reported the outage and the recovery
+    // readiness reported the outage and the recovery (and the workload really probed it while the database was down)
+    expect(
+      samples.filter((s) => s.kind === 'ready' && s.startedAt >= 1500 && s.startedAt <= 3500)
+        .length,
+      'the workload must probe readiness during the outage',
+    ).toBeGreaterThan(10);
     expect(samples.some((s) => s.kind === 'ready' && s.status === 503)).toBe(true);
     expect(samples.filter((s) => s.kind === 'ready').at(-1)?.status).toBe(200);
     // the pool is not leaking: nobody is still waiting for a connection
