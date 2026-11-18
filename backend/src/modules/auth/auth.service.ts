@@ -73,7 +73,7 @@ export function createAuthService(deps: {
   sessionsService: Pick<SessionsService, 'completeLogin' | 'logout'>;
   usersService: Pick<UsersService, 'ensureUser'>;
   membershipsService: Pick<MembershipsService, 'getMembership' | 'invite'>;
-  auditService: Pick<AuditService, 'record' | 'recordPlatform'>;
+  auditService: Pick<AuditService, 'record' | 'recordIn' | 'recordPlatform'>;
   config?: Partial<AuthConfig>;
 }) {
   const { db, authRepo, hasher, securityMail, background, sessionsService, usersService } = deps;
@@ -370,22 +370,18 @@ export function createAuthService(deps: {
         email,
         input.displayName?.trim() || email.split('@')[0] || email,
       );
-      const membership = await membershipsService.invite(ctx.tenantId, {
-        userId,
-        role: input.role,
-      });
-      // the audit row queues the invite email in the same transaction (trigger audit_log_notify); the
-      // worker mints the token when it sends
-      await audit(
-        ctx.tenantId,
-        {
+      const tenantId = ctx.tenantId;
+      // The membership and its audit row are ONE transaction (found by the Postgres-restart test: a connection lost between two
+      // transactions left a pending member with no audit row and no email). The audit row queues the invite email in that same
+      // transaction (trigger audit_log_notify); the worker mints the token when it sends.
+      await membershipsService.invite(tenantId, { userId, role: input.role }, (tx, membership) =>
+        auditService.recordIn(tx, tenantId, {
           actorUserId: ctx.userId,
           action: 'auth.invite_created',
           targetType: 'membership',
           targetId: membership.id,
-          metadata: { role: input.role },
-        },
-        ctx,
+          metadata: { role: input.role, ...(ctx.ip ? { ip: ctx.ip } : {}) },
+        }),
       );
     },
 

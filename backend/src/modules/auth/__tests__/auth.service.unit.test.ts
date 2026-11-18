@@ -89,10 +89,22 @@ function setup(
   };
   const membershipsService = {
     getMembership: vi.fn().mockResolvedValue({ id: 'm', role: 'member', status: 'active' }),
-    invite: vi.fn().mockResolvedValue({ id: newId(), userId, role: 'member', status: 'pending' }),
+    // like the real one: the optional third argument runs in the same transaction as the membership
+    invite: vi.fn(
+      async (
+        _tenantId: string,
+        _input: unknown,
+        within?: (tx: unknown, membership: unknown) => Promise<void>,
+      ) => {
+        const membership = { id: newId(), userId, role: 'member', status: 'pending' };
+        await within?.({}, membership);
+        return membership as never;
+      },
+    ),
   };
   const auditService = {
     record: vi.fn().mockResolvedValue(undefined),
+    recordIn: vi.fn().mockResolvedValue(undefined),
     recordPlatform: vi.fn().mockResolvedValue(undefined),
   };
   const usersService = { ensureUser: vi.fn().mockResolvedValue({ userId, created: true }) };
@@ -428,7 +440,10 @@ describe('auth service: password reset, change, invites (fake repositories)', ()
     ).resolves.toBeUndefined();
     // no token in the request: the audit row queues the invite email (trigger), the worker mints the token
     expect(s.authRepo.createToken).not.toHaveBeenCalled();
-    expect(s.auditService.record).toHaveBeenCalledWith(
+    // the audit row is written INSIDE the membership's transaction (one commit), never as a second transaction
+    expect(s.auditService.record).not.toHaveBeenCalled();
+    expect(s.auditService.recordIn).toHaveBeenCalledWith(
+      expect.anything(),
       tenant.id,
       expect.objectContaining({ action: 'auth.invite_created', targetType: 'membership' }),
     );

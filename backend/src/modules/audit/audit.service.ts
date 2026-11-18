@@ -96,6 +96,19 @@ export function createAuditService(deps: {
     }
   }
 
+  async function recordIn(tx: Executor, tenantId: string, entry: AuditEntryInput): Promise<void> {
+    assertAction(entry.action);
+    await auditRepo.insert(tx, {
+      id: newId(),
+      tenantId,
+      actorUserId: entry.actorUserId ?? null,
+      action: entry.action,
+      targetType: entry.targetType,
+      targetId: entry.targetId ?? null,
+      metadata: entry.metadata ?? {},
+    });
+  }
+
   return {
     /** Tenant-less audit event (platform-admin host logins, lockouts, unlocks, ...). */
     async recordPlatform(entry: AuditEntryInput & { ip?: string | null }): Promise<void> {
@@ -163,19 +176,15 @@ export function createAuditService(deps: {
     },
 
     async record(tenantId: string, entry: AuditEntryInput): Promise<void> {
-      assertAction(entry.action);
-      await db.withTenant(tenantId, (tx) =>
-        auditRepo.insert(tx, {
-          id: newId(),
-          tenantId,
-          actorUserId: entry.actorUserId ?? null,
-          action: entry.action,
-          targetType: entry.targetType,
-          targetId: entry.targetId ?? null,
-          metadata: entry.metadata ?? {},
-        }),
-      );
+      await db.withTenant(tenantId, (tx) => recordIn(tx, tenantId, entry));
     },
+
+    /**
+     * The same entry, written in a transaction the CALLER already holds (a tenant transaction of `tenantId`): the entry then exists
+     * exactly when the change it records does. Use this, not `record`, whenever the change and its audit row must be all or nothing
+     * (an invite: membership + audit row + the email the audit trigger queues).
+     */
+    recordIn,
 
     /** GET /audit: the tenant's own log (permission audit.read), newest first. */
     async listTenantLog(

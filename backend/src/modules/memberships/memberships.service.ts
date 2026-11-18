@@ -125,29 +125,42 @@ export function createMembershipsService(deps: {
      * Creates a PENDING membership for an invite (or re-uses a pending one, updating the role).
      * An already-active (or suspended) member is a conflict.
      */
-    async invite(tenantId: string, input: { userId: string; role: string }): Promise<Membership> {
+    /**
+     * `within` runs in the SAME transaction after the membership is written (the audit row of the invite): if the connection
+     * dies, or `within` throws, the membership is not left behind without its audit row and its queued email.
+     */
+    async invite(
+      tenantId: string,
+      input: { userId: string; role: string },
+      within?: (tx: Executor, membership: Membership) => Promise<void>,
+    ): Promise<Membership> {
       if (!isMembershipRole(input.role)) throw new InvalidMembershipRoleError();
       const role = input.role;
       return db.withTenant(tenantId, async (tx) => {
-        const existing = await membershipsRepo.findByUserId(tx, input.userId);
-        if (existing && existing.status === 'removed') {
-          // the SAME membership comes back (as pending, until the invite is accepted): history stays attached
-          return (await membershipsRepo.reinstate(tx, existing.id, role)) ?? existing;
-        }
-        if (existing && existing.status !== 'pending') throw new MembershipAlreadyExistsError();
-        if (existing) {
-          const updated = await membershipsRepo.updateRole(tx, existing.id, role);
-          return updated ?? existing;
-        }
-        const row = await membershipsRepo.insert(tx, {
-          id: newId(),
-          tenantId,
-          userId: input.userId,
-          role,
-          status: 'pending',
-        });
-        if (!row) throw new MembershipNotFoundError();
-        return row;
+        const write = async (): Promise<Membership> => {
+          const existing = await membershipsRepo.findByUserId(tx, input.userId);
+          if (existing && existing.status === 'removed') {
+            // the SAME membership comes back (as pending, until the invite is accepted): history stays attached
+            return (await membershipsRepo.reinstate(tx, existing.id, role)) ?? existing;
+          }
+          if (existing && existing.status !== 'pending') throw new MembershipAlreadyExistsError();
+          if (existing) {
+            const updated = await membershipsRepo.updateRole(tx, existing.id, role);
+            return updated ?? existing;
+          }
+          const row = await membershipsRepo.insert(tx, {
+            id: newId(),
+            tenantId,
+            userId: input.userId,
+            role,
+            status: 'pending',
+          });
+          if (!row) throw new MembershipNotFoundError();
+          return row;
+        };
+        const membership = await write();
+        if (within) await within(tx, membership);
+        return membership;
       });
     },
 
