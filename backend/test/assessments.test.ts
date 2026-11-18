@@ -275,6 +275,52 @@ describe('start and read: the paper is frozen and has no answers in it', () => {
     expect(n.rows[0].n).toBe(1);
   });
 
+  // The race behind a flaky CI run (migration 0057), made deterministic: a copy of the live function that PAUSES between "is there an active
+  // attempt?" (none) and "how many attempts were used?", while a second start of the same learner commits its attempt in that gap. The paused
+  // call must resume that attempt; before the fix it answered no_attempts_left (a learner opening the exam in two tabs was told they had none).
+  it('a start that overlaps another start of the same learner resumes that attempt, never "no attempts left"', async () => {
+    const { item } = await quiz(e);
+    const learner = e.learners[1]!;
+    const live = (
+      await owner.query<{ d: string }>(
+        `SELECT pg_get_functiondef('lms.assessment_start(uuid,uuid,uuid,uuid,integer)'::regprocedure) AS d`,
+      )
+    ).rows[0]!.d;
+    const countStep = '  SELECT count(*) INTO used FROM lms.attempts';
+    expect(live).toContain(countStep);
+    const paused = live
+      .replace('FUNCTION lms.assessment_start(', 'FUNCTION lms.assessment_start_paused(')
+      .replace(countStep, `  PERFORM pg_sleep(0.8);\n${countStep}`);
+    await owner.query(paused);
+    try {
+      const allowed = (
+        await owner.query<{ n: number }>(
+          `SELECT attempts_allowed AS n FROM lms.assessments WHERE item_id = $1`,
+          [item.id],
+        )
+      ).rows[0]!.n;
+      expect(allowed).toBe(1); // the case that hurts: the one attempt is already taken by the other call
+      const args = [A.tenantId, learner.userId, e.offeringId, item.id];
+      const call = async (fn: string) =>
+        (
+          await owner.query<{ r: { result: string; attemptId?: string; resumed?: boolean } }>(
+            `SELECT lms.${fn}($1::uuid, $2::uuid, $3::uuid, $4::uuid, 60) AS r`,
+            args,
+          )
+        ).rows[0]!.r;
+      const slow = call('assessment_start_paused');
+      await new Promise((r) => setTimeout(r, 300)); // the paused call has found no attempt and is asleep
+      const fast = await call('assessment_start');
+      expect(fast).toMatchObject({ result: 'ok', resumed: false });
+      const late = await slow;
+      expect(late).toMatchObject({ result: 'ok', resumed: true, attemptId: fast.attemptId });
+    } finally {
+      await owner.query(
+        'DROP FUNCTION IF EXISTS lms.assessment_start_paused(uuid,uuid,uuid,uuid,integer)',
+      );
+    }
+  }, 30_000);
+
   it('refuses instructors, strangers and unpublished assessments', async () => {
     const { item } = await quiz(e);
     expect(
