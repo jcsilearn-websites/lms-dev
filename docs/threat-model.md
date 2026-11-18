@@ -1,0 +1,178 @@
+# Threat model (Step 14a)
+
+Scope: the JCS iLearn API, worker, database and SPA as built through Step 13 plus the hardening of Step 14a. Method: STRIDE per module
+(**S**poofing, **T**ampering, **R**epudiation, **I**nformation disclosure, **D**enial of service, **E**levation of privilege), each threat
+with the mitigation that exists **and the test that pins it**, or marked **GAP** with where it is tracked. This is a working document: a new
+module or route adds its rows in the same change. The ASVS Level 2 mapping is `docs/asvs.md`; permissions per route are `docs/permissions.md`.
+
+## 1. System, assets and trust boundaries
+
+```
+ browser (SPA)  --HTTPS-->  gateway / CDN  --/api/*-->  API (Fastify)  --pg (TLS)-->  PostgreSQL 17 (RLS)
+      |                          |  (SPA files)              |                              ^
+      |                          +--> object storage         +--> job queue (table) --> worker --> email provider
+      +-- playback / signed URLs (CDN)                                                     +--> video provider, storage
+```
+
+**Assets** (most sensitive first): (1) credentials and sessions; (2) one college's learners' personal data and academic records (grades,
+submissions, attempts) and the integrity of them; (3) assessment content before release (answer keys); (4) the signing keys; (5) availability
+at deadline moments (exams, hand-ins); (6) the audit trail; (7) uploaded files and video (the highest-risk inbound content).
+
+**Actors**: anonymous internet; a learner (a `member` participating as `learner`); faculty (a `member`, `instructor` / `assistant`); an
+institution admin of ONE college; a platform admin; a member of ANOTHER college (the multi-tenant adversary); a compromised email provider or
+storage; an insider with database access (out of scope for the application, handled by Cloud SQL IAM and audit).
+
+**Trust boundaries**: internet -> gateway; gateway -> API; API -> database (role `lms_app`, no BYPASSRLS, own nothing); API/worker -> provider
+(email, storage, video); worker -> database (no tenant context: definer functions only).
+
+## 2. Cross-cutting threats
+
+| #   | Threat (STRIDE)                                                                                  | Mitigation (and its test)                                                                                                                                                                                                                                                                                                                                                                                                  | Status |
+| --- | ------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| X1  | **I/E**: a user reads or changes another college's data                                          | `tenant_id` on every tenant table, RLS **enabled and forced**, policies `TO lms_app` only, composite FKs, tenant set per transaction (`withTenant`). `policies.test.ts`, `tenant-isolation.test.ts`, `authz-matrix.test.ts`, and **the route-table fuzz** `tenant-fuzz.test.ts` (every route x every caller of college A with ids of college B: no 500, no id/name of B in any answer, B's data byte-identical afterwards) | done   |
+| X2  | **E**: authorization checked by comparing role strings or skipped on a route                     | every route declares exactly one of permission / authenticated / public (the app refuses to start otherwise); services re-check resource-level permissions; deny-by-default `can()`. `route-declarations.test.ts`, `core/__tests__/authz-policy.unit.test.ts`                                                                                                                                                              | done   |
+| X3  | **T**: SQL injection                                                                             | typed Drizzle queries and bind parameters everywhere; the 20 places that assemble SQL text are on a reviewed allowlist with the reason each is safe, and a static check fails on any new one (`sql-concat.unit.test.ts`). The database role cannot create objects                                                                                                                                                          | done   |
+| X4  | **S/T**: CSRF on cookie sessions                                                                 | Origin/Referer must equal the host AND `X-Requested-With: lms` on every state-changing request; `SameSite=Lax`, `HttpOnly`, `__Host-` prefix in production. Exactly three exempt routes (RFC 8058 unsubscribe, signed webhook, browser CSP report), pinned by `route-declarations.test.ts`                                                                                                                                 | done   |
+| X5  | **I**: XSS in the SPA                                                                            | React escaping; rich text is validated JSON, never HTML (`content.richtext.ts`); **strict CSP without `unsafe-inline`/`unsafe-eval`** (ADR 0023), enforced in every E2E test; API responses carry `default-src 'none'`; downloads are `attachment` or sandboxed                                                                                                                                                            | done   |
+| X6  | **S**: session theft / fixation                                                                  | 32 random bytes, only the SHA-256 stored, fresh token at login, revoked on logout / password change / role change, idle 7 d + absolute 30 d, bound to the tenant host, httpOnly. `auth.security.test.ts`                                                                                                                                                                                                                   | done   |
+| X7  | **D**: brute force, scraping, floods, one instance's budget x N                                  | per-session limits (a lab behind one address is not one user), per-address limits for anonymous traffic, forged-cookie limiter, **shared** strict tier for credential routes (ADR 0022), lockout with doubling back-off capped at 15 min. `rate-limit.test.ts`, `rate-limit.shared.test.ts`                                                                                                                                | done   |
+| X8  | **I**: secrets or personal data in logs, errors, traces                                          | pino redaction, no query strings or bodies logged, generic error bodies with request id, playback URLs redacted, CSP reports scrubbed to origin + first segment; **log-hygiene test** over login, reset, invite, hand-in, grading, mail delivery at DEBUG; no PII in span attributes                                                                                                                                       | done   |
+| X9  | **S/T**: token forgery or replay of signed links (playback, receipts, unsubscribe, storage URLs) | HMAC with purpose-bound derived keys, expiry, constant-time compare, bound to user / tenant / resource; **key ids and rotation** (ADR 0023); legacy format counted and scheduled for removal                                                                                                                                                                                                                               | done   |
+| X10 | **T**: supply-chain compromise of a dependency                                                   | exact pins, 24 h minimum release age in pnpm (never bypassed), lockfile verified, gitleaks, **dependency audit in CI failing on high/critical with an expiring exception list**, Renovate with a 3-day age. Dev tooling is not shipped                                                                                                                                                                                     | done   |
+| X11 | **D**: the database or a provider goes away                                                      | deadlines on every external call, 503 + Retry-After (not 500) for database and storage failures, circuit breaker on email, deferred jobs, fault-injection tests (ADR 0024). **GAP**: no multi-region; recovery targets in the Step 14b backup notes                                                                                                                                                                        | partly |
+| X12 | **R**: an admin or platform admin denies an action                                               | append-only `audit_log` (before/after, actor, IP) and `platform_audit_log`; every platform-admin action inside a college is double-audited in one transaction; mutations are one statement including the audit row                                                                                                                                                                                                         | done   |
+| X13 | **E**: a code path executes with the table owner's rights                                        | the app and worker connect only as `lms_app` (NOBYPASSRLS, owns nothing, least-privilege grants); `SECURITY DEFINER` functions are hardened (fixed `search_path`, schema-qualified, EXECUTE revoked from PUBLIC) and tested (`auth.functions.test.ts`, `policies.test.ts`)                                                                                                                                                 | done   |
+| X14 | **I**: personal data kept longer than needed, no way to export or erase                          | retention jobs exist per table family (sessions, tokens, imports, outbox, notifications); **GAP**: member data export and the erasure flow, the retention table, the DPDP notes: Step 14b (`docs/step-14b-notes.md`)                                                                                                                                                                                                       | GAP    |
+
+## 3. Per module
+
+Entry point = the routes of the module (`docs/permissions.md`) unless said otherwise. "Mit." = mitigation, "Test" = what pins it.
+
+### Platform and identity
+
+**health / ops** (probes, `GET /metrics`, `POST /csp-report`)
+| STRIDE | Threat                                                | Mit. / Test                                                                                                                                            |      |
+| ------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
+| I      | readiness leaks hosts or errors                       | readiness answers `{status, db}` only; `health.routes.test.ts` asserts no host, user or error text                                                     | done |
+| I/E    | metrics expose internals                              | bearer token, constant-time, 404 when unset, rate limited; database gauges are counts and ages only (no ids, names, payloads); `observability.test.ts` | done |
+| D      | report endpoint flooded                               | 8 KB, 60/min/address shared across instances, junk ignored; `csp.test.ts`, `rate-limit.shared.test.ts`                                                 | done |
+| T/I    | report endpoint used to inject log lines or leak URLs | directive name is validated against `[a-z-]{1,40}`; URLs cut before logging; `csp.test.ts`                                                             | done |
+
+**tenants / platform** (college create, rename, suspend, platform audit)
+| STRIDE  | Threat                                                                | Mit. / Test                                                                                                                                                                    |      |
+| ------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
+| E       | a college admin reaches platform functions                            | platform permissions exist only on the admin host; `platform_*` definer functions re-check the actor is a platform admin; `authz-matrix.test.ts`, `platform.functions.test.ts` | done |
+| S       | host header confusion picks the wrong college                         | tenant resolved from `<slug>.<APP_BASE_DOMAIN>` only; links in emails are built from the validated slug, never raw Host; reserved slugs blocked by CHECK                       | done |
+| T       | slug changed after creation breaks isolation                          | slug immutable (trigger and API)                                                                                                                                               | done |
+| **GAP** | a platform admin account is the single most powerful identity; no MFA | MFA for platform admins is not built (ASVS 2.8)                                                                                                                                | GAP  |
+
+**users / memberships / sessions / auth**
+| STRIDE  | Threat                                                                                    | Mit. / Test                                                                                                                                                                                    |      |
+| ------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| S       | credential stuffing, guessing                                                             | argon2id, generic failure with a constant-time verify, lockout (60 s doubling to 15 min), per-address and per-hashed-email shared limits; `auth.security.test.ts`, `rate-limit.shared.test.ts` | done |
+| S       | account enumeration (login, reset, invite)                                                | byte-identical responses and timing for wrong password and unknown email; reset answers the same for any address                                                                               | done |
+| S/E     | a stolen or replayed invite / reset token                                                 | 7-day / 30-minute, single use, only SHA-256 stored, minted when the mail is sent (the outbox never holds one)                                                                                  | done |
+| E       | the last admin of a college removed or demoted                                            | database trigger `guard_last_admin` under an advisory lock (race-free); `members.test.ts`                                                                                                      | done |
+| E       | profile type used as a permission                                                         | `profile_type` is a label; tested that a faculty-labelled member has member rights (`profiles.test.ts`)                                                                                        | done |
+| T       | a removed member's history deleted                                                        | memberships are never hard-deleted; history tables `ON DELETE RESTRICT`                                                                                                                        | done |
+| **GAP** | no MFA for institution admins; password breach check is a local common-password list only | tracked in `docs/asvs.md`                                                                                                                                                                      | GAP  |
+
+**audit**
+| STRIDE | Threat                                              | Mit. / Test                                                                                                                                                                |      |
+| ------ | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| T/R    | audit rows edited or deleted                        | `lms_app` has INSERT and SELECT only; the audit row is written in the same statement as the change                                                                         | done |
+| I      | audit entries leak private reasons or personal data | accommodation, extension, waiver reasons are never put in the entry's text (minutes and dates only; a test greps every audit row); platform-admin reads are double-audited | done |
+
+### Operations
+
+**jobs / worker**
+| STRIDE | Threat                               | Mit. / Test                                                                                                                                                             |      |
+| ------ | ------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| E      | the worker acts across tenants       | claim / complete / fail / release / defer are definer functions that act only while the caller holds the lease; tenant jobs run through `withTenant(ctx.tenantId)`      | done |
+| T      | a job runs twice (retry, lost lease) | lease heartbeat, attempt accounting, idempotent handlers (outbox keys, `request_key`); `resilience.worker.test.ts` kills a worker mid-job: one completion, attempts = 2 | done |
+| D      | a poison job blocks a queue          | max attempts then `dead` with retention; per-queue concurrency; deferral for a down dependency does not charge attempts                                                 | done |
+| D      | a worker dies                        | lease expiry, re-claim; readiness `/health/ready` on the worker port                                                                                                    | done |
+
+**ratelimit** (shared counters): see X7 and ADR 0022. Threat **T**: forging counters is impossible from outside (no grant, definer function only);
+**D**: the table is unlogged and empty after a crash (documented, accepted); keys never hold an address (hashed).
+
+**ops**: see health.
+
+### Learning platform
+
+**academics / profiles / imports**
+| STRIDE | Threat                                                        | Mit. / Test                                                                                                               |      |
+| ------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- | ---- |
+| T      | CSV formula injection reaching a spreadsheet                  | column-aware input rejection and an apostrophe prefix on every exported cell (`imports.csv.ts`)                           | done |
+| D      | a 100,000-row or malicious CSV                                | streamed multipart, 5 MB / 10,000 rows, staged and validated in one set-based statement, one import per college at a time | done |
+| T      | an import renames users, touches suspended or removed members | it never does; tested                                                                                                     | done |
+| I      | staged names and emails kept                                  | purged 7 days after the import ended                                                                                      | done |
+
+**courses / content / files**
+| STRIDE  | Threat                                                        | Mit. / Test                                                                                                                                                                                            |      |
+| ------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---- |
+| E       | a non-participant reads or edits an offering                  | `scope: 'offering'` access CTE in the same statement as the work (404 for non-participants); `offering-scope.test.ts` fails for a route without a body                                                 | done |
+| T/I     | malicious upload (type confusion, path traversal, executable) | extension + magic bytes + size checked by reading the bytes; keys built from two UUIDs only; downloads `attachment` unless PDF/PNG/JPEG, with `nosniff` and a sandbox CSP; signed URLs expire in 5 min | done |
+| **GAP** | **malware scanning of uploaded files is not built**           | highest-risk TODO (CLAUDE.md): close before the first production college hands in work                                                                                                                 | GAP  |
+| T       | rich text smuggles script                                     | JSON document validated against a schema; rendered by components, never `innerHTML`                                                                                                                    | done |
+| D       | storage full or slow                                          | deadlines and clean 503; `resilience.storage.test.ts`                                                                                                                                                  | done |
+
+**video / progress**
+| STRIDE | Threat                    | Mit. / Test                                                                                                                                                                                                                                |          |
+| ------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- |
+| I      | playback link shared      | a token bound to the user, the tenant and the asset, short-lived, in the path (not logged), `Referrer-Policy: no-referrer` on playing pages; the local provider also requires the same user's cookie. A deterrent: **no DRM** (documented) | accepted |
+| E      | ffmpeg on untrusted input | `-protocol_whitelist file`, no shell, hard timeout, probe limits, output only in the job's directory; local provider refused in production                                                                                                 | done     |
+| T      | forged watch progress     | server-side token bucket per learner and item (2x real time), `seq` per player instance; a forged client can claim up to the bucket: bounded, not provable (stated)                                                                        | accepted |
+
+**questions / assessments / rubrics / assignments**
+| STRIDE | Threat                                                             | Mit. / Test                                                                                                                                                                       |          |
+| ------ | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| I      | answer keys reach a learner before release                         | `presentation` and `answer_key` are separate columns; `attempt_read` has no key by construction; images only through the learner's own attempt                                    | done     |
+| T      | late submission passed off as on time; clock games                 | the deadline is the server clock, judged by **arrival**, not service time (`core/deadline.ts`, receipts bound to session, resource and payload hash)                              | done     |
+| T      | retried or replayed submit creates two versions or changes content | idempotent `request_key`, immutable versions, receipts bound to the payload (a changed payload is judged by its own arrival)                                                      | done     |
+| I      | blind grading unblinded                                            | names, emails and register numbers are NULL in every row that leaves the database until release; sentinel test `assignments.blind.test.ts`                                        | done     |
+| I      | private accommodation or extension reasons exposed                 | visible only to instructors and institution admins; never in lists, exports or audit text                                                                                         | done     |
+| T      | exam cheating                                                      | **no proctoring** (an integrity log is information, not proof; stated in ADR 0017)                                                                                                | accepted |
+| D      | the deadline burst                                                 | arrival-based deadlines, 503 busy + receipts, SPA retry with backoff; benchmarked (Step 10b)                                                                                      | done     |
+| E/T    | an uploaded ZIP                                                    | never opened by the server; the instructor's download is an attachment; the server-built ZIP validates names (`safeFileName`) and is checked with `unzip -t` and Python `zipfile` | done     |
+
+**gradebook**
+| STRIDE | Threat                               | Mit. / Test                                                                                                                        |      |
+| ------ | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| T      | a mark changed after approval        | append-only versions, snapshots and mark history (triggers, even for the dev cleanup); unlock needs an admin and a reason, audited | done |
+| E      | self-approval                        | college setting, default off, the refusal itself is audited                                                                        | done |
+| I      | an unreleased item reaches a learner | learner mode hides unreleased items completely (no state, title or count); sentinel test                                           | done |
+| T      | rounding or calculation drift        | ONE exact function checked against an independent BigInt reference by a property test                                              | done |
+| T      | formula injection in exports         | apostrophe rule in CSV; XLSX has no formulas (`<f>` never written)                                                                 | done |
+
+**analytics / usage**
+| STRIDE | Threat                                                                      | Mit. / Test                                                                                                                                                                              |      |
+| ------ | --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| I      | at-risk data reaches a learner or an admin sees named lists they should not | `atrisk.view` for instructors and assistants by participation and institution admins; a learner never; sentinel tests over every learner response; the admin dashboard shows counts only | done |
+| T      | rollups drift from the source                                               | recompute from the source (never deltas); an independent TypeScript reference after random mutations                                                                                     | done |
+| I      | platform usage leaks a college's people                                     | aggregates only                                                                                                                                                                          | done |
+
+### Communication
+
+**email / notifications**
+| STRIDE  | Threat                                                                                                  | Mit. / Test                                                                                                                                                                                               |      |
+| ------- | ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| I       | a mail carries a mark, feedback or a private reason                                                     | template params are `additionalProperties: false` schemas with no such field; an undeclared param kills the row; sentinel test over every row                                                             | done |
+| T       | open redirect or phishing via links                                                                     | links are built only from the validated slug and `APP_BASE_DOMAIN`                                                                                                                                        | done |
+| T       | header injection                                                                                        | subjects are single-line, every value escaped, addresses validated                                                                                                                                        | done |
+| D       | provider outage or a hard-bounced address damages reputation                                            | outbox + circuit breaker + deferral (no dead letters); suppressions stop all mail after a hard bounce; unsubscribe with RFC 8058; webhook signature verified over the raw body with a timestamp tolerance | done |
+| S       | forged bounce webhook                                                                                   | ECDSA signature, replay window, strict shared rate limit; unconfigured provider answers 503                                                                                                               | done |
+| T       | unsubscribe link forged                                                                                 | HMAC token (key ring), 90 days, security categories never get one and the API refuses them                                                                                                                | done |
+| **GAP** | no new-login alert emails; no per-learner quiet hours; the send-rate token bucket is per worker process | CLAUDE.md TODO                                                                                                                                                                                            | GAP  |
+
+## 4. Residual risks and gaps (owner decisions)
+
+1. **No malware scanning of uploads** (assignment files are the highest-risk inbound path). Before the first production college.
+2. **No MFA** for platform admins or institution admins (ASVS 2.8); recommended for platform admins before launch.
+3. **No proctoring and no DRM**: stated limits of exams and of video.
+4. **Data subject rights** (export, erasure) and the retention table: Step 14b.
+5. **The in-memory SPA bundle trusts the gateway** to send the CSP: deployment checklist in README "Production routing" and the GCP TODOs.
+6. **Rate limits are best-effort** for hot routes by design (batched sync): up to `max + N x max/10`, stated in ADR 0022.
+7. **A compromised signing secret** invalidates the integrity of live tokens until rotated: the procedure and the emergency path exist
+   (`docs/key-rotation.md`) and have been tested in unit tests, not drilled on a running deployment.
+8. **Single database region**; backups and recovery targets: Step 14b.

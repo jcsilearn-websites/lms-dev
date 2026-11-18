@@ -10,8 +10,9 @@ exams: question bank, assessments, attempt engine, grading; backend + frontend) 
 blind grading, late penalties, bulk ZIP, and the offering copy of assessments and assignments; backend + frontend) and 11 (the gradebook:
 categories, exact calculation, approval and immutable snapshots, exports; backend + frontend) and 12 (dashboards, rollups, at-risk learners,
 usage metering; backend + frontend) and 13 (notifications and real email: outbox, SMTP + SendGrid, bounce webhooks, suppression, unsubscribe,
-in-app bell, preferences, reminders and digests; backend + frontend) are built. Do not
-build features beyond the current step without being asked.
+in-app bell, preferences, reminders and digests; backend + frontend) and 14a (production hardening: shared rate limiting, signing-key rotation, strict CSP,
+cross-tenant fuzz, observability, resilience; backend + E2E) are built; **14b (data protection, backups, load tests, service worker + error boundary) is NOT built:
+read `docs/step-14b-notes.md`**. Do not build features beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
 
@@ -53,7 +54,9 @@ backend/
     contracts/      shared TypeBox schemas + types exported to the frontend (leaf folder)
     core/storage/   StorageProvider (local signed-URL driver, GCS stub), file types + magic bytes
     core/zip.ts     streaming store-only ZIP writer (ZIP64, data descriptors); core/filenames.ts safeFileName (zip-slip, device names)
-    core/mail/      EmailProvider (smtp, sendgrid, console, file), BounceWebhookAdapter, templates, unsubscribe tokens, send-rate limiter
+    core/mail/      EmailProvider (smtp, sendgrid, console, file), BounceWebhookAdapter, templates, unsubscribe tokens, send-rate limiter, guard (deadline + circuit breaker)
+    core/keyring.ts signing-key ring (key ids, rotation, legacy tokens)   core/rate-limit/ store interface, local (batched) and strict tiers, Redis stub
+    core/telemetry.ts OpenTelemetry (spans, metrics; no-op when not installed)   core/resilience.ts withTimeout + circuit breaker   core/health-server.ts the worker's port
     core/video/     VideoProvider (local = ffmpeg + HLS served by the API; gcp / bunny stubs), playback tokens, ffmpeg/ffprobe runner
     modules/<module>/   health, tenants (+tenant_settings), users, memberships, audit, sessions, auth,
                         jobs (queue), academics, profiles, imports, courses, content, files, video, progress,
@@ -61,7 +64,8 @@ backend/
                         rubrics (per course, versioned), assignments (settings, submissions, grading, blind keys, ZIP, extensions),
                         gradebook (categories, items, exact calculation, marks, CSV import, overrides, approval, snapshots, export, grade scales),
                         analytics (activity, rollups, dashboards, at-risk, reports + exports), usage (monthly metering, platform usage),
-                        email (outbox delivery, suppressions, provider webhooks), notifications (in-app, preferences, settings, unsubscribe, reminder / digest scan)
+                        email (outbox delivery, suppressions, provider webhooks), notifications (in-app, preferences, settings, unsubscribe, reminder / digest scan),
+                        ratelimit (the shared PostgreSQL limiter store + purge), ops (GET /metrics, POST /csp-report, the operations gauges)
   migrations/       numbered SQL files
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
@@ -602,6 +606,44 @@ setup: `docs/email-deliverability.md`. Numbers: `docs/benchmarks.md` (Step 13).
   the bell and the banner live in `test/server.ts` `mockSignedIn()`: a new shell request needs a default there (an unhandled request logs
   "intercepted a request without a matching request handler" and can time a test out).
 
+## Production hardening (step 14a)
+
+Full reasoning: `docs/adr/0022-shared-rate-limiting.md`, `0023-csp-and-key-rotation.md`, `0024-resilience-and-observability.md`. Also: `docs/threat-model.md` (STRIDE per
+module), `docs/asvs.md` (ASVS 4.0.3 Level 2, with the gaps), `docs/key-rotation.md`, `docs/slo.md` (SLOs and the alerts to configure), `docs/resilience.md`,
+`docs/dependency-policy.md`. The remaining Step 14 sections are in `docs/step-14b-notes.md` (note the cut-off text there).
+- **Rate limiting is two-tier and shared** (`RATE_LIMIT_STORE=postgres` is the production default; `memory` in dev / tests). **Local tier** (every route's limit, the
+  forged-cookie limiter): decided in memory with NO database call, hits folded into the shared store in the background in batches (accuracy `max + N x max/10`, stated).
+  **Strict tier** (`config: { strictRateLimit: { max, windowMs } }`; login, forgot, reset, invite accept per address and per HASHED email, the webhook, the public
+  unsubscribe calls, `/csp-report`, `/metrics`): one autocommit statement `lms.rate_limit_hit` per request. The table is `UNLOGGED`: **it is emptied on a crash or a failover
+  (intended)**. Keys never hold an address. The limiter's statement is infrastructure: `statementCounter.count` in `test/app.ts` excludes it (`.limiter` counts it,
+  `rate-limit.shared.test.ts` pins it), so every endpoint budget below is unchanged. A new anonymous / credential route gets `strictRateLimit`. Redis is a stub (`core/rate-limit/redis.ts`).
+- **Signing keys** (`core/keyring.ts`): every HMAC token (playback, deadline receipt, unsubscribe, storage URL) is `v2.<keyId>.<payload>.<mac>`; `SIGNING_KEYS=kid:secret,...`
+  (first signs, all verify; one HKDF label per purpose); without it one key `k0` = the old per-purpose key. Tokens of the old format verify while `SIGNING_LEGACY_TOKENS=on`,
+  counted by `lms_legacy_token_verifications_total{purpose}`; **flip it off 90 days after the format ships** (the longest token, the unsubscribe link, lives 90 days).
+  API and worker need the same ring. A NEW signed token must use `seal` / `open` (never its own HMAC).
+  `Cross-Origin-Opener-Policy: same-origin` is in the SPA headers; only `pnpm lighthouse` omits it (`SERVE_OMIT_COOP=1`: COOP zeroes Lighthouse scores).
+- **CSP**: ONE policy in `contracts/csp.ts` (`@lms/backend/csp`): no `unsafe-inline`, no `unsafe-eval`, no nonce; `serve.mjs` and the production gateway send `spaSecurityHeaders()`.
+  The app styles through the CSSOM only (no `style=""` attribute, no `<style>` element): **a library that injects a `<style>` fails E2E** (Tiptap did: `injectCSS: false` +
+  `tiptap-base.css`). `frontend/e2e/support.ts` fails EVERY E2E test on a CSP violation (import `test` / `expect` from `../support`, not `@playwright/test`); a test that provokes one
+  calls `expectCspViolation()`. The API sends `default-src 'none'` and `Cache-Control: no-store` unless a route chose its own.
+- **Security tests that cover new code automatically**: `test/tenant-fuzz.test.ts` (every route x every caller of college A with college B's ids: no 500, nothing of B in any
+  answer, B's tables byte-identical; a new route needs nothing, its TypeBox schema builds the body), `test/sql-concat.unit.test.ts` (an AST check: SQL assembled as text must be on
+  `test/sql-concat.allowlist.json` WITH the reason it is safe), `test/log-hygiene.test.ts` (sentinels through real flows: no address, password, token, mark or feedback in a log line;
+  a new flow that handles such a value should be added to it).
+- **Observability** (`core/telemetry.ts`, a no-op unless `METRICS_TOKEN` or `OTEL_EXPORTER_OTLP_ENDPOINT` is set): HTTP -> service -> database spans (`traced()` wraps every module
+  service in the composition root; `db.transaction` spans), metrics by ROUTE TEMPLATE (never a URL, id or address in a label), `GET /metrics` (bearer token, 404 when unset),
+  database-state gauges through ONE definer function `lms.ops_metrics()` (counts and ages: job depth and oldest age per queue, outbox backlog, rollup lag, video backlog; cached 5 s;
+  aggregate with `max()`), the worker's own port (`WORKER_HEALTH_PORT`, 3001: `/health/live`, `/health/ready`, `/metrics`). No personal data in a span attribute or a label.
+- **Resilience**: a deadline on every external call (`withTimeout`; storage, video provider, email, `DB_QUERY_TIMEOUT_MS` 30 s in the API); a circuit breaker on the email provider; when
+  it is open `email.send` throws `DeferJobError` and the runner calls `lms.job_defer` (the job waits, the attempt is REFUNDED: an outage never dead-letters mail); storage failures are
+  503 `storage_unavailable`, database failures 503 `database_unavailable`, both with Retry-After. The local storage driver treats only ENOENT / ENOTDIR as "missing". A connection
+  that dies while a request holds it no longer crashes the process (listener on the checked-out client). Tests: `test/resilience.*.test.ts`, `test/fault-proxy.ts` (reset / refuse / blackhole,
+  no Docker), `docs/resilience.md`. `resilience.worker.test.ts` is serial (it kills real processes).
+- **Dependencies**: `pnpm audit:deps` (CI job `dependency-audit`, also nightly) fails on high / critical unless `audit-allowlist.json` has an unexpired reviewed exception (90 days
+  max); `renovate.json` (3-day age, exact pins, TypeScript < 6.1, PostgreSQL 17, Node 24). A pnpm override fixed `ansi-regex@5.0.0`. osv-scanner is not wired in (TODO).
+- **Migrations of step 14a**: 0054 (the rate-limit table and function, `lms.ops_metrics()`), 0055 (`lms.job_defer`). NOT applied to the dev database by the agent: `pnpm db:migrate`.
+  Round trips: every budget above is unchanged; `GET /metrics` costs at most 1 statement per 5 s; the limiter's own statements are 0 on a hot route and 1 per key on a strict one.
+
 ## Deadline fairness under load (step 10b)
 
 Full reasoning: `docs/adr/0018-assignments.md` ("Deadline fairness under load"). Numbers: `docs/benchmarks.md` (Step 10b).
@@ -669,8 +711,9 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
   locked for 60 s doubling, **capped at 15 min**; attempts while locked are not counted; reset/unlock clears it at once.
   Institution admins unlock members of their tenant (`POST /auth/members/:userId/unlock`), platform admins on the admin host.
 - **CSRF**: every POST/PUT/PATCH/DELETE needs an Origin (or Referer) equal to the request host AND `X-Requested-With: lms`.
-  Nothing is exempt EXCEPT exactly two routes that cannot send our headers and are authenticated by something else (step 13): the RFC 8058
-  one-click unsubscribe POST (signed token) and the email provider's webhook (signature). A route needs BOTH `config.csrfExempt` AND its path in
+  Nothing is exempt EXCEPT exactly three routes that cannot send our headers (steps 13, 14a): the RFC 8058
+  one-click unsubscribe POST (signed token), the email provider's webhook (signature) and the BROWSER's CSP violation report (`POST /api/csp-report`: public,
+  writes nothing, 8 KB, strictly rate limited). A route needs BOTH `config.csrfExempt` AND its path in
   `CSRF_EXEMPT_ROUTES` (`core/csrf.ts`); `route-declarations.test.ts` pins the list. The SPA and dev proxy must send both.
 - **Rate limits** (in-memory): stricter per-IP and per-email limits on login, password-reset request and invite accept.
 - **Request context**: `registerAuthContext` (core) sets `request.auth` / `request.tenant`; controllers build a plain
@@ -879,6 +922,8 @@ pnpm --filter @lms/backend run bench:assignments  1,500 learners in the deadline
 pnpm --filter @lms/backend run bench:gradebook  500 and 1,200 learners x 60 items: compute, grid chunk, lock, one learner (needs DATABASE_URL of a migrated DB)
 pnpm --filter @lms/backend run bench:analytics  10,000 students x 200 offerings: rollup refresh (full / incremental, fresh vs ANALYZEd), every dashboard's DB time, activity upsert (scratch DB)
 pnpm --filter @lms/backend run bench:notifications  10,000 students x 200 offerings x 60: reminder audience / enqueue, send throughput, unread count, digests (scratch DB, autovacuum off)
+pnpm --filter @lms/backend run bench:ratelimit  the shared limiter: store latency memory vs PostgreSQL, the local tier, HTTP with each store (a migrated TEST database)
+pnpm audit:deps          dependency audit gate (high / critical fail unless an unexpired reviewed exception exists in audit-allowlist.json)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
@@ -898,7 +943,7 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
   heartbeat rate limit is the per-instance limiter like every route. A request killed by the page unloading is lost (the next
   heartbeat carries on). `on_view` is recorded by the client's validated call, not proven.
 
-- **Rate limiter is in-memory (per instance): needs a shared store (e.g. Redis/Memorystore) before production.**
+- **Rate limiter (step 14a)**: shared through PostgreSQL (strict tier per request, local tier batched); the Redis / Memorystore store is a stub: build it only if the limiter's statements show up in the Cloud SQL load (ADR 0022). `TRUST_PROXY=true` is required behind the load balancer or every request counts against its address.
 - Production TLS: `DB_SSL=verify-full` + `DB_SSL_CA` (Cloud SQL server CA); `off` is refused in production.
 - Jobs enqueued by the API are picked up by the worker within `JOB_POLL_MAX_INTERVAL_MS` (no LISTEN/NOTIFY yet).
 - The invite email of an import uses the college's origin built from `APP_BASE_DOMAIN` (+ `APP_PUBLIC_PORT` in development).
@@ -953,6 +998,7 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 - **Open after step 11c** (owner decisions, none started): stored per-learner gradebook results (the way to the 300 / 800 ms class targets); notifications
   (behind learners, released grades, gradebook submitted / returned / approved); GPA / credits / transcript across courses; copying a gradebook with an
   offering; a mark history view in the grid; malware scanning of assignment files (before the first production college); the shared rate limiter.
+- **GCP (step 14a additions)**: the SPA's `Content-Security-Policy` (and the other `spaSecurityHeaders()`) must be sent by the **production gateway / CDN** (backend-bucket custom response headers or the load balancer header policy), the exact value from `backend/src/contracts/csp.ts`, with a deploy check that fetches `/` and compares; Secret Manager for `SIGNING_KEYS` and the other secrets (API and worker share the ring); Managed Prometheus scraping `/metrics` of the API and the worker port with `METRICS_TOKEN`; the alerts of `docs/slo.md`; `OTEL_EXPORTER_OTLP_ENDPOINT` to Cloud Trace; the Redis limiter only if measured; osv-scanner in CI (pinned binary + checksum); MFA for platform admins; the password policy (12 characters, breach check): owner decisions in `docs/asvs.md`.
 - **Open for the GCP step** (collected here so nothing is lost): the client's choice of email provider (SMTP and SendGrid are built; SES / ZeptoMail webhook adapters are one file each) and the DNS of docs/email-deliverability.md; the GCS storage driver and the GCP
   Transcoder + Cloud CDN / managed video providers (stubs, 503); malware scanning of uploads; a shared rate limiter (Redis /
   Memorystore); production `DB_SSL=verify-full` + `DB_SSL_CA`; re-measure heartbeat throughput on Cloud SQL (target 1,000/s; 436/s
@@ -961,7 +1007,19 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
 ## Current state / handoff (read after the sections above)
 
 Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/benchmarks.md` or the code.
-- **Where we are**: steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Step 14a verification (2026-11-18, on the uncommitted working tree, after the 12-character password and COOP / Lighthouse changes)**: Biome and dependency-cruiser clean
+  (the one Biome complaint is the FORMAT of the owner's untracked `docs/step-14b-notes.md`, deliberately not edited: run `biome format --write` on it when 14b starts), typecheck, frontend 337 tests,
+  build, `bundle:check`, FULL E2E 77 passed in one pass (8 min), Lighthouse mobile median of 3 (`SERVE_OMIT_COOP=1`; every page perf 91-96, a11y 100; desktop pages 99-100; budgets met), `docs:permissions --check`.
+  Found and fixed: (1) two E2E specs (11 blind-grading ZIP, 14 unsubscribe) called `page.request` with `<college>.localhost`, which Node resolves through the OS and some networks answer NXDOMAIN
+  (`getaddrinfo ENOTFOUND`; Chrome resolves `*.localhost` itself, so only these calls failed): they now use `apiOfPage(page, slug)` in `e2e/support.ts` (127.0.0.1 + Host header + the page's cookies, like `apiAs`).
+  **Never call `page.request` / `request` with a `*.localhost` URL in E2E.** (2) `.gitleaks.toml` allows the three fake password sentinels of `backend/test/log-hygiene.test.ts` (path AND exact value).
+  Secrets: `pnpm secrets:scan` runs `gitleaks git` = COMMITTED history only; a working-tree check is `gitleaks dir . --config .gitleaks.toml` (it also walks git-ignored files: the only hits left are in `.env*` and `.mail/`).
+  **Audit (`pnpm audit:deps`)**: `pnpm audit` MUST be run with `--registry https://registry.npmjs.org` (the project's npmmirror has no audit endpoint; `scripts/audit.mjs` does it). The tree has ONE picomatch, 4.0.7, so the older
+  GHSA-c2c7-rcm5-vvqj (CVE-2026-33671, fixed 2.3.2 / 3.0.2 / 4.0.4) does not apply. GHSA-fc5q-39xc-vjpf (CVE-2026-112366, `<=4.0.7`, ReDoS, npm audit says patched `>=4.0.8`) has NO released fix (4.0.7 is `latest`); GitHub
+  WITHDREW it on 2026-11-18 (OSV and `npm audit` still listed it that day). Dev-only, proven: `pnpm audit --prod` has no picomatch, `pnpm why picomatch --prod` finds nothing, neither `backend/dist` nor `frontend/dist` contains it.
+  So `audit-allowlist.json` holds ONE reviewed exception, **expires 2026-12-18 (30 days)**; `backend/test/audit-policy.unit.test.ts` pins it (valid now, fails again the day after). **Before that date: re-run `pnpm audit:deps`; if a picomatch >= 4.0.8 exists upgrade and DELETE
+  the entry, if the advisory is gone from npm audit the entry shows as stale: remove it.** `docs/step-14b-notes.md` was formatted with Biome (it failed `pnpm lint` before). The backend suite was not re-run in this pass (no dependency changed; only an audit unit test was added).
+- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0056. MFA (TOTP) is planned as step 14c.** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
   payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend

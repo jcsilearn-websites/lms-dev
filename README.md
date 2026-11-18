@@ -143,7 +143,10 @@ the Vite proxy do locally (route `/api/*` to the API, the rest to the SPA):
   resolved from `Host`, cookies are host-only, and `TRUST_PROXY` must match the proxy chain.
 - Serve `/assets/*` with `Cache-Control: public, max-age=31536000, immutable` (file names are content hashes) and
   `index.html` with `no-cache`; compress text assets (brotli/gzip); send the security headers `serve.mjs` sends (CSP,
-  `nosniff`, `frame-ancestors 'none'`). Video needs `media-src 'self' blob:` in that CSP (hls.js plays through a MediaSource),
+  `nosniff`, `frame-ancestors 'none'`). **The SPA's `Content-Security-Policy` header must be sent by the gateway / CDN** (a backend
+  bucket's custom response headers or the load balancer's header policy), with exactly the value of `spaSecurityHeaders()` in
+  `backend/src/contracts/csp.ts` (the one shared policy: no `unsafe-inline`, no `unsafe-eval`, violations reported to `/api/csp-report`;
+  ADR 0023). The API cannot send it: it never serves the HTML. Video needs `media-src 'self' blob:` in that CSP (hls.js plays through a MediaSource),
   and the pages that play video (`/offerings/*/items/*`, `/offerings/*/build`) must send `Referrer-Policy: no-referrer`.
 - Wildcard certificate and wildcard DNS for `*.<APP_BASE_DOMAIN>` (tenants) plus `admin.<APP_BASE_DOMAIN>`.
 - **File storage (course files)**: production uses `STORAGE_DRIVER=gcs` (a bucket per environment, uniform bucket-level

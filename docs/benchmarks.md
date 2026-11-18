@@ -890,3 +890,44 @@ in-app rows and 12,020 outbox rows.
    plan is now within 30 % of the analyzed one. Quizzes got the same shape.
 3. `lms.notify_quiet_release` was a plpgsql call per row; it is the same value for every row of a college in one statement, so it is computed
    once per college.
+
+## Step 14a: the shared rate limiter
+
+`pnpm --filter @lms/backend run bench:ratelimit` (a migrated TEST database, `DATABASE_URL` = the owner, `DATABASE_APP_URL` = `lms_app`; it writes
+only `bench-rl-*` keys and deletes them). 2-core Windows laptop, PostgreSQL 17 on localhost, pool of 10. Decision and reasoning: ADR 0022.
+
+### The store itself, per call
+
+|                                          | calls/s   | p50     | p95     | p99     |
+| ---------------------------------------- | --------- | ------- | ------- | ------- |
+| memory, one at a time                    | 1,217,804 | 1 us    | 1 us    | 2 us    |
+| memory, 16 at once                       | 1,506,535 | 9 us    | 15 us   | 25 us   |
+| **PostgreSQL (UNLOGGED), one at a time** | 2,532     | 253 us  | 862 us  | 1.04 ms |
+| **PostgreSQL, 16 at once**               | 5,087     | 1.35 ms | 5.22 ms | 8.72 ms |
+| PostgreSQL, 16 at once on ONE hot key    | 7,519     | 2.00 ms | -       | 3.62 ms |
+
+A hot key is not slower (the row lock is held for one `INSERT ... ON CONFLICT` statement). On Cloud SQL in the same region the call is ~1 ms
+plus the statement: the same order of magnitude, which is why the strict tier is limited to anonymous / authentication routes.
+
+### The local tier (what every route pays)
+
+**335 ns per hit** (500,000 hits over 200 keys, the shared store attached: the decision is synchronous and in memory, the batched sync runs in
+the background). HTTP end to end on a route only the local tier touches (a 404): **8,644 req/s with the memory store, 8,961 req/s with the
+PostgreSQL store**, p50 1 ms, p99 6-7 ms: the shared store costs the request path nothing measurable.
+
+### The strict tier (a shared-store statement per request)
+
+`POST /api/csp-report` (a public strict route, 16 connections, 6 s):
+
+|              | req/s | p50  | p99   |
+| ------------ | ----- | ---- | ----- |
+| memory store | 9,320 | 1 ms | 5 ms  |
+| PostgreSQL   | 2,341 | 5 ms | 14 ms |
+
+A strict route is about 4x slower per request because it runs one autocommit statement; ~10 anonymous routes pay it, none of them hot. The
+round-trip budgets of every endpoint are unchanged (the limiter's statement is counted separately, `test/rate-limit.shared.test.ts`).
+
+### The cross-tenant fuzz (`test/tenant-fuzz.test.ts`)
+
+272 routes x up to 5 callers x up to 2 id sets = **1,576 requests** (statuses: 111 x 2xx, 194 x 400, 262 x 401, 319 x 403, 668 x 404, 7 x 409,
+no 500) in about 10 s; no id, address or name of the other college in any answer and its data byte-identical afterwards.
