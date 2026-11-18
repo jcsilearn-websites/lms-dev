@@ -1,7 +1,17 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type Browser, expect, type Page, test } from '@playwright/test';
-import { apiAs, createMember, eventually, expectAccessible, originOf, signIn } from '../support';
+import {
+  apiAs,
+  type Browser,
+  createMember,
+  eventually,
+  expect,
+  expectAccessible,
+  originOf,
+  type Page,
+  signIn,
+  test,
+} from '../support';
 
 // Quizzes and exams end to end, on the real API, worker and database:
 //  - the instructor builds a question bank (one by one and from a CSV) and an exam with random pools in the UI;

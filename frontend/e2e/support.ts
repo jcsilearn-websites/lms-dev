@@ -1,6 +1,15 @@
 import { readFileSync } from 'node:fs';
 import AxeBuilder from '@axe-core/playwright';
-import { type APIRequestContext, expect, type Page, request } from '@playwright/test';
+import {
+  type APIRequestContext,
+  type BrowserContext,
+  test as base,
+  expect,
+  type Page,
+  request,
+} from '@playwright/test';
+
+export * from '@playwright/test';
 
 export const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 4173);
 export const PASSWORD = process.env.E2E_PASSWORD ?? 'correct-horse-battery-staple';
@@ -76,6 +85,26 @@ export async function apiAs(slug: string, email: string): Promise<APIRequestCont
   const res = await ctx.post('auth/login', { data: { email, password: PASSWORD } });
   if (!res.ok()) throw new Error(`API sign-in as ${email} failed: ${res.status()}`);
   return ctx;
+}
+
+/**
+ * An API client that acts as the person signed in on `page` (same cookies), for an assertion about what the
+ * server holds or sends. Like `apiAs` it connects to 127.0.0.1 and names the college in the Host header,
+ * because `page.request` would have Node resolve `<slug>.localhost`, which fails on some networks
+ * (getaddrinfo ENOTFOUND). Relative paths, no leading slash; the caller disposes it.
+ */
+export async function apiOfPage(page: Page, slug: string): Promise<APIRequestContext> {
+  const host = `${slug}.localhost:${WEB_PORT}`;
+  const cookies = await page.context().cookies(`http://${host}`);
+  return request.newContext({
+    baseURL: `http://127.0.0.1:${WEB_PORT}/api/`,
+    extraHTTPHeaders: {
+      host,
+      origin: `http://${host}`,
+      'x-requested-with': 'lms',
+      cookie: cookies.map((c) => `${c.name}=${c.value}`).join('; '),
+    },
+  });
 }
 
 // ------------------------------------------------------------------------------------------ accessibility
@@ -171,4 +200,57 @@ export async function eventually<T>(
     if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
     await new Promise((r) => setTimeout(r, 400));
   }
+}
+
+// ------------------------------------------------------------------------------------------ CSP: a violation fails the test
+// Step 14a. The SPA is served under a strict Content-Security-Policy (backend/src/contracts/csp.ts: no unsafe-inline, no unsafe-eval).
+// EVERY test, in EVERY context it opens (a spec that signs in as another user opens its own), fails if the browser reports a CSP
+// violation: through a `securitypolicyviolation` event (an init script turns it into a console error) or Chromium's own
+// "Refused to ..." console message. The browser also POSTs each violation to /api/csp-report (the same report endpoint production
+// uses): 15-csp.spec.ts proves that path end to end. A test that PROVOKES a violation says so with `expectCspViolation()`.
+const CSP_PATTERN =
+  /Content Security Policy|CSPVIOLATION|Refused to (apply|execute|load|connect|create|frame)/;
+
+export const test = base.extend<{ cspWatch: undefined }>({
+  cspWatch: [
+    async ({ browser, context }, use, testInfo) => {
+      const violations: string[] = [];
+      const watched = new WeakSet<BrowserContext>();
+      const watch = (ctx: BrowserContext) => {
+        if (watched.has(ctx)) return;
+        watched.add(ctx);
+        void ctx.addInitScript(() => {
+          document.addEventListener('securitypolicyviolation', (e) => {
+            // biome-ignore lint/suspicious/noConsole: the Playwright side reads this console message
+            console.error(`CSPVIOLATION ${e.effectiveDirective} blocked=${e.blockedURI}`);
+          });
+        });
+        const attach = (p: Page) =>
+          p.on('console', (m) => {
+            if (m.type() === 'error' && CSP_PATTERN.test(m.text()))
+              violations.push(m.text().slice(0, 300));
+          });
+        for (const p of ctx.pages()) attach(p);
+        ctx.on('page', attach);
+      };
+      watch(context);
+      const original = browser.newContext.bind(browser);
+      browser.newContext = (async (...args: Parameters<typeof original>) => {
+        const ctx = await original(...args);
+        watch(ctx);
+        return ctx;
+      }) as typeof browser.newContext;
+      await use(undefined);
+      browser.newContext = original;
+      const expected = testInfo.annotations.some((a) => a.type === 'csp-violation-expected');
+      if (!expected)
+        expect(violations, 'the page raised Content-Security-Policy violations').toEqual([]);
+    },
+    { auto: true },
+  ],
+});
+
+/** Marks the running test as one that provokes a CSP violation on purpose (see 15-csp.spec.ts). */
+export function expectCspViolation() {
+  test.info().annotations.push({ type: 'csp-violation-expected' });
 }

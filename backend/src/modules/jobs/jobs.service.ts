@@ -139,6 +139,10 @@ export function createJobsService(deps: {
     release(id: string, worker: string): Promise<boolean> {
       return db.withoutTenant((exec) => jobsRepo.release(exec, id, worker));
     },
+    /** Back to the queue to run after `delaySeconds`, the attempt refunded (a dependency is down, not a failure). */
+    defer(id: string, worker: string, delaySeconds: number): Promise<boolean> {
+      return db.withoutTenant((exec) => jobsRepo.defer(exec, id, worker, delaySeconds));
+    },
 
     /**
      * Retention: completed jobs after `completedRetentionDays`, dead ones after `deadRetentionDays`,

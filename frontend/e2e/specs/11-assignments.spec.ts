@@ -1,8 +1,19 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
-import { type Browser, chromium, expect, type Page, test } from '@playwright/test';
-import { apiAs, createMember, expectAccessible, originOf, signIn } from '../support';
+import {
+  apiAs,
+  apiOfPage,
+  type Browser,
+  chromium,
+  createMember,
+  expect,
+  expectAccessible,
+  originOf,
+  type Page,
+  signIn,
+  test,
+} from '../support';
 
 // Assignments end to end, on the real API, worker, storage and database:
 //  - the instructor builds a rubric and an assignment (late policy, blind grading, an attachment) in the UI;
@@ -365,13 +376,13 @@ test('the instructor grades BLIND: codes, no names; the rubric; the penalty on i
   await accessibleEverywhere(page, 'grading (blind, one learner)');
 
   // the bulk ZIP: folders by anonymous code, an index, no names
-  const zip = await page.request.get(
-    url(`/api/offerings/${offeringId}/items/${itemId}/assignment/submissions.zip`),
-  );
+  const api = await apiOfPage(page, COLLEGE);
+  const zip = await api.get(`offerings/${offeringId}/items/${itemId}/assignment/submissions.zip`);
   expect(zip.status()).toBe(200);
   expect(zip.headers()['content-type']).toBe('application/zip');
   expect(zip.headers()['content-disposition']).toContain('attachment');
   const bytes = await zip.body();
+  await api.dispose();
   expect(bytes.subarray(0, 4).toString('latin1')).toBe('PK\x03\x04');
   const text = bytes.toString('latin1');
   expect(text).toContain('index.csv');

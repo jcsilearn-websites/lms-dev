@@ -1,5 +1,13 @@
-import { expect, test } from '@playwright/test';
-import { expectAccessible, mailLink, originOf, signIn, signInAsAdmin, signOut } from '../support';
+import {
+  expect,
+  expectAccessible,
+  mailLink,
+  originOf,
+  signIn,
+  signInAsAdmin,
+  signOut,
+  test,
+} from '../support';
 
 test.describe('sign in and out', () => {
   test('signs in, lands on the home page, signs out and is sent back to the sign-in page', async ({

@@ -22,6 +22,7 @@ afterAll(async () => {
 const JOB_FUNCTIONS = [
   'job_claim',
   'job_complete',
+  'job_defer', // step 14a: wait without charging the attempt
   'job_enqueue_system',
   'job_extend_lease',
   'job_fail',

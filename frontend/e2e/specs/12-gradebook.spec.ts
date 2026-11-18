@@ -1,7 +1,17 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { type APIRequestContext, type Browser, expect, type Page, test } from '@playwright/test';
-import { apiAs, createMember, expectAccessible, originOf, signIn } from '../support';
+import {
+  type APIRequestContext,
+  apiAs,
+  type Browser,
+  createMember,
+  expect,
+  expectAccessible,
+  originOf,
+  type Page,
+  signIn,
+  test,
+} from '../support';
 
 // The gradebook end to end, on the real API, worker and database:
 //  - the instructor configures categories, weights, items and the scale in the UI;

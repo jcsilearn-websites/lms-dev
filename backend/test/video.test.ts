@@ -673,7 +673,7 @@ describe('playback', () => {
 
     // expired: a genuine signature over a past expiry
     const signer = createPlaybackTokens(playbackKey({ storageSecret: SECRET }));
-    const claims = JSON.parse(Buffer.from(token.split('.')[0] ?? '', 'base64url').toString('utf8'));
+    const claims = JSON.parse(Buffer.from(token.split('.')[2] ?? '', 'base64url').toString('utf8'));
     const expired = signer.sign({ ...claims, e: Math.floor(Date.now() / 1000) - 5 });
     expect((await s.learner.client.get(url(expired))).statusCode).toBe(403);
     const fresh = signer.sign({ ...claims, e: Math.floor(Date.now() / 1000) + 60 });

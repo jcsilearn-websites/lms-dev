@@ -41,15 +41,21 @@ export function createFileProvider(file: string): EmailProvider {
 /** Test double: remembers every email; `fail(n)` makes the next n sends throw (a transient provider error). */
 export function createCapturingProvider(): EmailProvider & {
   sent: OutgoingEmail[];
+  /** how many times `send` was called (failed or not) */
+  calls: number;
   failNext(n: number, error?: Error): void;
   clear(): void;
 } {
   const sent: OutgoingEmail[] = [];
   let failures = 0;
+  let calls = 0;
   let failure: Error = new Error('provider unavailable');
   return {
     name: 'capturing',
     sent,
+    get calls() {
+      return calls;
+    },
     failNext(n, error) {
       failures = n;
       if (error) failure = error;
@@ -58,6 +64,7 @@ export function createCapturingProvider(): EmailProvider & {
       sent.length = 0;
     },
     async send(email) {
+      calls++;
       if (failures > 0) {
         failures--;
         throw failure;

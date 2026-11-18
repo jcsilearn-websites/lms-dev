@@ -4,17 +4,18 @@ import { ForbiddenError } from './errors';
 const STATE_CHANGING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 /**
- * The ONLY routes that may skip the CSRF check, each for a client that cannot send our headers and is authenticated by
- * something else than a cookie (step 13, ADR 0021):
+ * The ONLY routes that may skip the CSRF check, each for a client that cannot send our headers (step 13, ADR 0021; step 14a):
  *   - RFC 8058 one-click unsubscribe: the MAILBOX PROVIDER posts `List-Unsubscribe=One-Click`; the signed token decides.
  *   - the email provider's event webhook: the provider posts; its signature over the raw body decides.
+ *   - the browser's CSP violation report: the BROWSER posts it with no custom headers; it changes nothing and is strictly limited.
  * A route needs BOTH the `csrfExempt` declaration AND its path in this list; route-declarations.test.ts pins the list.
  */
 export const CSRF_EXEMPT_ROUTES: Readonly<Record<string, CsrfExemption>> = {
   'POST /api/notifications/unsubscribe/one-click': 'rfc8058-one-click',
   'POST /api/email/webhooks/:provider': 'signed-webhook',
+  'POST /api/csp-report': 'csp-report',
 };
-export type CsrfExemption = 'rfc8058-one-click' | 'signed-webhook';
+export type CsrfExemption = 'rfc8058-one-click' | 'signed-webhook' | 'csp-report';
 
 declare module 'fastify' {
   interface FastifyContextConfig {

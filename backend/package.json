@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./contracts": "./src/contracts/index.ts"
+    "./contracts": "./src/contracts/index.ts",
+    "./csp": "./src/contracts/csp.ts"
   },
   "scripts": {
     "dev": "cross-env UV_THREADPOOL_SIZE=8 tsx watch src/server.ts",
@@ -30,6 +31,7 @@
     "bench:gradebook": "tsx bench/gradebook-bench.ts",
     "bench:analytics": "tsx bench/analytics-bench.ts",
     "bench:notifications": "tsx bench/notifications-bench.ts",
+    "bench:ratelimit": "tsx bench/ratelimit-bench.ts",
     "docs:permissions": "tsx src/cli/docs-permissions.ts",
     "admin:create": "tsx src/cli/create-platform-admin.ts",
     "db:dev:clean": "tsx src/cli/dev-clean.ts"
@@ -44,6 +46,13 @@
     "@fastify/swagger-ui": "^6.1.2",
     "@fastify/type-provider-typebox": "^6.3.0",
     "@node-rs/argon2": "^2.2.2",
+    "@opentelemetry/api": "1.10.0",
+    "@opentelemetry/context-async-hooks": "3.1.1",
+    "@opentelemetry/exporter-prometheus": "0.301.2",
+    "@opentelemetry/exporter-trace-otlp-http": "0.301.2",
+    "@opentelemetry/resources": "3.1.1",
+    "@opentelemetry/sdk-metrics": "3.1.1",
+    "@opentelemetry/sdk-trace": "3.1.1",
     "@sinclair/typebox": "^0.34.52",
     "csv-parse": "^7.0.3",
     "drizzle-orm": "^0.45.4",

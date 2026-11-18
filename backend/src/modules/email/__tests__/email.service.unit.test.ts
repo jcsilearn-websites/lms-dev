@@ -121,7 +121,7 @@ describe('deliver', () => {
     expect(m?.replyTo).toBe('office@alpha.test');
     expect(m?.messageId).toBe(`<${OUT}@notify.lms.example>`);
     expect(m?.headers['List-Unsubscribe']).toMatch(
-      /^<https:\/\/alpha\.lms\.example\/api\/notifications\/unsubscribe\/one-click\?t=v1\./,
+      /^<https:\/\/alpha\.lms\.example\/api\/notifications\/unsubscribe\/one-click\?t=v2\.k0\./,
     );
     expect(m?.text).toContain('https://alpha.lms.example/offerings/o');
     expect(repo.mark).toHaveBeenCalledWith(

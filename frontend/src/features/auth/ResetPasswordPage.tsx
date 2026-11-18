@@ -57,7 +57,7 @@ export function ResetPasswordPage() {
             label="New password"
             type="password"
             autoComplete="new-password"
-            hint="At least 10 characters. Avoid common passwords."
+            hint="At least 12 characters. Avoid common passwords."
             error={form.errors.newPassword ?? form.errors.token}
             {...form.field('newPassword')}
           />

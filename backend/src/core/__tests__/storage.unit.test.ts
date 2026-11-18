@@ -57,16 +57,16 @@ describe('signed URLs of the local driver', () => {
     now += 61_000;
     expect(storage.verify(tok, 'get')).toBeNull();
     now -= 61_000;
-    const [payload, mac] = tok.split('.') as [string, string];
-    expect(storage.verify(`${payload}.${mac.slice(1)}x`, 'get')).toBeNull();
+    const [v, kid, payload, mac] = tok.split('.') as [string, string, string, string];
+    expect(storage.verify(`${v}.${kid}.${payload}.${mac.slice(1)}x`, 'get')).toBeNull();
     const changed = Buffer.from(
       JSON.stringify({
         ...JSON.parse(Buffer.from(payload, 'base64url').toString()),
         k: `${TENANT}/${TENANT}`,
       }),
     ).toString('base64url');
-    expect(storage.verify(`${changed}.${mac}`, 'get')).toBeNull();
-    for (const junk of ['', '.', 'a.b.c', 'x', `${payload}.`])
+    expect(storage.verify(`${v}.${kid}.${changed}.${mac}`, 'get')).toBeNull();
+    for (const junk of ['', '.', 'a.b.c', 'x', `${v}.${kid}.${payload}.`])
       expect(storage.verify(junk, 'get')).toBeNull();
   });
 

@@ -24,6 +24,11 @@ export interface PoolOptions {
   max: number;
   /** Time to wait for a free/new connection. Generous in tests (remote DB), short for readiness. */
   connectionTimeoutMs?: number;
+  /**
+   * Client-side deadline of ONE statement (pg `query_timeout`). Without it a connection whose peer vanished (a failover, a half-open
+   * TCP connection) holds its request forever. 0 / unset = none (the worker, whose statements may legitimately run for minutes).
+   */
+  queryTimeoutMs?: number | undefined;
   applicationName: string;
   onError?: (err: Error) => void;
   /**
@@ -40,6 +45,10 @@ export function createPool(opts: PoolOptions): pg.Pool {
     application_name: opts.applicationName,
     connectionTimeoutMillis: opts.connectionTimeoutMs ?? 5000,
     idleTimeoutMillis: 30_000,
+    // detect a dead peer (a failover that never sent a FIN) instead of waiting for the first statement to hang
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10_000,
+    ...(opts.queryTimeoutMs ? { query_timeout: opts.queryTimeoutMs } : {}),
   });
   // An unhandled 'error' on an idle client would crash the process.
   pool.on('error', (err) => opts.onError?.(err));

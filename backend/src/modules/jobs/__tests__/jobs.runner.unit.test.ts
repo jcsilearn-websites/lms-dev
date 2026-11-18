@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HandlerMap } from '../../../core/handlers';
+import { DeferJobError, type HandlerMap } from '../../../core/handlers';
 import { createJobRunner, pollSteps } from '../jobs.runner';
 import { DEFAULT_JOBS_CONFIG, type JobsConfig } from '../jobs.service';
 
@@ -29,6 +29,7 @@ function fakeJobs(claims: Array<ReturnType<typeof job>[]> = []) {
     fail: vi.fn(async () => 'retry' as const),
     extendLease: vi.fn(async () => true),
     release: vi.fn(async () => true),
+    defer: vi.fn(async () => true),
     onEnqueue: (l: (q: string) => void) => {
       listeners.add(l);
       return () => listeners.delete(l);
@@ -185,6 +186,24 @@ describe('concurrency and results', () => {
     expect(peak).toBe(2);
     for (const r of releases) r();
     await vi.advanceTimersByTimeAsync(0);
+    await runner.stop(0);
+  });
+
+  it('a handler that throws DeferJobError hands the job back to run later: no failure, no attempt charged', async () => {
+    const jobs = fakeJobs([[job('d')]]);
+    const handlers: HandlerMap = {
+      q: {
+        run: async () => {
+          throw new DeferJobError(45, 'the email provider circuit is open');
+        },
+      },
+    };
+    const runner = createJobRunner({ jobs, handlers, config: config(), workerId: 'w', logger });
+    runner.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(jobs.defer).toHaveBeenCalledWith('d', 'w', 45);
+    expect(jobs.fail).not.toHaveBeenCalled();
+    expect(jobs.complete).not.toHaveBeenCalled();
     await runner.stop(0);
   });
 

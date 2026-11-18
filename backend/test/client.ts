@@ -1,4 +1,5 @@
 import type { LightMyRequestResponse } from 'fastify';
+import { DeferJobError } from '../src/core/handlers';
 import type { TestApp } from './app';
 
 export interface RequestOptions {
@@ -114,7 +115,9 @@ export async function deliverEmails(
         const result = await handler.run(job.payload, ctx);
         await jobs.complete(job.id, worker, result ?? null);
       } catch (err) {
-        await jobs.fail(job.id, worker, err instanceof Error ? err.message : String(err));
+        // a handler whose dependency is down defers the job (no attempt charged), exactly like the real runner
+        if (err instanceof DeferJobError) await jobs.defer(job.id, worker, err.delaySeconds);
+        else await jobs.fail(job.id, worker, err instanceof Error ? err.message : String(err));
       }
       ran++;
     }

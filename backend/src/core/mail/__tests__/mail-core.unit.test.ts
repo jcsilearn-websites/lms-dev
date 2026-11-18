@@ -16,7 +16,7 @@ describe('unsubscribe tokens', () => {
 
   it('a valid token round-trips its claims', () => {
     const tok = tokens.sign({ tenantId: T, userId: U, category: 'learning_grades' });
-    expect(tok).toMatch(/^v1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/);
+    expect(tok).toMatch(/^v2\.k0\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/);
     expect(tokens.verify(tok)).toEqual({
       ok: true,
       claims: { tenantId: T, userId: U, category: 'learning_grades', exp: now / 1000 + 3600 },
@@ -24,12 +24,12 @@ describe('unsubscribe tokens', () => {
   });
   it('a changed payload, a changed MAC or another key is forged; garbage is malformed; an old one expired', () => {
     const tok = tokens.sign({ tenantId: T, userId: U, category: 'learning_grades' });
-    const [v, payload, mac] = tok.split('.') as [string, string, string];
+    const [v, kid, payload, mac] = tok.split('.') as [string, string, string, string];
     const other = Buffer.from(
       JSON.stringify({ t: T, u: U, c: 'learning_content', e: now / 1000 + 3600 }),
     ).toString('base64url');
-    expect(tokens.verify(`${v}.${other}.${mac}`)).toEqual({ ok: false, reason: 'forged' });
-    expect(tokens.verify(`${v}.${payload}.${mac.slice(0, -1)}A`)).toMatchObject({
+    expect(tokens.verify(`${v}.${kid}.${other}.${mac}`)).toEqual({ ok: false, reason: 'forged' });
+    expect(tokens.verify(`${v}.${kid}.${payload}.${mac.slice(0, -1)}A`)).toMatchObject({
       ok: false,
       reason: 'forged',
     });

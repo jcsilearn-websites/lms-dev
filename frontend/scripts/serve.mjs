@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+
 // A small production-like web server for the built SPA (dist/). It is what a real gateway has to do:
 //   - serve dist/ with gzip or brotli (text assets), long immutable caching for /assets/*, no caching
 //     for index.html, and security headers (CSP, nosniff, frame-ancestors none);
@@ -15,6 +16,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { Agent, createServer, request as httpRequest } from 'node:http';
 import { extname, join, normalize } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
+import { spaSecurityHeaders } from '@lms/backend/csp';
 
 const arg = (name, fallback) => {
   const i = process.argv.indexOf(`--${name}`);
@@ -37,15 +39,10 @@ const TYPES = {
 };
 const COMPRESSIBLE = new Set(['.html', '.js', '.css', '.json', '.svg', '.txt']);
 
-const SECURITY = {
-  'x-content-type-options': 'nosniff',
-  'referrer-policy': 'same-origin',
-  // the app loads nothing from other origins; inline styles are used for the progress bar width
-  // media-src blob: hls.js feeds the <video> element through a MediaSource (a blob: URL); the video files themselves
-  // come from /api on this origin (connect-src 'self')
-  'content-security-policy':
-    "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'",
-};
+// ONE policy for everything that serves the SPA (backend/src/contracts/csp.ts): no 'unsafe-inline', no 'unsafe-eval', violations
+// reported to /api/csp-report. The production gateway / CDN must send the same headers (README "Production routing").
+// SERVE_OMIT_COOP=1 is set ONLY by `pnpm lighthouse` (COOP zeroes Lighthouse's scores); production and E2E always send it
+const SECURITY = spaSecurityHeaders({ omitCoop: process.env.SERVE_OMIT_COOP === '1' });
 
 /**
  * The pages that play video (the item page, the builder with its preview) send NO referrer: the playback link in

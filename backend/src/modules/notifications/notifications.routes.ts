@@ -52,12 +52,18 @@ export function createNotificationsRoutes(deps: {
     // unsubscribe: public, the signed token is the authority (a GET never changes anything: link scanners prefetch)
     app.get(
       '/notifications/unsubscribe',
-      { config: { public: true }, schema: s.unsubscribeInfoRouteSchema },
+      {
+        config: { public: true, strictRateLimit: { max: 120, windowMs: 60_000 } },
+        schema: s.unsubscribeInfoRouteSchema,
+      },
       c.unsubscribeInfo,
     );
     app.post(
       '/notifications/unsubscribe',
-      { config: { public: true }, schema: s.unsubscribeRouteSchema },
+      {
+        config: { public: true, strictRateLimit: { max: 120, windowMs: 60_000 } },
+        schema: s.unsubscribeRouteSchema,
+      },
       c.unsubscribe,
     );
     // RFC 8058: the mailbox provider POSTs `List-Unsubscribe=One-Click` (form encoded) to the List-Unsubscribe URL. It cannot
@@ -71,7 +77,12 @@ export function createNotificationsRoutes(deps: {
       oc.post(
         '/notifications/unsubscribe/one-click',
         {
-          config: { public: true, csrfExempt: 'rfc8058-one-click' },
+          // mailbox providers unsubscribe many people from the same few addresses: a generous shared limit
+          config: {
+            public: true,
+            csrfExempt: 'rfc8058-one-click',
+            strictRateLimit: { max: 1200, windowMs: 60_000 },
+          },
           bodyLimit: 1024,
           schema: s.oneClickRouteSchema,
         },

@@ -23,19 +23,20 @@ describe('route declarations', () => {
       await t.app.ready();
       expect(seen.length).toBeGreaterThan(10);
       expect(seen.filter((r) => r.kinds !== 1)).toEqual([]);
-      // every route is under /api (or is a health probe, which is also served at the root)
+      // every route is under /api (or is a health probe, which is also served at the root, or the metrics scrape target)
       expect(
-        seen.filter((r) => !/^\w+ \/(api\/|health\/)/.test(r.route)).map((r) => r.route),
+        seen.filter((r) => !/^\w+ \/(api\/|health\/|metrics$)/.test(r.route)).map((r) => r.route),
       ).toEqual([]);
     } finally {
       await t.close();
     }
   });
 
-  it('exactly two routes are CSRF-exempt (RFC 8058 one-click, the signed provider webhook), both public', async () => {
+  it('exactly three routes are CSRF-exempt (RFC 8058 one-click, the signed provider webhook, the browser CSP report), all public', async () => {
     expect(CSRF_EXEMPT_ROUTES).toEqual({
       'POST /api/notifications/unsubscribe/one-click': 'rfc8058-one-click',
       'POST /api/email/webhooks/:provider': 'signed-webhook',
+      'POST /api/csp-report': 'csp-report',
     });
     const t = makeApp();
     const exempt: { route: string; reason: unknown; isPublic: boolean }[] = [];
@@ -58,6 +59,7 @@ describe('route declarations', () => {
           isPublic: true,
         },
         { route: 'POST /api/email/webhooks/:provider', reason: 'signed-webhook', isPublic: true },
+        { route: 'POST /api/csp-report', reason: 'csp-report', isPublic: true },
       ]);
     } finally {
       await t.close();

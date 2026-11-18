@@ -34,6 +34,21 @@ jobs:
           tar -xzf gitleaks.tar.gz gitleaks
       - run: ./gitleaks git --redact --no-banner --config .gitleaks.toml
 
+  # Dependency audit (step 14a, docs/dependency-policy.md): fails on a high / critical advisory unless a reviewed, unexpired exception in
+  # audit-allowlist.json covers it. It ALSO runs on the nightly schedule: new advisories appear without any change of ours.
+  dependency-audit:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm audit:deps
+
   verify:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-24.04

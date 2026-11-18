@@ -139,6 +139,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | PUT | `/api/courses/:courseId/rubrics/:rubricId` | `rubric.manage` in any offering of the course |
 | GET | `/api/courses/:id` | `course.read` |
 | PATCH | `/api/courses/:id` | `course.manage` |
+| POST | `/api/csp-report` | public |
 | GET | `/api/departments` | `academic.read` |
 | POST | `/api/departments` | `academic.manage` |
 | DELETE | `/api/departments/:id` | `academic.manage` |
@@ -358,3 +359,4 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/video/play/:token/:assetId/*` | any signed-in user |
 | GET | `/health/live` | public |
 | GET | `/health/ready` | public |
+| GET | `/metrics` | public |

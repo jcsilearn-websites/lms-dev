@@ -1,4 +1,5 @@
 export * from './ffmpeg';
+export { guardVideoProvider } from './guard';
 export * from './provider';
 export {
   createBunnyVideoProvider,

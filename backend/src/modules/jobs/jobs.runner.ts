@@ -1,10 +1,11 @@
-import type { HandlerMap, JobContext } from '../../core/handlers';
+import { DeferJobError, type HandlerMap, type JobContext } from '../../core/handlers';
+import { counter, histogram, LATENCY_BUCKETS, withSpan } from '../../core/telemetry';
 import type { ClaimedJob } from './jobs.repository';
 import type { JobsConfig, JobsService } from './jobs.service';
 
 type RunnerJobs = Pick<
   JobsService,
-  'claim' | 'complete' | 'fail' | 'extendLease' | 'release' | 'onEnqueue'
+  'claim' | 'complete' | 'fail' | 'extendLease' | 'release' | 'defer' | 'onEnqueue'
 >;
 
 export interface RunnerLogger {
@@ -63,6 +64,8 @@ export function createJobRunner(deps: {
   let started = false;
   let stopped = false;
   let stopping: Promise<void> | undefined;
+  /** when a queue was last polled (or had a job running): the worker's readiness */
+  let lastActivityAt = Date.now();
 
   for (const name of Object.keys(handlers)) {
     queues.set(name, {
@@ -110,6 +113,7 @@ export function createJobRunner(deps: {
   async function doPoll(q: QueueState): Promise<void> {
     q.polling = true;
     q.again = false;
+    lastActivityAt = Date.now();
     try {
       const free = q.concurrency - q.inFlight.size;
       // a saturated queue is not polled: a finishing job wakes it
@@ -160,26 +164,59 @@ export function createJobRunner(deps: {
     }, heartbeatMs);
 
     running.done = (async () => {
+      const startedAt = performance.now();
+      let outcome: 'completed' | 'failed' | 'deferred' | 'aborted' = 'completed';
       try {
-        const result = await handler.run(job.payload, ctx);
+        // one span per job; the job id and the queue are the log fields of everything the handler logs through its service
+        const result = await withSpan(
+          `job ${q.name}`,
+          { 'job.id': job.id, 'job.queue': q.name, 'job.attempt': job.attempts },
+          () => handler.run(job.payload, ctx),
+        );
         if (!running.detached) {
           const ok = await jobs.complete(job.id, workerId, result);
           if (!ok) logger.warn({ jobId: job.id }, 'job finished but its lease was gone');
         }
       } catch (err) {
-        if (!running.detached) {
+        if (err instanceof DeferJobError) {
+          outcome = 'deferred';
+          if (!running.detached) {
+            await jobs
+              .defer(job.id, workerId, err.delaySeconds)
+              .catch((e: unknown) =>
+                logger.error({ err: e, jobId: job.id }, 'could not defer the job'),
+              );
+            logger.warn(
+              { jobId: job.id, queue: q.name, delaySeconds: err.delaySeconds, reason: err.message },
+              'job deferred (a dependency is unavailable)',
+            );
+          }
+        } else if (!running.detached) {
+          outcome = 'failed';
           const message = err instanceof Error ? err.message : String(err);
-          const outcome = await jobs
+          const failure = await jobs
             .fail(job.id, workerId, message)
             .catch((e: unknown) =>
               logger.error({ err: e, jobId: job.id }, 'could not record the failure'),
             );
           logger.error(
-            { err, jobId: job.id, queue: q.name, attempt: job.attempts, outcome },
+            { err, jobId: job.id, queue: q.name, attempt: job.attempts, outcome: failure },
             'job failed',
           );
+        } else {
+          outcome = 'aborted';
         }
       } finally {
+        counter('lms_jobs_total', 'jobs run by this worker, by outcome').add(1, {
+          queue: q.name,
+          outcome,
+        });
+        histogram('lms_job_duration_seconds', 'handler run time', [
+          ...LATENCY_BUCKETS,
+          30,
+          120,
+          600,
+        ]).record((performance.now() - startedAt) / 1000, { queue: q.name, outcome });
         clearInterval(beat);
         q.inFlight.delete(job.id);
         wake(q.name); // a slot is free: look for more work now
@@ -195,6 +232,11 @@ export function createJobRunner(deps: {
       for (const q of queues.values()) void poll(q);
     },
     wake,
+    /** Milliseconds since the queue loop last did anything (polled a queue, or has a job running: a busy worker is alive). */
+    idleMs(): number {
+      for (const q of queues.values()) if (q.inFlight.size > 0) return 0;
+      return Date.now() - lastActivityAt;
+    },
     /** The current poll interval of a queue in ms (tests, diagnostics). */
     pollIntervalMs(queue: string): number | undefined {
       const q = queues.get(queue);

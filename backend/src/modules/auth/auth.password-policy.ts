@@ -1,11 +1,12 @@
 import { COMMON_PASSWORDS } from './auth.common-passwords';
 import { WeakPasswordError } from './auth.errors';
 
-export const PASSWORD_MIN_LENGTH = 10;
+// 12 for NEW and CHANGED passwords (ASVS 2.1.1, step 14a). Login does not apply it: a password set under the old policy (10-11 characters) still signs in.
+export const PASSWORD_MIN_LENGTH = 12;
 export const PASSWORD_MAX_LENGTH = 128;
 
 /**
- * Password policy: 10-128 characters and not one of the most common passwords. No composition
+ * Password policy: 12-128 characters and not one of the most common passwords. No composition
  * rules (NIST/OWASP). Length is counted in Unicode code points after NFKC normalisation.
  */
 export function assertPasswordAllowed(password: string): void {

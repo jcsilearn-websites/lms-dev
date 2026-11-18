@@ -1,0 +1,122 @@
+[
+  {
+    "file": "cli/local-setup.ts",
+    "kind": "query-dynamic-string",
+    "text": "client.query(`CREATE DATABASE ${name}`)",
+    "reason": "Developer CLI. The name is checked against /^[a-z][a-z0-9_]{0,62}$/ three lines above, and CREATE DATABASE cannot take a bind parameter."
+  },
+  {
+    "file": "db/client.ts",
+    "kind": "query-dynamic-string",
+    "text": "client.query(`BEGIN; ${contextSql}`)",
+    "reason": "contextSql is built only by withTenant / withUser from set_config calls whose values passed isUuid() (hex digits and hyphens); never from user text."
+  },
+  {
+    "file": "db/client.ts",
+    "kind": "untagged-sql-template",
+    "text": "`set_config('${name}', '${uuid}', true)`",
+    "reason": "The setting name is a constant (app.tenant_id / app.user_id) and the value has passed isUuid() before it is inlined (tested in db/__tests__ and tenant-isolation)."
+  },
+  {
+    "file": "db/client.ts",
+    "kind": "untagged-sql-template",
+    "text": "`SELECT ${settings.join(', ')}`",
+    "reason": "Joins the set_config fragments above; each one is a constant name plus a validated UUID."
+  },
+  {
+    "file": "db/client.ts",
+    "kind": "untagged-sql-template",
+    "text": "`SELECT ${setting('app.user_id', userId)}`",
+    "reason": "One set_config fragment: constant name, UUID value checked by isUuid() in withUser."
+  },
+  {
+    "file": "db/dev-cleanup.ts",
+    "kind": "query-dynamic-string",
+    "text": "client.query(`ALTER TABLE lms.${table} DISABLE TRIGGER ${trigger}`)",
+    "reason": "Dev-database cleanup CLI (refuses production and non-localhost). Table and trigger names come from a hard-coded list in the file, never from input."
+  },
+  {
+    "file": "db/dev-cleanup.ts",
+    "kind": "query-dynamic-string",
+    "text": "client.query(`DELETE FROM lms.${table} WHERE tenant_id = $1`, [tenantId])",
+    "reason": "Dev-database cleanup CLI. The table name comes from a hard-coded list; the tenant id is a bind parameter."
+  },
+  {
+    "file": "db/dev-cleanup.ts",
+    "kind": "query-dynamic-string",
+    "text": "client.query(`ALTER TABLE lms.${table} ENABLE TRIGGER ${trigger}`)",
+    "reason": "Dev-database cleanup CLI (refuses production and non-localhost). Table and trigger names come from a hard-coded list in the file, never from input."
+  },
+  {
+    "file": "db/dev-cleanup.ts",
+    "kind": "query-dynamic-string",
+    "text": "client.query(`DELETE FROM lms.${table} WHERE tenant_id = $1`, [tenantId])",
+    "reason": "Dev-database cleanup CLI. The table name comes from a hard-coded list; the tenant id is a bind parameter."
+  },
+  {
+    "file": "modules/academics/academics.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(s)",
+    "reason": "Helper for column and table names that come from the closed entity table in academics.entities.ts (constants), never from a request."
+  },
+  {
+    "file": "modules/assessments/assessments.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(c)",
+    "reason": "Column name from the constant [field, column, type] table directly above; only fields present in the typed settings patch are used."
+  },
+  {
+    "file": "modules/assessments/assessments.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(type)",
+    "reason": "SQL type name from the same constant table above (text, integer, boolean, numeric, timestamptz)."
+  },
+  {
+    "file": "modules/assignments/assignments.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(c)",
+    "reason": "Column name from the constant [field, column, type] table directly above; only fields present in the typed settings patch are used."
+  },
+  {
+    "file": "modules/assignments/assignments.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(type)",
+    "reason": "SQL type name from the same constant table above."
+  },
+  {
+    "file": "modules/content/content.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(`lms.${table}`)",
+    "reason": "`table` is the TypeScript union 'content_modules' | 'content_items' chosen by the calling method, never user text."
+  },
+  {
+    "file": "modules/content/content.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(col)",
+    "reason": "`col` is a column name passed by the copy statement itself (opens_at, due_at, ...), constants in this file."
+  },
+  {
+    "file": "modules/content/content.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(alias)",
+    "reason": "`alias` is a CTE name chosen by the calling method (constants such as src / dst)."
+  },
+  {
+    "file": "modules/courses/courses.access.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(a.name ?? 'acc')",
+    "reason": "AccessSpec.name is a CTE alias supplied by the calling service as a literal (default acc); never from a request."
+  },
+  {
+    "file": "modules/imports/imports.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(s)",
+    "reason": "Helper used only with the column lists JOB_COLS / JOB_COLS_X defined as constants in this file."
+  },
+  {
+    "file": "modules/profiles/profiles.repository.ts",
+    "kind": "sql-raw-dynamic",
+    "text": "sql.raw(s)",
+    "reason": "Helper used with PROFILE_COLS constants and with column keys of ProfileValues, a closed union of eight column names set by profiles.service.toValues."
+  }
+]

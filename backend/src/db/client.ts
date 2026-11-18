@@ -1,5 +1,6 @@
 import { drizzle, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import type pg from 'pg';
+import { withSpan } from '../core/telemetry';
 import { isUuid } from '../core/uuid';
 import { createPool, type PoolOptions } from './connection';
 
@@ -41,6 +42,8 @@ export interface Database {
    * trip; anything that needs a transaction belongs in withTenant / withUser.
    */
   withoutTenant<T>(fn: (db: Executor) => Promise<T>): Promise<T>;
+  /** The pool right now: connections open, idle, and callers waiting for one (a gauge for /metrics). */
+  stats(): { total: number; idle: number; waiting: number };
   /** `SELECT 1` with a hard timeout; rejects if the database is unreachable or slow. */
   ping(timeoutMs: number): Promise<void>;
   close(): Promise<void>;
@@ -58,23 +61,42 @@ export function createDb(opts: PoolOptions): Database {
     contextSql: string,
     fn: (tx: Executor) => Promise<T>,
   ): Promise<T> {
-    const client: pg.PoolClient = await pool.connect();
-    let broken = false;
-    try {
-      await client.query(`BEGIN; ${contextSql}`);
-      const result = await fn(drizzle({ client }));
-      await client.query('COMMIT');
-      return result;
-    } catch (err) {
+    // one span per transaction (the statements inside are not spanned one by one: the round-trip budget already counts them)
+    return withSpan('db.transaction', { 'db.system': 'postgresql' }, async () => {
+      const client: pg.PoolClient = await pool.connect();
+      let broken = false;
+      // A connection that dies while a request holds it BETWEEN two statements (a restart, a failover) emits 'error' on the checked-out
+      // client. The pool only listens on idle clients, so without this listener the error is uncaught and takes the whole process
+      // down. Found by test/resilience.postgres.test.ts. The request itself fails with its next statement; the connection is discarded.
+      const onClientError = (err: Error) => {
+        broken = true;
+        opts.onError?.(err);
+      };
+      client.on('error', onClientError);
       try {
-        await client.query('ROLLBACK');
-      } catch {
-        broken = true; // the connection is unusable: drop it instead of returning it to the pool
+        await client.query(`BEGIN; ${contextSql}`);
+        const result = await fn(drizzle({ client }));
+        await client.query('COMMIT');
+        return result;
+      } catch (err) {
+        try {
+          // a ROLLBACK on a dead connection must not hang the request a second time: give it a short, hard deadline
+          let timer: NodeJS.Timeout | undefined;
+          await Promise.race([
+            client.query('ROLLBACK'),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error('rollback timed out')), 2000);
+            }),
+          ]).finally(() => clearTimeout(timer));
+        } catch {
+          broken = true; // the connection is unusable: drop it instead of returning it to the pool
+        }
+        throw err;
+      } finally {
+        client.removeListener('error', onClientError);
+        client.release(broken || undefined);
       }
-      throw err;
-    } finally {
-      client.release(broken || undefined);
-    }
+    });
   }
 
   const setting = (name: string, uuid: string) => `set_config('${name}', '${uuid}', true)`;
@@ -97,8 +119,10 @@ export function createDb(opts: PoolOptions): Database {
 
     async withoutTenant(fn) {
       // The pooled connection carries no session state (all settings are transaction-local).
-      return fn(autocommit);
+      return withSpan('db.statement', { 'db.system': 'postgresql' }, () => fn(autocommit));
     },
+
+    stats: () => ({ total: pool.totalCount, idle: pool.idleCount, waiting: pool.waitingCount }),
 
     async ping(timeoutMs) {
       let timer: NodeJS.Timeout | undefined;

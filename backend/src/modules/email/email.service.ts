@@ -2,6 +2,7 @@ import type { MyEmailStatus, Suppression, SuppressionPage } from '../../contract
 import { can } from '../../core/authz';
 import type { RequestContext } from '../../core/context';
 import { ForbiddenError } from '../../core/errors';
+import { DeferJobError } from '../../core/handlers';
 import { buildOrigin } from '../../core/host';
 import {
   type BounceWebhookAdapter,
@@ -15,6 +16,7 @@ import {
   type UnsubscribeTokens,
   type WebhookRequest,
 } from '../../core/mail';
+import { CircuitOpenError } from '../../core/resilience';
 import { newId } from '../../core/uuid';
 import type { Database } from '../../db/client';
 import {
@@ -200,6 +202,14 @@ export function createEmailService(deps: {
         await mark(outboxId, 'sent', { messageId: result.providerMessageId });
         return { sent: 1 };
       } catch (err) {
+        if (err instanceof CircuitOpenError) {
+          // The provider is known to be down: the call was NOT made. Put the row back and let the queue run the job again when a
+          // trial call is due, with NO attempt charged: an outage of any length must not dead-letter mail. A little jitter keeps
+          // the whole backlog from arriving at the half-open circuit together.
+          await mark(outboxId, 'retry', { error: 'provider unavailable (circuit open)' });
+          const wait = Math.ceil(err.retryAfterMs / 1000) + Math.floor(Math.random() * 10);
+          throw new DeferJobError(Math.max(5, wait), `circuit ${err.circuit} is open`);
+        }
         const text = err instanceof Error ? err.message : String(err);
         const permanent = err instanceof EmailSendError && err.permanent;
         if (permanent || job.attempt >= job.maxAttempts) {

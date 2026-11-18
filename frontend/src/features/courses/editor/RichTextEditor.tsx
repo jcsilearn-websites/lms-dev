@@ -14,6 +14,7 @@ import Text from '@tiptap/extension-text';
 import { type Editor, EditorContent, useEditor, useEditorState } from '@tiptap/react';
 import { useState } from 'react';
 import { cn } from '../../../shared/utils/cn';
+import './tiptap-base.css';
 
 // The rich-text editor. THIS FILE IS ITS OWN CHUNK: it is loaded only by the course builder (and prefetched in
 // idle time once the builder has loaded), never by the sign-in, learner or admin screens (a bundle test proves
@@ -57,6 +58,8 @@ export interface RichTextEditorProps {
 export default function RichTextEditor({ value, onChange, label }: RichTextEditorProps) {
   const editor = useEditor({
     extensions: EXTENSIONS,
+    // Tiptap's own <style> element is refused by the Content-Security-Policy (no 'unsafe-inline'); tiptap-base.css has the same rules
+    injectCSS: false,
     content: (value as object | null) ?? { type: 'doc', content: [{ type: 'paragraph' }] },
     editorProps: {
       attributes: {

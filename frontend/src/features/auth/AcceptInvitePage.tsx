@@ -58,8 +58,8 @@ export function AcceptInvitePage() {
             autoComplete="new-password"
             hint={
               needsPassword
-                ? 'At least 10 characters.'
-                : 'If you already have an account here, leave this empty. Otherwise choose one (at least 10 characters).'
+                ? 'At least 12 characters.'
+                : 'If you already have an account here, leave this empty. Otherwise choose one (at least 12 characters).'
             }
             error={form.errors.password}
             {...form.field('password')}

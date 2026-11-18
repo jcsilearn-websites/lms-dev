@@ -1,6 +1,7 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import { requireKnownHost } from '../../core/auth-guards';
 import { type AuthRateLimitConfig, createAuthRateLimits } from '../../core/auth-rate-limit';
+import type { StrictLimiter } from '../../core/rate-limit';
 import type { AuthController } from './auth.controller';
 import {
   acceptInviteRouteSchema,
@@ -19,11 +20,13 @@ import {
 export function createAuthRoutes(deps: {
   authController: AuthController;
   rateLimits: AuthRateLimitConfig;
+  /** the shared store's strict tier: the per-IP / per-email buckets are then shared by every API instance */
+  strict?: StrictLimiter;
 }): FastifyPluginAsyncTypebox {
-  const { authController, rateLimits } = deps;
+  const { authController, rateLimits, strict } = deps;
   return async (app) => {
     // stricter per-IP and per-email limits on the credential-sensitive endpoints
-    const limit = createAuthRateLimits(rateLimits);
+    const limit = createAuthRateLimits(rateLimits, strict);
 
     app.post(
       '/auth/login',
@@ -58,7 +61,12 @@ export function createAuthRoutes(deps: {
     );
     app.post(
       '/auth/password/reset',
-      { config: { public: true }, preHandler: [requireKnownHost], schema: resetRouteSchema },
+      {
+        // the token is the authority; the strict limit stops guessing and flooding across every instance
+        config: { public: true, strictRateLimit: { max: 30, windowMs: 60_000 } },
+        preHandler: [requireKnownHost],
+        schema: resetRouteSchema,
+      },
       authController.reset,
     );
     app.post(

@@ -132,6 +132,10 @@ async function measure(url, cookie, preset = 'mobile') {
   }
 }
 
+// the stack's web server inherits this: Cross-Origin-Opener-Policy makes Lighthouse lose the main frame (every score 0); documented in
+// docs/adr/0023-csp-and-key-rotation.md. Production and the E2E suite send the header.
+process.env.SERVE_OMIT_COOP = '1';
+
 const rows = await withStack(
   async ({ webPort, password }) => {
     const cookie = await signIn(webPort, password);

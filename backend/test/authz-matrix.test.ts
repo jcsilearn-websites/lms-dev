@@ -478,6 +478,8 @@ const NOT_IN_MATRIX: Record<string, string> = {
   'POST /auth/invites/accept': 'public',
   'GET /health/live': 'public',
   'GET /health/ready': 'public',
+  'GET /metrics': 'public + bearer token (test/observability.test.ts)',
+  'POST /csp-report': 'public, rate limited, writes nothing (test/csp.test.ts)',
 };
 
 let owner: pg.Pool;
@@ -607,9 +609,9 @@ describe('the matrix covers the whole API', () => {
     expect(uncovered).toEqual([]);
   });
 
-  it('every application route lives under /api; only the health probes are also at the root', () => {
+  it('every application route lives under /api; only the health probes are also at the root (and the metrics scrape target lives there alone)', () => {
     const outside = routes.filter(
-      (r) => !r.url.startsWith('/api/') && !r.url.startsWith('/health/'),
+      (r) => !r.url.startsWith('/api/') && !r.url.startsWith('/health/') && r.url !== '/metrics',
     );
     expect(outside.map((r) => r.key)).toEqual([]);
     // the probes are reachable at both places

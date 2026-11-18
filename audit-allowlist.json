@@ -1,0 +1,13 @@
+{
+  "$comment": "Reviewed exceptions of the dependency audit (docs/dependency-policy.md). An entry needs: id (GHSA), package, reason (30+ characters: why it does not matter here or why it cannot be fixed yet), reviewedBy, reviewed (YYYY-MM-DD) and expires (YYYY-MM-DD, at most 90 days after the review). An expired entry stops covering its advisory; an entry matching no advisory is reported as stale. Fixing the dependency is always preferred.",
+  "exceptions": [
+    {
+      "id": "GHSA-fc5q-39xc-vjpf",
+      "package": "picomatch",
+      "reason": "ReDoS of picomatch <=4.0.7 (CVE-2026-112366, repeated extglob such as +(*)); NO patched version exists (4.0.7 is the latest on npm; GitHub withdrew the advisory on 2026-11-18, npm audit still reports it). Dev tooling only: every path is via dependency-cruiser (root), tsup and vitest (backend), vite, vitest, msw and @tailwindcss/vite (frontend); `pnpm audit --prod` has no picomatch, `pnpm why picomatch --prod` finds nothing in any package, and neither backend/dist nor frontend/dist contains it. The glob patterns come from our own config files (tsup, vitest, vite, dependency-cruiser), never from user input.",
+      "reviewedBy": "Maxy-01 (owner)",
+      "reviewed": "2026-11-18",
+      "expires": "2026-12-18"
+    }
+  ]
+}

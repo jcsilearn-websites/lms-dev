@@ -1,9 +1,11 @@
 import type { ApiEnv, WorkerEnv } from './config/env';
 import { cookieSettings, emailProviderOf } from './config/env';
+import { signingFromEnv } from './config/signing';
 import type { AuthContext } from './core/auth-context';
 import type { AuthRateLimitConfig } from './core/auth-rate-limit';
 import { createBackgroundTasks } from './core/background';
 import type { HandlerMap } from './core/handlers';
+import { createKeyRing, type SigningKeyEntry } from './core/keyring';
 import {
   type BounceWebhookAdapter,
   createCapturingProvider,
@@ -16,21 +18,25 @@ import {
   createTokenBucket,
   createUnsubscribeTokens,
   type EmailProvider,
+  guardEmailProvider,
   unsubscribeKey,
 } from './core/mail';
 import { createPasswordHasher } from './core/password';
 import {
   createGcsStorage,
   createLocalStorage,
+  guardStorage,
   type LocalStorage,
   type StorageProvider,
 } from './core/storage';
+import { traced } from './core/telemetry';
 import {
   createBunnyVideoProvider,
   createGcpVideoProvider,
   createLocalVideoProvider,
   createPlaybackTokens,
   createTtlCache,
+  guardVideoProvider,
   playbackKey,
   type TtlCache,
   tokenOfPlaybackUrl,
@@ -138,6 +144,7 @@ import {
   createNotificationsRepository,
   createNotificationsService,
 } from './modules/notifications';
+import { createOpsController, createOpsRepository, createOpsService } from './modules/ops';
 import {
   createProfilesController,
   createProfilesHandlers,
@@ -156,6 +163,11 @@ import {
   createQuestionsRepository,
   createQuestionsService,
 } from './modules/questions';
+import {
+  createRateLimitHandlers,
+  createRateLimitRepository,
+  createRateLimitService,
+} from './modules/ratelimit';
 import {
   createRubricsController,
   createRubricsRepository,
@@ -201,6 +213,18 @@ import {
 } from './modules/video';
 
 export interface ModulesConfig {
+  /** bearer token of GET /metrics (absent: the endpoint is disabled) */
+  metricsToken: string | undefined;
+  /** deadlines of external calls and the email circuit breaker (step 14a, docs/adr/0024-resilience.md) */
+  resilience: {
+    emailTimeoutMs: number;
+    emailBreakerFailures: number;
+    emailBreakerCooldownMs: number;
+    storageTimeoutMs: number;
+    videoTimeoutMs: number;
+  };
+  /** the signing-key ring (docs/key-rotation.md): entries from SIGNING_KEYS (empty = the per-purpose keys) */
+  signing: { entries: readonly SigningKeyEntry[]; legacyEnabled: boolean };
   readyTimeoutMs: number;
   sessions: SessionsConfig;
   auth: Partial<AuthConfig>;
@@ -318,6 +342,10 @@ export function modulesConfigFromEnv(
     | 'EMAIL_RATE_PER_SECOND'
     | 'EMAIL_OUTBOX_RETENTION_DAYS'
     | 'EMAIL_SEND_TIMEOUT_MS'
+    | 'EMAIL_BREAKER_FAILURES'
+    | 'EMAIL_BREAKER_COOLDOWN_SECONDS'
+    | 'STORAGE_OPERATION_TIMEOUT_MS'
+    | 'VIDEO_PROVIDER_TIMEOUT_MS'
     | 'SMTP_HOST'
     | 'SMTP_PORT'
     | 'SMTP_TLS'
@@ -329,6 +357,9 @@ export function modulesConfigFromEnv(
     | 'SENDGRID_WEBHOOK_PUBLIC_KEY'
     | 'EMAIL_WEBHOOK_TOLERANCE_SECONDS'
     | 'NOTIFY_SIGNING_SECRET'
+    | 'SIGNING_KEYS'
+    | 'METRICS_TOKEN'
+    | 'SIGNING_LEGACY_TOKENS'
     | 'UNSUBSCRIBE_TOKEN_DAYS'
     | 'NOTIFY_SCAN_SECONDS'
     | 'NOTIFICATIONS_READ_RETENTION_DAYS'
@@ -388,6 +419,16 @@ export function modulesConfigFromEnv(
   emailProvider?: EmailProvider,
 ): ModulesConfig {
   return {
+    signing: signingFromEnv(env),
+    metricsToken: env.METRICS_TOKEN,
+    resilience: {
+      // the providers' own timeouts (EMAIL_SEND_TIMEOUT_MS) come first; this is the backstop a little later
+      emailTimeoutMs: env.EMAIL_SEND_TIMEOUT_MS + 5000,
+      emailBreakerFailures: env.EMAIL_BREAKER_FAILURES,
+      emailBreakerCooldownMs: env.EMAIL_BREAKER_COOLDOWN_SECONDS * 1000,
+      storageTimeoutMs: env.STORAGE_OPERATION_TIMEOUT_MS,
+      videoTimeoutMs: env.VIDEO_PROVIDER_TIMEOUT_MS,
+    },
     readyTimeoutMs: env.READY_TIMEOUT_MS ?? 2000,
     sessions: {
       idleSeconds: Math.round(env.SESSION_IDLE_DAYS * 86_400),
@@ -486,10 +527,14 @@ export function modulesConfigFromEnv(
       ratePerSecond: env.EMAIL_RATE_PER_SECOND,
       fromDefault: env.EMAIL_FROM_DEFAULT ?? `no-reply@${env.APP_BASE_DOMAIN}`,
       fromName: env.EMAIL_FROM_NAME,
-      unsubscribeSecret: unsubscribeKey({
-        notifySecret: env.NOTIFY_SIGNING_SECRET,
-        storageSecret: env.STORAGE_SIGNING_SECRET,
-      }),
+      // '' = no key material at all (the ring then has only the SIGNING_KEYS entries, or nothing: signing fails loudly)
+      unsubscribeSecret:
+        env.NOTIFY_SIGNING_SECRET || env.STORAGE_SIGNING_SECRET
+          ? unsubscribeKey({
+              notifySecret: env.NOTIFY_SIGNING_SECRET,
+              storageSecret: env.STORAGE_SIGNING_SECRET,
+            })
+          : '',
       unsubscribeTtlSeconds: env.UNSUBSCRIBE_TOKEN_DAYS * 86_400,
       outboxRetentionDays: env.EMAIL_OUTBOX_RETENTION_DAYS,
       readRetentionDays: env.NOTIFICATIONS_READ_RETENTION_DAYS,
@@ -554,139 +599,209 @@ export function createModules(db: Database, config: ModulesConfig) {
   const background = createBackgroundTasks(config.onBackgroundError);
   const hasher = createPasswordHasher({ concurrency: config.passwordHashConcurrency });
 
-  const healthService = createHealthService({
-    healthRepo: createHealthRepository({ db }),
-    readyTimeoutMs: config.readyTimeoutMs,
-  });
-  const tenantsService = createTenantsService({
-    db,
-    tenantsRepo: createTenantsRepository(),
-    cache: config.tenantCache,
-  });
-  const jobsService = createJobsService({
-    db,
-    jobsRepo: createJobsRepository(),
-    config: config.jobs,
-  });
-  const academicsService = createAcademicsService({
-    db,
-    academicsRepo: createAcademicsRepository(),
-  });
-  const profilesService = createProfilesService({
-    db,
-    profilesRepo: createProfilesRepository(),
-  });
-  const usersService = createUsersService({ db, usersRepo: createUsersRepository() });
-  const sessionsService = createSessionsService({
-    db,
-    sessionsRepo: createSessionsRepository(),
-    config: config.sessions,
-  });
-  const membershipsService = createMembershipsService({
-    db,
-    membershipsRepo: createMembershipsRepository(),
-  });
-  const auditService = createAuditService({ db, auditRepo: createAuditRepository() });
-  const tenantsPlatformService = createTenantsPlatformService({
-    db,
-    platformRepo: createTenantsPlatformRepository(),
-    auditService,
-    membershipsService,
-    config: {
-      baseDomain: config.baseDomain,
-      secure: config.cookie.secure,
-      inviteTtlSeconds: config.auth.inviteTtlSeconds ?? DEFAULT_AUTH_CONFIG.inviteTtlSeconds,
-    },
-    clearSlugCache: () => tenantsService.clearCache(),
-  });
+  const healthService = traced(
+    'health',
+    createHealthService({
+      healthRepo: createHealthRepository({ db }),
+      readyTimeoutMs: config.readyTimeoutMs,
+    }),
+  );
+  const tenantsService = traced(
+    'tenants',
+    createTenantsService({
+      db,
+      tenantsRepo: createTenantsRepository(),
+      cache: config.tenantCache,
+    }),
+  );
+  const jobsService = traced(
+    'jobs',
+    createJobsService({
+      db,
+      jobsRepo: createJobsRepository(),
+      config: config.jobs,
+    }),
+  );
+  const academicsService = traced(
+    'academics',
+    createAcademicsService({
+      db,
+      academicsRepo: createAcademicsRepository(),
+    }),
+  );
+  const profilesService = traced(
+    'profiles',
+    createProfilesService({
+      db,
+      profilesRepo: createProfilesRepository(),
+    }),
+  );
+  const usersService = traced(
+    'users',
+    createUsersService({ db, usersRepo: createUsersRepository() }),
+  );
+  const sessionsService = traced(
+    'sessions',
+    createSessionsService({
+      db,
+      sessionsRepo: createSessionsRepository(),
+      config: config.sessions,
+    }),
+  );
+  const membershipsService = traced(
+    'memberships',
+    createMembershipsService({
+      db,
+      membershipsRepo: createMembershipsRepository(),
+    }),
+  );
+  const auditService = traced(
+    'audit',
+    createAuditService({ db, auditRepo: createAuditRepository() }),
+  );
+  const tenantsPlatformService = traced(
+    'tenantsPlatform',
+    createTenantsPlatformService({
+      db,
+      platformRepo: createTenantsPlatformRepository(),
+      auditService,
+      membershipsService,
+      config: {
+        baseDomain: config.baseDomain,
+        secure: config.cookie.secure,
+        inviteTtlSeconds: config.auth.inviteTtlSeconds ?? DEFAULT_AUTH_CONFIG.inviteTtlSeconds,
+      },
+      clearSlugCache: () => tenantsService.clearCache(),
+    }),
+  );
   // ---- email (step 13): the outbox worker mints the tokens of security mail through the auth service, and the auth
   // service queues security mail through the email service: bound late, both stay plain factories.
-  const unsubscribeTokens = createUnsubscribeTokens(config.email.unsubscribeSecret, {
-    ttlSeconds: config.email.unsubscribeTtlSeconds,
-  });
+  const ring = (purpose: string, legacyKey: string | null | undefined) =>
+    createKeyRing({
+      purpose,
+      entries: config.signing.entries,
+      legacyKey: legacyKey || null,
+      legacyEnabled: config.signing.legacyEnabled,
+    });
+  const unsubscribeTokens = createUnsubscribeTokens(
+    ring('unsubscribe', config.email.unsubscribeSecret),
+    { ttlSeconds: config.email.unsubscribeTtlSeconds },
+  );
   let authRef: Pick<AuthService, 'mintInviteToken' | 'mintResetToken'> | null = null;
   const minter = () => {
     if (!authRef) throw new Error('auth service not wired');
     return authRef;
   };
-  const emailService = createEmailService({
-    db,
-    emailRepo: createEmailRepository(),
-    provider: config.email.provider,
-    rate: createTokenBucket(config.email.ratePerSecond),
-    unsubscribe: unsubscribeTokens,
-    webhooks: config.email.webhooks,
-    tokens: {
-      invite: (tenantId, membershipId) => minter().mintInviteToken(tenantId, membershipId),
-      reset: (userId) => minter().mintResetToken(userId),
-    },
-    config: {
-      baseDomain: config.baseDomain,
-      secure: config.cookie.secure,
-      publicPort: config.publicPort,
-      fromDefault: config.email.fromDefault,
-      fromName: config.email.fromName,
-      unsubscribeTtlSeconds: config.email.unsubscribeTtlSeconds,
-      outboxRetentionDays: config.email.outboxRetentionDays,
-      purgeBatchSize: config.purge.batchSize,
-    },
+  // the provider behind a deadline and a circuit breaker (an outage defers the jobs instead of dead-lettering the mail)
+  const emailProvider = guardEmailProvider(config.email.provider, {
+    timeoutMs: config.resilience.emailTimeoutMs,
+    failureThreshold: config.resilience.emailBreakerFailures,
+    cooldownMs: config.resilience.emailBreakerCooldownMs,
   });
-  const notificationsService = createNotificationsService({
-    db,
-    notificationsRepo: createNotificationsRepository(),
-    unsubscribe: unsubscribeTokens,
-    config: {
-      readRetentionDays: config.email.readRetentionDays,
-      purgeBatchSize: config.purge.batchSize,
-    },
-  });
-  const authService = createAuthService({
-    db,
-    authRepo: createAuthRepository(),
-    hasher,
-    securityMail: { enqueue: (o) => emailService.enqueueSecurity(o) },
-    background,
-    sessionsService,
-    usersService,
-    membershipsService,
-    auditService,
-    config: config.auth,
-  });
+  const emailService = traced(
+    'email',
+    createEmailService({
+      db,
+      emailRepo: createEmailRepository(),
+      provider: emailProvider,
+      rate: createTokenBucket(config.email.ratePerSecond),
+      unsubscribe: unsubscribeTokens,
+      webhooks: config.email.webhooks,
+      tokens: {
+        invite: (tenantId, membershipId) => minter().mintInviteToken(tenantId, membershipId),
+        reset: (userId) => minter().mintResetToken(userId),
+      },
+      config: {
+        baseDomain: config.baseDomain,
+        secure: config.cookie.secure,
+        publicPort: config.publicPort,
+        fromDefault: config.email.fromDefault,
+        fromName: config.email.fromName,
+        unsubscribeTtlSeconds: config.email.unsubscribeTtlSeconds,
+        outboxRetentionDays: config.email.outboxRetentionDays,
+        purgeBatchSize: config.purge.batchSize,
+      },
+    }),
+  );
+  const notificationsService = traced(
+    'notifications',
+    createNotificationsService({
+      db,
+      notificationsRepo: createNotificationsRepository(),
+      unsubscribe: unsubscribeTokens,
+      config: {
+        readRetentionDays: config.email.readRetentionDays,
+        purgeBatchSize: config.purge.batchSize,
+      },
+    }),
+  );
+  const authService = traced(
+    'auth',
+    createAuthService({
+      db,
+      authRepo: createAuthRepository(),
+      hasher,
+      securityMail: { enqueue: (o) => emailService.enqueueSecurity(o) },
+      background,
+      sessionsService,
+      usersService,
+      membershipsService,
+      auditService,
+      config: config.auth,
+    }),
+  );
   authRef = authService;
-  const importsService = createImportsService({
-    db,
-    importsRepo: createImportsRepository(),
-    jobsService,
-    config: config.imports,
-  });
+  const importsService = traced(
+    'imports',
+    createImportsService({
+      db,
+      importsRepo: createImportsRepository(),
+      jobsService,
+      config: config.imports,
+    }),
+  );
 
-  const storage: StorageProvider =
+  // every storage call has a deadline, and an I/O failure becomes a clean 503 (step 14a)
+  const storage: StorageProvider = guardStorage(
     config.storage.driver === 'local'
       ? createLocalStorage({
           dir: config.storage.localDir,
-          secret: config.storage.signingSecret ?? '',
+          secret: ring('storage', config.storage.signingSecret),
           ttlSeconds: config.storage.urlTtlSeconds,
         })
-      : createGcsStorage({ bucket: config.storage.gcsBucket ?? '' });
-  const filesService = createFilesService({
-    db,
-    filesRepo: createFilesRepository(),
-    storage,
-    config: { maxBytes: config.storage.maxBytes, purgeGraceHours: config.storage.purgeGraceHours },
-  });
+      : createGcsStorage({ bucket: config.storage.gcsBucket ?? '' }),
+    { timeoutMs: config.resilience.storageTimeoutMs },
+  );
+  const filesService = traced(
+    'files',
+    createFilesService({
+      db,
+      filesRepo: createFilesRepository(),
+      storage,
+      config: {
+        maxBytes: config.storage.maxBytes,
+        purgeGraceHours: config.storage.purgeGraceHours,
+      },
+    }),
+  );
   // ---- video (step 7). `local` = ffmpeg in the worker + HLS served by this API: development and CI only.
   const video = config.video;
   const localStorage = config.storage.driver === 'local' ? (storage as LocalStorage) : null;
   const playbackTokens =
     video.provider === 'local'
       ? createPlaybackTokens(
-          playbackKey({
-            videoSecret: video.signingSecret,
-            storageSecret: config.storage.signingSecret,
-          }),
+          ring(
+            'playback',
+            video.signingSecret || config.storage.signingSecret
+              ? playbackKey({
+                  videoSecret: video.signingSecret,
+                  storageSecret: config.storage.signingSecret,
+                })
+              : null,
+          ),
         )
       : null;
-  const videoProvider: VideoProvider =
+  const videoProvider: VideoProvider = guardVideoProvider(
     video.provider === 'local' && localStorage && playbackTokens
       ? createLocalVideoProvider({
           storage: localStorage,
@@ -695,18 +810,23 @@ export function createModules(db: Database, config: ModulesConfig) {
         })
       : video.provider === 'gcp'
         ? createGcpVideoProvider()
-        : createBunnyVideoProvider();
-  const videoService = createVideoService({
-    db,
-    videoRepo: createVideoRepository(),
-    provider: videoProvider,
-    local:
-      localStorage && playbackTokens
-        ? { storage: localStorage, tokens: playbackTokens }
-        : undefined,
-    jobs: jobsService,
-    config: video,
-  });
+        : createBunnyVideoProvider(),
+    { timeoutMs: config.resilience.videoTimeoutMs },
+  );
+  const videoService = traced(
+    'video',
+    createVideoService({
+      db,
+      videoRepo: createVideoRepository(),
+      provider: videoProvider,
+      local:
+        localStorage && playbackTokens
+          ? { storage: localStorage, tokens: playbackTokens }
+          : undefined,
+      jobs: jobsService,
+      config: video,
+    }),
+  );
   /** validated sessions of playback requests (see registerAuthContext) */
   const playbackSessions: TtlCache<AuthContext> | null =
     video.provider === 'local'
@@ -716,54 +836,91 @@ export function createModules(db: Database, config: ModulesConfig) {
         })
       : null;
 
-  const contentService = createContentService({
-    db,
-    contentRepo: createContentRepository(),
-    filesService,
-    videoService,
-  });
-  const coursesService = createCoursesService({ db, coursesRepo: createCoursesRepository() });
-  const progressService = createProgressService({ db, progressRepo: createProgressRepository() });
-  const analyticsService = createAnalyticsService({
-    db,
-    analyticsRepo: createAnalyticsRepository(),
-    background,
-    config: { csvPage: 100, activityCacheMax: 50_000, rollupBatch: config.analytics.rollupBatch },
-  });
-  const usageService = createUsageService({
-    db,
-    usageRepo: createUsageRepository(),
-    config: { renditionMix: config.analytics.renditionMix },
-  });
-  const assessmentsService = createAssessmentsService({
-    db,
-    assessmentsRepo: createAssessmentsRepository(),
-    filesService,
-    config: {
-      graceSeconds: config.assessments.graceSeconds,
-      sweepBatch: config.assessments.sweepBatch,
-    },
-  });
-  const questionsService = createQuestionsService({
-    db,
-    questionsRepo: createQuestionsRepository(),
-  });
+  const contentService = traced(
+    'content',
+    createContentService({
+      db,
+      contentRepo: createContentRepository(),
+      filesService,
+      videoService,
+    }),
+  );
+  const coursesService = traced(
+    'courses',
+    createCoursesService({ db, coursesRepo: createCoursesRepository() }),
+  );
+  const progressService = traced(
+    'progress',
+    createProgressService({ db, progressRepo: createProgressRepository() }),
+  );
+  const analyticsService = traced(
+    'analytics',
+    createAnalyticsService({
+      db,
+      analyticsRepo: createAnalyticsRepository(),
+      background,
+      config: { csvPage: 100, activityCacheMax: 50_000, rollupBatch: config.analytics.rollupBatch },
+    }),
+  );
+  const usageService = traced(
+    'usage',
+    createUsageService({
+      db,
+      usageRepo: createUsageRepository(),
+      config: { renditionMix: config.analytics.renditionMix },
+    }),
+  );
+  const assessmentsService = traced(
+    'assessments',
+    createAssessmentsService({
+      db,
+      assessmentsRepo: createAssessmentsRepository(),
+      filesService,
+      config: {
+        graceSeconds: config.assessments.graceSeconds,
+        sweepBatch: config.assessments.sweepBatch,
+      },
+    }),
+  );
+  const questionsService = traced(
+    'questions',
+    createQuestionsService({
+      db,
+      questionsRepo: createQuestionsRepository(),
+    }),
+  );
 
-  const assignmentsService = createAssignmentsService({
-    db,
-    assignmentsRepo: createAssignmentsRepository(),
-    filesService,
-    storage,
-    config: {
-      graceSeconds: config.assignments.graceSeconds,
-      maxFileBytes: config.storage.maxBytes,
-    },
-  });
-  const rubricsService = createRubricsService({ db, rubricsRepo: createRubricsRepository() });
-  const gradebookService = createGradebookService({
-    db,
-    gradebookRepo: createGradebookRepository(),
-  });
+  const assignmentsService = traced(
+    'assignments',
+    createAssignmentsService({
+      db,
+      assignmentsRepo: createAssignmentsRepository(),
+      filesService,
+      storage,
+      config: {
+        graceSeconds: config.assignments.graceSeconds,
+        maxFileBytes: config.storage.maxBytes,
+      },
+    }),
+  );
+  const rubricsService = traced(
+    'rubrics',
+    createRubricsService({ db, rubricsRepo: createRubricsRepository() }),
+  );
+  const gradebookService = traced(
+    'gradebook',
+    createGradebookService({
+      db,
+      gradebookRepo: createGradebookRepository(),
+    }),
+  );
+
+  // ---- shared rate limiting and operations metrics (step 14a)
+  const rateLimitService = traced(
+    'rateLimit',
+    createRateLimitService({ db, rateLimitRepo: createRateLimitRepository() }),
+  );
+  const opsService = traced('ops', createOpsService({ db, opsRepo: createOpsRepository() }));
 
   const handlers: HandlerMap = {
     ...createHealthHandlers({ healthService }),
@@ -774,6 +931,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createSessionsHandlers({ sessionsService, purge: config.purge }),
     ...createAuthHandlers({ authService, purge: config.purge }),
     ...createJobsHandlers({ jobsService, purge: config.purge }),
+    ...createRateLimitHandlers({ rateLimitService, everyMs: 60_000 }),
     ...createEmailHandlers({ emailService, purge: { everyMs: config.purge.everyMs } }),
     ...createNotificationsHandlers({
       notificationsService,
@@ -818,9 +976,14 @@ export function createModules(db: Database, config: ModulesConfig) {
     background,
     config,
     jobs: { service: jobsService },
+    rateLimit: { service: rateLimitService },
+    ops: {
+      service: opsService,
+      controller: createOpsController({ metricsToken: config.metricsToken }),
+    },
     email: {
       service: emailService,
-      provider: config.email.provider,
+      provider: emailProvider,
       controller: createEmailController({ emailService }),
     },
     notifications: {

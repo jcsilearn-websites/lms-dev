@@ -1,12 +1,16 @@
-import { type APIRequestContext, type Browser, expect, type Page, test } from '@playwright/test';
 import {
+  type APIRequestContext,
   apiAs,
+  type Browser,
   createMember,
   eventually,
+  expect,
   expectAccessible,
   originOf,
+  type Page,
   signIn,
   signInAsPlatformAdmin,
+  test,
 } from '../support';
 
 // Step 12 end to end, on the real API, worker and database: every role's dashboard, the at-risk list with its evidence, the

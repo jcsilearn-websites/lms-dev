@@ -1,4 +1,4 @@
-// A small bundled list of the most common passwords that are at least 10 characters long (shorter
+// A small bundled list of the most common passwords that are at least 12 characters long (the minimum; shorter
 // ones are already rejected by the length rule). Compared case-insensitively after NFKC normalisation.
 export const COMMON_PASSWORDS: ReadonlySet<string> = new Set([
   '1234567890',

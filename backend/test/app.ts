@@ -44,6 +44,9 @@ export function logCapture() {
   return { lines, stream };
 }
 
+const isInfrastructure = (s: string) =>
+  s.includes('lms.activity_touch') || s.includes('lms.rate_limit_hit');
+
 /** Counts statements sent to Postgres (= network round trips) so tests can enforce query budgets. */
 export function statementCounter() {
   let statements: string[] = [];
@@ -54,11 +57,17 @@ export function statementCounter() {
     },
     // The budgets of steps 1-11 are steady-state budgets: the ONE background `activity_touch` of a user's first request of the day
     // (step 12, at most once per user and local day) is not part of them. `raw` has everything; the activity budget test uses it.
+    // Likewise the shared rate limiter's autocommit statement (step 14a, `lms.rate_limit_hit`): infrastructure with its own pinned
+    // budget (test/rate-limit.shared.test.ts), so the endpoint budgets keep their steady-state numbers.
     get count() {
-      return statements.filter((s) => !s.includes('lms.activity_touch')).length;
+      return statements.filter((s) => !isInfrastructure(s)).length;
     },
     get statements() {
-      return statements.filter((s) => !s.includes('lms.activity_touch'));
+      return statements.filter((s) => !isInfrastructure(s));
+    },
+    /** the limiter's statements only */
+    get limiter() {
+      return statements.filter((s) => s.includes('lms.rate_limit_hit'));
     },
     get raw() {
       return [...statements];

@@ -1,5 +1,12 @@
-import { expect, test } from '@playwright/test';
-import { apiAs, expectAccessible, mailsTo, originOf, signInAsAdmin } from '../support';
+import {
+  apiAs,
+  expect,
+  expectAccessible,
+  mailsTo,
+  originOf,
+  signInAsAdmin,
+  test,
+} from '../support';
 
 const COLLEGE = 'e2e-one';
 

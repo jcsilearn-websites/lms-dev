@@ -283,20 +283,26 @@ describe('signed URLs', () => {
     const req = ok(await requestUpload(s, 'a.pdf', PDF.length));
     const c = s.instructor.client;
     const token = req.upload.url.split('/').pop() as string;
-    const [payload, mac] = token.split('.') as [string, string];
+    // v2.<key id>.<payload>.<mac> (Step 14a)
+    const [version, kid, payload, mac] = token.split('.') as [string, string, string, string];
     const base = '/api/storage/upload/';
     const attempt = (tok: string, who = c) => put(who, base + tok, PDF, 'application/pdf');
 
     // a flipped signature, a changed payload, no signature, junk
-    expect((await attempt(`${payload}.${mac.slice(0, -2)}AA`)).statusCode).toBe(403);
+    expect((await attempt(`${version}.${kid}.${payload}.${mac.slice(0, -2)}AA`)).statusCode).toBe(
+      403,
+    );
     const forged = Buffer.from(
       JSON.stringify({
         ...JSON.parse(Buffer.from(payload, 'base64url').toString()),
         m: 10_000_000,
       }),
     ).toString('base64url');
-    expect((await attempt(`${forged}.${mac}`)).statusCode).toBe(403);
+    expect((await attempt(`${version}.${kid}.${forged}.${mac}`)).statusCode).toBe(403);
+    expect((await attempt(`${version}.${kid}.${payload}`)).statusCode).toBe(403);
     expect((await attempt(payload)).statusCode).toBe(403);
+    // an unknown key id and the right MAC of another one
+    expect((await attempt(`${version}.zz.${payload}.${mac}`)).statusCode).toBe(403);
     expect((await attempt('not-a-token-at-all')).statusCode).toBe(403);
 
     // signed with the right key but already expired

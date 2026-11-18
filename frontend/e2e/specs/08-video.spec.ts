@@ -1,8 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { expect, type Page, test } from '@playwright/test';
-import { apiAs, createMember, expectAccessible, originOf, signIn, signInAsAdmin } from '../support';
+import {
+  apiAs,
+  createMember,
+  expect,
+  expectAccessible,
+  originOf,
+  type Page,
+  signIn,
+  signInAsAdmin,
+  test,
+} from '../support';
 
 // Video lessons end to end, on the real API, worker (ffmpeg) and database: an instructor uploads a short video,
 // waits until it is ready and publishes it; a learner plays it (the manifest loads and the playback time advances);

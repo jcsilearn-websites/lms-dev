@@ -104,6 +104,7 @@ import {
   questionTags,
   questionVersions,
 } from '../src/modules/questions/questions.model';
+import { rateLimitCounters } from '../src/modules/ratelimit/ratelimit.model';
 import { rubrics, rubricVersions } from '../src/modules/rubrics/rubrics.model';
 import { sessions } from '../src/modules/sessions/sessions.model';
 import { tenantSettings, tenantStatus, tenants } from '../src/modules/tenants/tenants.model';
@@ -211,6 +212,7 @@ const schema = {
   emailOutbox,
   emailSuppressions,
   emailEvents,
+  rateLimitCounters,
 };
 
 import { testOwnerPool } from './support';

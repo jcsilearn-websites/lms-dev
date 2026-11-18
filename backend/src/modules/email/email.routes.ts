@@ -62,6 +62,7 @@ export function createEmailRoutes(deps: {
             public: true,
             csrfExempt: 'signed-webhook',
             rateLimit: { max: 1200, timeWindow: '1 minute' },
+            strictRateLimit: { max: 1200, windowMs: 60_000 },
           },
           bodyLimit: 2 * 1024 * 1024,
           schema: s.webhookRouteSchema,

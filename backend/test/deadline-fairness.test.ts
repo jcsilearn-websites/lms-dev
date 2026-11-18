@@ -123,12 +123,13 @@ describe('the receipt', () => {
 
   it('a changed payload or signature, another key, junk and an expired one are all refused', () => {
     const token = signer.sign(claims);
-    const [payload, mac] = token.split('.') as [string, string];
+    // v2.<key id>.<payload>.<mac> (Step 14a)
+    const [, kid, payload, mac] = token.split('.') as [string, string, string, string];
     const forgedClaims = Buffer.from(
       JSON.stringify({ ...JSON.parse(Buffer.from(payload, 'base64url').toString()), a: 1 }),
     ).toString('base64url');
-    expect(signer.verify(`${forgedClaims}.${mac}`)).toBeNull();
-    expect(signer.verify(`${payload}.${mac.slice(0, -2)}AA`)).toBeNull();
+    expect(signer.verify(`v2.${kid}.${forgedClaims}.${mac}`)).toBeNull();
+    expect(signer.verify(`v2.${kid}.${payload}.${mac.slice(0, -2)}AA`)).toBeNull();
     expect(
       createReceiptSigner({
         key: 'another-key-another-key-another-key-0',
@@ -414,8 +415,8 @@ describe('assignment finalize under a saturated pool', () => {
     expect([mine.statusCode, theirs.statusCode, elsewhere.statusCode]).toEqual([503, 503, 503]);
     await held;
     const good = String(mine.headers[RECEIPT]);
-    const [payload, mac] = good.split('.') as [string, string];
-    const forged = `${Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(payload, 'base64url').toString()), a: Date.now() - 600_000 })).toString('base64url')}.${mac}`;
+    const [, kid, payload, mac] = good.split('.') as [string, string, string, string];
+    const forged = `v2.${kid}.${Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(payload, 'base64url').toString()), a: Date.now() - 600_000 })).toString('base64url')}.${mac}`;
     // expired: validly signed with the same key, but a window that ended
     let past = Date.now() - 2_000_000;
     const old = createReceiptSigner({

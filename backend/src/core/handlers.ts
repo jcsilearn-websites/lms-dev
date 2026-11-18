@@ -6,6 +6,21 @@
  * A handler with `everyMs` is also SCHEDULED: every `everyMs` a system job is enqueued on its queue
  * (at most one per time slot across all worker instances).
  */
+/**
+ * Thrown by a handler whose external dependency is unavailable RIGHT NOW (an open circuit breaker): the runner hands the job back
+ * to the queue to run again after `delaySeconds`, WITHOUT charging the attempt (migration 0055). Not a failure: no `last_error`,
+ * no backoff growth, no dead letter.
+ */
+export class DeferJobError extends Error {
+  constructor(
+    readonly delaySeconds: number,
+    reason: string,
+  ) {
+    super(reason);
+    this.name = 'DeferJobError';
+  }
+}
+
 export type HandlerResult = Record<string, number> | undefined;
 
 /** What the job queue tells a running handler. */

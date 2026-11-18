@@ -1,5 +1,6 @@
 export * from './file-types';
 export { createGcsStorage } from './gcs';
+export { guardStorage, isStorageInfrastructureError } from './guard';
 export {
   createLocalStorage,
   type LocalStorage,

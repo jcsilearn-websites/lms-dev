@@ -1,14 +1,19 @@
 import { randomUUID } from 'node:crypto';
-import { type Browser, expect, type Page, request, test } from '@playwright/test';
 import {
   apiAs,
+  apiOfPage,
+  type Browser,
   createMember,
   eventually,
+  expect,
   expectAccessible,
   mailLink,
   mailsTo,
   originOf,
+  type Page,
+  request,
   signIn,
+  test,
   WEB_PORT,
 } from '../support';
 
@@ -356,7 +361,7 @@ test('the unsubscribe link of a digest works; a security email has none', async 
     )
   ).find((m) => m.subject.startsWith('New in Notifications')) as Mail;
   expect(digest.headers['List-Unsubscribe']).toMatch(
-    /^<http:\/\/.+\/api\/notifications\/unsubscribe\/one-click\?t=v1\./,
+    /^<http:\/\/.+\/api\/notifications\/unsubscribe\/one-click\?t=v2\.[A-Za-z0-9_-]+\./,
   );
   const pageLink = /(http\S+\/unsubscribe\?t=\S+)/.exec(digest.text)?.[1] as string;
   expect(pageLink).toBeTruthy();
@@ -366,18 +371,19 @@ test('the unsubscribe link of a digest works; a security email has none', async 
   await page.goto(pageLink);
   await expect(page.getByText(/Stop emails about new course content/)).toBeVisible();
   await accessibleEverywhere(page, 'the unsubscribe page');
-  const prefsBefore = await page.request.get(
-    `${originOf(COLLEGE)}/api/me/notification-preferences`,
-  );
-  const before = (await prefsBefore.json()) as { items: { category: string; email: boolean }[] };
+  const api = await apiOfPage(page, COLLEGE);
+  const before = (await (await api.get('me/notification-preferences')).json()) as {
+    items: { category: string; email: boolean }[];
+  };
   expect(before.items.find((p) => p.category === 'learning_content')?.email).toBe(true);
   await page.getByRole('button', { name: 'Unsubscribe' }).click();
   await expect(
     page.getByText(/You will no longer get emails about new course content/),
   ).toBeVisible();
-  const after = (await (
-    await page.request.get(`${originOf(COLLEGE)}/api/me/notification-preferences`)
-  ).json()) as { items: { category: string; email: boolean; inApp: boolean }[] };
+  const after = (await (await api.get('me/notification-preferences')).json()) as {
+    items: { category: string; email: boolean; inApp: boolean }[];
+  };
+  await api.dispose();
   expect(after.items.find((p) => p.category === 'learning_content')).toMatchObject({
     email: false,
     inApp: true,

@@ -1,5 +1,11 @@
-import { expect, test } from '@playwright/test';
-import { expectAccessible, mailLink, originOf, signInAsPlatformAdmin } from '../support';
+import {
+  expect,
+  expectAccessible,
+  mailLink,
+  originOf,
+  signInAsPlatformAdmin,
+  test,
+} from '../support';
 
 test('a platform admin creates a college and its first admin accepts the invitation', async ({
   page,

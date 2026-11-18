@@ -2,6 +2,7 @@ import { buildApp } from './app';
 import { loadDotEnv, parseApiEnv, resolvePoolMax } from './config/env';
 import { createLogger } from './config/logger';
 import { sslWarning } from './config/ssl';
+import { setupTelemetry } from './config/telemetry';
 import { createDb } from './db/client';
 import { assertDatabaseVersion } from './db/pg-version';
 
@@ -12,15 +13,19 @@ async function main(): Promise<void> {
   const warning = sslWarning(env);
   if (warning) logger.warn(warning);
 
+  const telemetry = setupTelemetry(env, 'lms-api');
   const db = createDb({
     url: env.DATABASE_APP_URL,
     ssl: env.DB_SSL,
     sslCa: env.DB_SSL_CA,
     max: resolvePoolMax(env),
+    queryTimeoutMs: env.DB_QUERY_TIMEOUT_MS ?? 30_000,
     applicationName: 'lms-api',
     onError: (err) => logger.error({ err }, 'idle database client error'),
   });
   const app = buildApp({ env, db, logger });
+  // pool, queue, outbox, rollup and video gauges for /metrics (the queue gauges are database-wide: aggregate them with max())
+  if (telemetry) app.modules.ops.service.registerGauges(telemetry);
 
   // Warm the pool before taking traffic so the first readiness probe doesn't pay for the
   // TCP+TLS handshake. Failure is not fatal: /health/ready reports it.
@@ -44,6 +49,7 @@ async function main(): Promise<void> {
     try {
       await app.close(); // stop accepting, drain in-flight requests
       await db.close(); // then close the pool
+      await telemetry?.shutdown().catch(() => {}); // and flush the spans
       process.exit(0);
     } catch (err) {
       logger.error({ err }, 'error during shutdown');

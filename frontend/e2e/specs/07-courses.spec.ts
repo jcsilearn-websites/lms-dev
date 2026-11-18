@@ -1,12 +1,14 @@
-import { expect, type Page, test } from '@playwright/test';
 import {
   apiAs,
   createMember,
   eventually,
+  expect,
   expectAccessible,
   originOf,
+  type Page,
   signIn,
   signInAsAdmin,
+  test,
 } from '../support';
 
 // Courses end to end, on the real API, worker and database: an administrator sets up a course, an offering,

@@ -1,5 +1,4 @@
-import { expect, type Page, test } from '@playwright/test';
-import { expectAccessible, originOf, signInAsAdmin } from '../support';
+import { expect, expectAccessible, originOf, type Page, signInAsAdmin, test } from '../support';
 
 // Every main screen, signed in as a college administrator: axe (WCAG 2.1 A/AA, fails on serious or
 // critical), in the light and in the dark theme, and a phone-width check that nothing scrolls sideways.

@@ -1,4 +1,5 @@
-import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
+import { createHmac, hkdfSync } from 'node:crypto';
+import { type KeyRing, open, ringOf, seal } from '../keyring';
 
 /**
  * One-click unsubscribe tokens (RFC 8058). A token names ONE member of ONE college and ONE category, and expires:
@@ -7,6 +8,7 @@ import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
  * keys; nothing about a token is stored. Security categories never get a token, and the API refuses them even with a valid MAC.
  */
 const LABEL = 'lms-unsubscribe-v1';
+const PURPOSE = 'unsubscribe';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface UnsubscribeClaims {
@@ -35,12 +37,11 @@ export interface UnsubscribeTokens {
 }
 
 export function createUnsubscribeTokens(
-  secret: string,
+  secret: string | KeyRing,
   opts: { ttlSeconds: number; now?: () => number },
 ): UnsubscribeTokens {
   const now = opts.now ?? Date.now;
-  const mac = (payload: string) =>
-    createHmac('sha256', secret).update(`v1.${payload}`).digest('base64url');
+  const ring = ringOf(PURPOSE, secret);
   return {
     sign(c, ttlSeconds = opts.ttlSeconds) {
       const payload = Buffer.from(
@@ -51,21 +52,25 @@ export function createUnsubscribeTokens(
           e: Math.floor(now() / 1000) + ttlSeconds,
         }),
       ).toString('base64url');
-      return `v1.${payload}.${mac(payload)}`;
+      return seal(ring, PURPOSE, payload);
     },
     verify(token) {
-      const parts = token.split('.');
-      if (parts.length !== 3 || parts[0] !== 'v1' || !parts[1] || !parts[2] || token.length > 600) {
-        return { ok: false, reason: 'malformed' };
-      }
-      const expected = Buffer.from(mac(parts[1]));
-      const given = Buffer.from(parts[2]);
-      if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
-        return { ok: false, reason: 'forged' };
+      if (token.length > 600) return { ok: false, reason: 'malformed' };
+      const opened = open(ring, PURPOSE, token, {
+        prefix: 'v1',
+        mac: (key, payload) =>
+          createHmac('sha256', key).update(`v1.${payload}`).digest('base64url'),
+      });
+      if (!opened) {
+        // distinguish a token of the right shape that failed the MAC from a malformed one
+        const shape = token.split('.');
+        const shaped =
+          (shape[0] === 'v2' && shape.length === 4) || (shape[0] === 'v1' && shape.length === 3);
+        return { ok: false, reason: shaped ? 'forged' : 'malformed' };
       }
       let raw: { t?: unknown; u?: unknown; c?: unknown; e?: unknown };
       try {
-        raw = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+        raw = JSON.parse(Buffer.from(opened.payload, 'base64url').toString('utf8'));
       } catch {
         return { ok: false, reason: 'malformed' };
       }

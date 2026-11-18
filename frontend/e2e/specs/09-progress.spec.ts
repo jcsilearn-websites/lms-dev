@@ -1,8 +1,18 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { type APIRequestContext, type Browser, expect, type Page, test } from '@playwright/test';
-import { apiAs, createMember, expectAccessible, originOf, signIn } from '../support';
+import {
+  type APIRequestContext,
+  apiAs,
+  type Browser,
+  createMember,
+  expect,
+  expectAccessible,
+  originOf,
+  type Page,
+  signIn,
+  test,
+} from '../support';
 
 // Learning progress end to end, on the real API, worker (ffmpeg) and database: a learner marks a text item done and
 // opens a link (course progress follows), watches part of a video and a NEW browser context resumes at the saved

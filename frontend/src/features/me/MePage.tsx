@@ -123,7 +123,7 @@ function ChangePassword() {
           label="New password"
           type="password"
           autoComplete="new-password"
-          hint="At least 10 characters."
+          hint="At least 12 characters."
           error={errors.newPassword?.message}
           {...form.register('newPassword')}
         />

@@ -166,7 +166,7 @@ describe('assignment due reminders', () => {
     expect(mail?.text).toContain('You have not handed anything in yet.');
     expect(mail?.text).toContain('GMT+5:30'); // the college's zone
     expect(mail?.headers['List-Unsubscribe']).toMatch(
-      /^<http:\/\/.*\/api\/notifications\/unsubscribe\/one-click\?t=v1\./,
+      /^<http:\/\/.*\/api\/notifications\/unsubscribe\/one-click\?t=v2\.k0\./,
     );
     expect(mail?.headers['List-Unsubscribe-Post']).toBe('List-Unsubscribe=One-Click');
   });

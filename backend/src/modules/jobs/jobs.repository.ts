@@ -108,6 +108,18 @@ export function createJobsRepository() {
       return res.rows[0]?.ok === true;
     },
 
+    async defer(
+      exec: Executor,
+      id: string,
+      worker: string,
+      delaySeconds: number,
+    ): Promise<boolean> {
+      const res = await exec.execute(
+        sql`SELECT lms.job_defer(${id}::uuid, ${worker}::text, ${delaySeconds}::int) AS ok`,
+      );
+      return res.rows[0]?.ok === true;
+    },
+
     async purge(
       exec: Executor,
       completedDays: number,

@@ -1,7 +1,7 @@
 import type { TypeBoxTypeProvider } from '@fastify/type-provider-typebox';
 import Fastify, { type FastifyBaseLogger, LogController } from 'fastify';
 import { createModules, modulesConfigFromEnv } from './composition';
-import type { ApiEnv } from './config/env';
+import { type ApiEnv, rateLimitStoreOf } from './config/env';
 import { registerAuthContext } from './core/auth-context';
 import { registerRoutePolicy } from './core/authz';
 import { registerCsrf } from './core/csrf';
@@ -12,8 +12,11 @@ import {
   registerReceipts,
 } from './core/deadline';
 import { registerErrorHandling } from './core/error-handler';
+import { registerHttpTelemetry } from './core/http-telemetry';
+import { createKeyRing } from './core/keyring';
 import type { EmailProvider } from './core/mail';
 import { registerOpenApi } from './core/openapi';
+import { createBatchedLimiter, createStrictLimiter, type RateLimitStore } from './core/rate-limit';
 import { genReqId, registerRequestId } from './core/request-id';
 import { createBadSessionLimiter, registerSecurity } from './core/security';
 import { registerUploads } from './core/uploads';
@@ -33,6 +36,7 @@ import { createHealthRoutes } from './modules/health';
 import { createImportsRoutes } from './modules/imports';
 import { createMembershipsRoutes } from './modules/memberships';
 import { createNotificationsRoutes } from './modules/notifications';
+import { createCspReportRoutes, createMetricsRoutes } from './modules/ops';
 import { createProfilesRoutes } from './modules/profiles';
 import { createProgressRoutes } from './modules/progress';
 import { createQuestionsRoutes } from './modules/questions';
@@ -77,9 +81,23 @@ export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
   // resolution, then module routes.
   // the arrival time is taken before anything can wait for the database pool
   registerArrivalClock(app, { queueWaitSeconds: env.ARRIVAL_QUEUE_WAIT_SECONDS });
+  registerHttpTelemetry(app);
   registerErrorHandling(app);
   registerRequestId(app);
-  registerSecurity(app, env, modules.config.cookie.name);
+  // Rate limiting (step 14a, docs/adr/0022): a LOCAL tier for every route (decides without a database call, folds its hits into the
+  // shared store in batches) and a STRICT tier (shared store on every request) for anonymous / authentication routes.
+  const shared: RateLimitStore | null =
+    rateLimitStoreOf(env) === 'postgres' ? modules.rateLimit.service.store : null;
+  const limiter = createBatchedLimiter({
+    shared,
+    syncIntervalMs: env.RATE_LIMIT_SYNC_MS,
+    onSyncError: (err) => logger.warn({ err }, 'shared rate-limit sync failed; counting locally'),
+  });
+  const strict = createStrictLimiter({
+    shared,
+    onError: (err) => logger.warn({ err }, 'shared rate-limit store failed; counting locally'),
+  });
+  registerSecurity(app, env, modules.config.cookie.name, { limiter, strict });
   registerCsrf(app);
   registerUploads(app, { maxBytes: env.IMPORT_MAX_BYTES });
   registerAuthContext(app, {
@@ -91,13 +109,22 @@ export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
     badSessions: createBadSessionLimiter({
       max: Math.max(60, Math.round(env.RATE_LIMIT_MAX / 2)),
       windowMs: env.RATE_LIMIT_WINDOW_MS,
+      limiter,
     }),
   });
   registerReceipts(app, {
     signer: createReceiptSigner({
-      key: receiptKey({
-        secret: env.DEADLINE_RECEIPT_SECRET,
-        storageSecret: env.STORAGE_SIGNING_SECRET,
+      key: createKeyRing({
+        purpose: 'receipt',
+        entries: modules.config.signing.entries,
+        legacyKey:
+          env.DEADLINE_RECEIPT_SECRET || env.STORAGE_SIGNING_SECRET
+            ? receiptKey({
+                secret: env.DEADLINE_RECEIPT_SECRET,
+                storageSecret: env.STORAGE_SIGNING_SECRET,
+              })
+            : null,
+        legacyEnabled: modules.config.signing.legacyEnabled,
       }),
       windowSeconds: env.DEADLINE_RECEIPT_WINDOW_SECONDS,
     }),
@@ -124,6 +151,8 @@ export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
 
   // Platform probes (load balancer, Cloud Run) hit the health routes at the ROOT.
   void app.register(createHealthRoutes({ healthController: modules.health.controller }));
+  // The metrics scrape target (a bearer token protects it; absent token = 404)
+  void app.register(createMetricsRoutes({ opsController: modules.ops.controller }));
 
   // Every application route lives under /api: the SPA owns the other paths (/members, /audit, ...), so a
   // gateway can send /api/* to this service and everything else to the SPA without rewriting any URL.
@@ -192,8 +221,10 @@ export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
         createAuthRoutes({
           authController: modules.auth.controller,
           rateLimits: modules.config.authRateLimits,
+          strict,
         }),
       );
+      void api.register(createCspReportRoutes({ opsController: modules.ops.controller }));
     },
     { prefix: API_PREFIX },
   );

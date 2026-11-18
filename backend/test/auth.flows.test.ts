@@ -143,7 +143,7 @@ describe('password change', () => {
     });
     expect(wrong.statusCode).toBe(400);
     expect(wrong.json().error.code).toBe('invalid_current_password');
-    for (const newPassword of ['short', 'password123', 'x'.repeat(129)]) {
+    for (const newPassword of ['short', 'xylophone42', 'password1234', 'x'.repeat(129)]) {
       const res = await c.post('/auth/password/change', {
         currentPassword: TEST_PASSWORD,
         newPassword,

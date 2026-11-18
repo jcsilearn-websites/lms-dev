@@ -1,0 +1,66 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "description": "Dependency updates that respect the supply-chain policy (docs/dependency-policy.md): nothing is proposed before it has been public for 3 days (pnpm itself refuses anything younger than 1 day), versions are pinned exactly, and every pull request must pass the full CI.",
+  "timezone": "Asia/Kolkata",
+  "schedule": ["before 6am on monday"],
+  "minimumReleaseAge": "3 days",
+  "internalChecksFilter": "strict",
+  "rangeStrategy": "pin",
+  "prConcurrentLimit": 6,
+  "prHourlyLimit": 2,
+  "labels": ["dependencies"],
+  "postUpdateOptions": ["pnpmDedupe"],
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on the first day of the month"]
+  },
+  "vulnerabilityAlerts": {
+    "description": "A security fix still waits out a minimum release age (1 day, the same as pnpm): the policy has no bypass.",
+    "minimumReleaseAge": "1 day",
+    "labels": ["dependencies", "security"],
+    "schedule": ["at any time"],
+    "prPriority": 10
+  },
+  "packageRules": [
+    {
+      "description": "TypeScript stays on 6.0.x until dependency-cruiser supports 7 (CLAUDE.md, Conventions).",
+      "matchPackageNames": ["typescript"],
+      "allowedVersions": "<6.1.0"
+    },
+    {
+      "description": "PostgreSQL 17 everywhere (ADR 0014): the code refuses any other major.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["postgres"],
+      "allowedVersions": "17"
+    },
+    {
+      "description": "Node 24 LTS (.nvmrc, engines): a new LTS is a deliberate upgrade, not a bot pull request.",
+      "matchDepNames": ["node"],
+      "allowedVersions": "24"
+    },
+    {
+      "description": "These families move together: one pull request each.",
+      "groupName": "tiptap",
+      "matchPackageNames": ["/^@tiptap//"]
+    },
+    {
+      "groupName": "opentelemetry",
+      "matchPackageNames": ["/^@opentelemetry//"]
+    },
+    {
+      "groupName": "dnd-kit",
+      "matchPackageNames": ["/^@dnd-kit//"]
+    },
+    {
+      "description": "Majors are never automatic: they are read, planned and done by hand.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    },
+    {
+      "description": "GitHub Actions are updated together, as pull requests like everything else.",
+      "matchManagers": ["github-actions"],
+      "groupName": "github actions"
+    }
+  ]
+}

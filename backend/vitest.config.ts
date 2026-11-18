@@ -28,6 +28,8 @@ export const SERIAL_FILES = [
   // real ffmpeg transcodes: every encoder thread the machine has, and multi-second wall-clock work
   'test/video.test.ts',
   'test/video.shutdown.test.ts',
+  // kills real worker processes and waits for a 3 s lease to expire
+  'test/resilience.worker.test.ts',
 ];
 
 export default defineConfig({

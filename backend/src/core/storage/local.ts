@@ -1,9 +1,10 @@
-import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { cp, mkdir, open, rename, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { type KeyRing, open as openToken, ringOf, seal } from '../keyring';
 import type { DownloadTarget, StorageProvider, StoredObject, UploadTarget } from './storage';
 
 // Development storage: bytes in a directory, signed expiring URLs served by this API's /storage routes.
@@ -29,6 +30,20 @@ export interface ObjectRange {
   start: number;
   end: number;
 }
+
+/**
+ * Only "there is no such file" means missing. Any other failure (EIO, EACCES, ENOSPC, ...) is the STORAGE being unwell and must
+ * surface as an error (a clean 503 upstream), never as "nothing was uploaded" / "the file does not exist": that told learners their
+ * file had vanished and, in writeAt, would have reopened a partial upload with 'w' and truncated it.
+ */
+const isMissing = (err: unknown): boolean => {
+  const code = (err as { code?: string } | null)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+};
+const orMissing = <T>(err: unknown, missing: T): T => {
+  if (isMissing(err)) return missing;
+  throw err;
+};
 
 export interface UrlClaims {
   /** object key */
@@ -82,7 +97,7 @@ export interface LocalStorage extends StorageProvider {
 
 export function createLocalStorage(opts: {
   dir: string;
-  secret: string;
+  secret: string | KeyRing;
   ttlSeconds: number;
   /** Public path the storage routes are mounted at (the SPA calls it on its own origin). */
   basePath?: string;
@@ -110,12 +125,9 @@ export function createLocalStorage(opts: {
     if (!dir.startsWith(root + path.sep)) throw new Error('invalid storage prefix');
     return dir;
   };
-  const sign = (payload: string) =>
-    createHmac('sha256', opts.secret).update(payload).digest('base64url');
-  const token = (claims: UrlClaims): string => {
-    const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
-    return `${payload}.${sign(payload)}`;
-  };
+  const ring = ringOf('storage', opts.secret);
+  const token = (claims: UrlClaims): string =>
+    seal(ring, 'storage', Buffer.from(JSON.stringify(claims)).toString('base64url'));
   const expiry = () => Math.floor(now() / 1000) + opts.ttlSeconds;
 
   return {
@@ -143,13 +155,14 @@ export function createLocalStorage(opts: {
     },
 
     verify(raw, action): UrlClaims | null {
-      const [payload, mac, extra] = raw.split('.');
-      if (!payload || !mac || extra !== undefined) return null;
-      const expected = Buffer.from(sign(payload));
-      const given = Buffer.from(mac);
-      if (expected.length !== given.length || !timingSafeEqual(expected, given)) return null;
+      const opened = openToken(ring, 'storage', raw, {
+        mac: (key, payload) => createHmac('sha256', key).update(payload).digest('base64url'),
+      });
+      if (!opened) return null;
       try {
-        const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as UrlClaims;
+        const claims = JSON.parse(
+          Buffer.from(opened.payload, 'base64url').toString('utf8'),
+        ) as UrlClaims;
         if (claims.a !== action || typeof claims.e !== 'number' || claims.e * 1000 < now())
           return null;
         if (typeof claims.k !== 'string' || !KEY.test(claims.k)) return null;
@@ -186,8 +199,8 @@ export function createLocalStorage(opts: {
       try {
         const s = await stat(file);
         return { stream: createReadStream(file), size: s.size };
-      } catch {
-        return null;
+      } catch (err) {
+        return orMissing(err, null);
       }
     },
 
@@ -196,8 +209,8 @@ export function createLocalStorage(opts: {
       let size: number;
       try {
         size = (await stat(file)).size;
-      } catch {
-        return null;
+      } catch (err) {
+        return orMissing(err, null);
       }
       const hash = createHash('sha256');
       const handle = await open(file, 'r');
@@ -233,7 +246,7 @@ export function createLocalStorage(opts: {
       // 'r+' keeps what is already there; a first chunk creates the file
       const exists = await stat(file).then(
         () => true,
-        () => false,
+        (err: unknown) => orMissing(err, false),
       );
       await pipeline(
         body,
@@ -248,8 +261,8 @@ export function createLocalStorage(opts: {
       let total: number;
       try {
         total = (await stat(file)).size;
-      } catch {
-        return null;
+      } catch (err) {
+        return orMissing(err, null);
       }
       const start = range?.start ?? 0;
       const end = Math.min(range?.end ?? total - 1, total - 1);
@@ -260,8 +273,8 @@ export function createLocalStorage(opts: {
     async sizeOf(key) {
       try {
         return (await stat(objectFile(key))).size;
-      } catch {
-        return null;
+      } catch (err) {
+        return orMissing(err, null);
       }
     },
 

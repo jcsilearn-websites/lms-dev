@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from './errors';
+import type { StrictLimiter } from './rate-limit';
 
 export interface AuthRateLimitConfig {
   perIp: number;
@@ -63,8 +65,10 @@ const emailOf = (request: FastifyRequest): string => {
  * Stricter limits for credential-sensitive endpoints (login, password-reset request, invite
  * accept): one bucket per client IP (onRequest) and one per target email (preHandler, needs the
  * parsed body), both per route. 429 uses the standard error shape plus Retry-After.
+ * With a `strict` limiter the buckets are SHARED by every API instance (step 14a): the email is hashed before it becomes a
+ * key, so the shared table never holds an address. Without one (unit tests, a single instance) they are in memory.
  */
-export function createAuthRateLimits(cfg: AuthRateLimitConfig) {
+export function createAuthRateLimits(cfg: AuthRateLimitConfig, strict?: StrictLimiter) {
   const ipLimiter = createWindowLimiter({ max: cfg.perIp, windowMs: cfg.windowMs });
   const emailLimiter = createWindowLimiter({ max: cfg.perEmail, windowMs: cfg.windowMs });
   const route = (r: FastifyRequest) => r.routeOptions.url ?? r.url;
@@ -76,10 +80,28 @@ export function createAuthRateLimits(cfg: AuthRateLimitConfig) {
     }
   };
 
+  const shared = async (key: string, max: number): Promise<number> => {
+    if (!strict) return 0;
+    const hit = await strict.hit(key, cfg.windowMs);
+    return hit.count > max ? Math.max(1, Math.ceil(hit.ttlMs / 1000)) : 0;
+  };
+  const emailKey = (request: FastifyRequest) =>
+    createHash('sha256').update(emailOf(request)).digest('hex').slice(0, 32);
+
   return {
     perIp: async (request: FastifyRequest, reply: FastifyReply) =>
-      enforce(ipLimiter.hit(`${route(request)}|${request.ip}`), reply),
+      enforce(
+        strict
+          ? await shared(`auth-ip|${route(request)}|${request.ip}`, cfg.perIp)
+          : ipLimiter.hit(`${route(request)}|${request.ip}`),
+        reply,
+      ),
     perEmail: async (request: FastifyRequest, reply: FastifyReply) =>
-      enforce(emailLimiter.hit(`${route(request)}|${emailOf(request)}`), reply),
+      enforce(
+        strict
+          ? await shared(`auth-email|${route(request)}|${emailKey(request)}`, cfg.perEmail)
+          : emailLimiter.hit(`${route(request)}|${emailOf(request)}`),
+        reply,
+      ),
   };
 }

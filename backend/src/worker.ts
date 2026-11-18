@@ -6,6 +6,8 @@ import { createModules, type Modules, modulesConfigFromEnv } from './composition
 import { loadDotEnv, parseWorkerEnv, resolvePoolMax, type WorkerEnv } from './config/env';
 import { createLogger } from './config/logger';
 import { sslWarning } from './config/ssl';
+import { setupTelemetry } from './config/telemetry';
+import { startHealthServer } from './core/health-server';
 import { startScheduler } from './core/scheduler';
 import { createDb } from './db/client';
 import { assertDatabaseVersion } from './db/pg-version';
@@ -17,6 +19,12 @@ export interface Worker {
   scheduled: number;
   /** The job runner (polling, concurrency, lease heartbeat); exposed for tests. */
   runner: ReturnType<typeof createJobRunner>;
+  /** Readiness for the worker's health port: the database answers and the queue loop is alive. */
+  ready(
+    maxIdleSeconds: number,
+  ): Promise<{ ok: boolean; details: Record<string, string | number | boolean> }>;
+  /** The modules (the ops gauges register on them). */
+  modules: Modules;
   /** Stops accepting work, lets in-flight work finish, then closes the DB pool. Idempotent. */
   stop(): Promise<void>;
 }
@@ -33,6 +41,7 @@ export async function startWorker(env: WorkerEnv, logger: Logger): Promise<Worke
     ssl: env.DB_SSL,
     sslCa: env.DB_SSL_CA,
     max: resolvePoolMax(env),
+    queryTimeoutMs: env.DB_QUERY_TIMEOUT_MS ?? 0,
     applicationName: 'lms-worker',
     onError: (err) => logger.error({ err }, 'idle database client error'),
   });
@@ -69,7 +78,19 @@ export async function startWorker(env: WorkerEnv, logger: Logger): Promise<Worke
   return {
     handlers,
     runner,
+    modules,
     scheduled: scheduler.scheduled,
+    async ready(maxIdleSeconds) {
+      const idle = Math.round(runner.idleMs() / 1000);
+      const db_ = await db.ping(2000).then(
+        () => true,
+        () => false,
+      );
+      return {
+        ok: db_ && !stopping && idle <= maxIdleSeconds,
+        details: { db: db_ ? 'up' : 'down', queueIdleSeconds: idle, stopping: Boolean(stopping) },
+      };
+    },
     stop() {
       stopping ??= (async () => {
         logger.info('worker stopping');
@@ -92,7 +113,23 @@ async function main(): Promise<void> {
   const warning = sslWarning(env);
   if (warning) logger.warn(warning);
 
+  const telemetry = setupTelemetry(env, 'lms-worker');
   const worker = await startWorker(env, logger);
+  // The health port is an aid, not the job: a port that is taken (two workers on one machine in development) is a warning, not a crash
+  const health =
+    env.WORKER_HEALTH_PORT > 0
+      ? await startHealthServer({
+          port: env.WORKER_HEALTH_PORT,
+          host: env.WORKER_HEALTH_HOST,
+          ready: () => worker.ready(env.WORKER_READY_MAX_POLL_AGE_SECONDS),
+          metricsToken: env.METRICS_TOKEN,
+          renderMetrics: telemetry ? () => telemetry.renderMetrics() : undefined,
+        }).catch((err: unknown) => {
+          logger.warn({ err, port: env.WORKER_HEALTH_PORT }, 'worker health port unavailable');
+          return null;
+        })
+      : null;
+  if (health) logger.info({ port: health.port }, 'worker health port listening');
 
   let shuttingDown = false;
   const shutdown = async (signal: string): Promise<void> => {
@@ -105,7 +142,9 @@ async function main(): Promise<void> {
     }, env.SHUTDOWN_TIMEOUT_MS);
     force.unref();
     try {
+      await health?.close();
       await worker.stop();
+      await telemetry?.shutdown().catch(() => {});
       process.exit(0);
     } catch (err) {
       logger.error({ err }, 'error during shutdown');

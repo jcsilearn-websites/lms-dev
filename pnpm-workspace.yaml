@@ -3,3 +3,7 @@ packages:
   - frontend
 allowBuilds:
   esbuild: true
+# Reviewed fix of an advisory in a transitive dev dependency (GHSA-93q8-gq69-wqmw, ReDoS in ansi-regex 5.0.0; reached only through
+# autocannon's table printer and Testing Library's pretty-format). 5.0.1 is the patched release of the same major line.
+overrides:
+  "ansi-regex@5.0.0": 5.0.1

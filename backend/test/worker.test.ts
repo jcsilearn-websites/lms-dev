@@ -20,7 +20,7 @@ describe('worker lifecycle', () => {
   it('boots, connects to the database and shuts down gracefully (idempotent stop)', async () => {
     const worker = await startWorker(env(), silent);
     // the purges are scheduled: a system job per time slot on the queue
-    expect(worker.scheduled).toBe(16);
+    expect(worker.scheduled).toBe(17);
     expect(Object.keys(worker.handlers).sort()).toEqual([
       'analytics.rollup', // the dashboard rollups: scheduled
       'assessments.sweep', // auto-submit: scheduled every few seconds
@@ -39,14 +39,19 @@ describe('worker lifecycle', () => {
       'notifications.purge', // read notifications: scheduled
       'notifications.scan', // reminders, digests, summaries: scheduled
       'questions.purge_imports',
+      'ratelimit.purge', // shared rate-limit windows that ended: scheduled
       'sessions.purge_dead',
       'usage.close_months', // freezes the months that ended: scheduled
       'video', // enqueued when an upload is complete: not scheduled
       'video.expire_sources',
       'video.purge',
     ]);
+    // the worker's health port asks this: the database answers and the queue loop is alive
+    const ready = await worker.ready(60);
+    expect(ready).toMatchObject({ ok: true, details: { db: 'up', stopping: false } });
     await worker.stop();
     await worker.stop();
+    expect((await worker.ready(60)).ok).toBe(false); // stopping: not ready
   });
 
   it('fails fast when the database is unreachable', async () => {

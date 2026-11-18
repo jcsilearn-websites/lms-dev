@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type Static, type TSchema, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
+import { parseSigningKeys } from '../core/keyring';
 import { hostOf, isLocalHost } from './local';
 import { DB_SSL_MODES, type DbSsl } from './ssl';
 
@@ -67,6 +68,8 @@ const dbSsl = Type.Union(
 const dbAppFields = {
   DATABASE_APP_URL: pgUrl,
   DB_POOL_MAX: Type.Optional(Type.Integer({ minimum: 1, maximum: 50 })),
+  // client-side deadline of one statement. Unset: 30 s in the API, none in the worker (a rollup refresh may run for minutes). 0 = none.
+  DB_QUERY_TIMEOUT_MS: Type.Optional(Type.Integer({ minimum: 0, maximum: 3_600_000 })),
   DB_SSL: dbSsl,
   DB_SSL_CA: Type.Optional(Type.String({ minLength: 1, description: 'Path to CA certificate' })),
 };
@@ -95,6 +98,10 @@ const emailFields = {
   // finished outbox rows (and provider webhook events) are deleted after this many days
   EMAIL_OUTBOX_RETENTION_DAYS: Type.Integer({ minimum: 1, maximum: 365, default: 30 }),
   EMAIL_SEND_TIMEOUT_MS: Type.Integer({ minimum: 1000, maximum: 120_000, default: 20_000 }),
+  // circuit breaker around the provider (step 14a): this many consecutive failures open it; calls are then refused (the jobs are
+  // deferred, no attempt charged) for the cooldown, after which ONE trial send is admitted (the cooldown doubles after a failed trial)
+  EMAIL_BREAKER_FAILURES: Type.Integer({ minimum: 1, maximum: 100, default: 5 }),
+  EMAIL_BREAKER_COOLDOWN_SECONDS: Type.Integer({ minimum: 1, maximum: 3600, default: 30 }),
   SMTP_HOST: Type.Optional(Type.String({ minLength: 1 })),
   SMTP_PORT: Type.Integer({ minimum: 1, maximum: 65535, default: 587 }),
   // implicit = TLS from the first byte (465); starttls = upgrade required (587); off = development only
@@ -193,6 +200,8 @@ const storageFields = {
   STORAGE_SIGNING_SECRET: Type.Optional(Type.String({ minLength: 32 })),
   STORAGE_MAX_FILE_BYTES: Type.Integer({ minimum: 1024, default: 50 * 1024 * 1024 }),
   STORAGE_URL_TTL_SECONDS: Type.Integer({ minimum: 10, maximum: 3600, default: 300 }),
+  // hard deadline of ONE storage operation (inspect, read, remove, ...); a deadline or an I/O error is a clean 503 (step 14a)
+  STORAGE_OPERATION_TIMEOUT_MS: Type.Integer({ minimum: 100, maximum: 600_000, default: 30_000 }),
   // gcs driver (a later step): the bucket
   STORAGE_GCS_BUCKET: Type.Optional(Type.String({ minLength: 3 })),
   // an unreferenced file is deleted this long after upload confirmation / its last reference was removed
@@ -218,6 +227,12 @@ const storageFields = {
   ARRIVAL_QUEUE_WAIT_SECONDS: Type.Integer({ minimum: 1, maximum: 300, default: 30 }),
   DEADLINE_RECEIPT_WINDOW_SECONDS: Type.Integer({ minimum: 10, maximum: 3600, default: 600 }),
   DEADLINE_RECEIPT_SECRET: Type.Optional(Type.String({ minLength: 32 })),
+  // Signing-key ring (step 14a, docs/key-rotation.md): `kid:secret,kid:secret`, the FIRST signs, all verify. Ids match
+  // [A-Za-z0-9_-]{1,16}, secrets are 32+ characters; one HKDF label per purpose, so a key of one purpose never works for another.
+  // Absent: the per-purpose keys above (one key, id k0). Tokens issued before key ids existed ("legacy") verify with those keys
+  // while SIGNING_LEGACY_TOKENS=on; switch it off 90 days after the key-id format shipped.
+  SIGNING_KEYS: Type.Optional(Type.String({ minLength: 34 })),
+  SIGNING_LEGACY_TOKENS: Type.Union([Type.Literal('on'), Type.Literal('off')], { default: 'on' }),
 };
 
 /**
@@ -241,6 +256,8 @@ const videoFields = {
   }),
   // a playback session (and its token) is valid this long; the player asks for a new one when it expires
   VIDEO_PLAYBACK_TTL_SECONDS: Type.Integer({ minimum: 2, maximum: 86_400, default: 7200 }),
+  // hard deadline of one call to the video provider (createUpload, getStatus, deleteAsset): a deadline is a clean 503 (step 14a)
+  VIDEO_PROVIDER_TIMEOUT_MS: Type.Integer({ minimum: 100, maximum: 600_000, default: 30_000 }),
   // segment requests re-use a validated (session, asset) pair for this long (a revoked session may play on
   // for at most this long) in a cache of at most VIDEO_SESSION_CACHE_MAX entries
   VIDEO_SESSION_CACHE_TTL_SECONDS: Type.Integer({ minimum: 0, maximum: 600, default: 60 }),
@@ -260,7 +277,22 @@ const videoFields = {
   VIDEO_FFMPEG_THREADS: Type.Integer({ minimum: 0, maximum: 64, default: 0 }),
 };
 
+/** Observability (step 14a, docs/slo.md): metrics, tracing and the worker's health port. */
+const opsFields = {
+  // bearer token of GET /metrics (API) and of the worker's metrics port; absent = the endpoints are disabled (404)
+  METRICS_TOKEN: Type.Optional(Type.String({ minLength: 32 })),
+  // OTLP/HTTP base URL of the collector (e.g. http://localhost:4318); absent = spans are recorded in process only if metrics are on
+  OTEL_EXPORTER_OTLP_ENDPOINT: Type.Optional(Type.String({ pattern: '^https?://\\S+$' })),
+  // fraction of root traces kept (children follow their parent)
+  OTEL_TRACE_SAMPLE_RATIO: Type.Number({ minimum: 0, maximum: 1, default: 0.1 }),
+};
+
 export const apiEnvSchema = Type.Object({
+  // shared rate limiting (step 14a, docs/adr/0022): `memory` = per instance (development, tests), `postgres` = counters shared by
+  // every API instance (the production default). RATE_LIMIT_SYNC_MS: how often an instance folds its local hits into the shared store.
+  RATE_LIMIT_STORE: Type.Optional(Type.Union([Type.Literal('memory'), Type.Literal('postgres')])),
+  RATE_LIMIT_SYNC_MS: Type.Integer({ minimum: 100, maximum: 60_000, default: 1000 }),
+  ...opsFields,
   NODE_ENV: nodeEnv,
   LOG_LEVEL: logLevel,
   HOST: Type.String({ default: '0.0.0.0' }),
@@ -282,6 +314,12 @@ export const apiEnvSchema = Type.Object({
 export type ApiEnv = Static<typeof apiEnvSchema>;
 
 export const workerEnvSchema = Type.Object({
+  // the worker's own HTTP port: /health/live, /health/ready (and /metrics with METRICS_TOKEN). 0 = no port.
+  WORKER_HEALTH_PORT: Type.Integer({ minimum: 0, maximum: 65535, default: 3001 }),
+  WORKER_HEALTH_HOST: Type.String({ default: '0.0.0.0' }),
+  // /health/ready answers 503 when the worker has not polled the queue for this long
+  WORKER_READY_MAX_POLL_AGE_SECONDS: Type.Integer({ minimum: 5, maximum: 3600, default: 60 }),
+  ...opsFields,
   NODE_ENV: nodeEnv,
   LOG_LEVEL: logLevel,
   SHUTDOWN_TIMEOUT_MS: Type.Integer({ minimum: 1000, default: 10_000 }),
@@ -301,7 +339,7 @@ export const migrateEnvSchema = Type.Object({
   LMS_APP_PASSWORD: Type.String({ minLength: 24, pattern: '^[A-Za-z0-9._~-]+$' }),
   NODE_ENV: nodeEnv,
   /** Dev-only password given to seeded users; the seed refuses to run in production. */
-  SEED_USER_PASSWORD: Type.Optional(Type.String({ minLength: 10, maxLength: 128 })),
+  SEED_USER_PASSWORD: Type.Optional(Type.String({ minLength: 12, maxLength: 128 })),
   DB_SSL: dbSsl,
   DB_SSL_CA: Type.Optional(Type.String({ minLength: 1 })),
 });
@@ -323,6 +361,14 @@ export const testEnvSchema = Type.Object({
   DB_SSL: dbSsl,
   DB_SSL_CA: Type.Optional(Type.String({ minLength: 1 })),
 });
+
+/** The shared limiter's store: the environment's choice, else postgres in production and memory elsewhere. */
+export function rateLimitStoreOf(env: {
+  NODE_ENV: string;
+  RATE_LIMIT_STORE?: 'memory' | 'postgres' | undefined;
+}): 'memory' | 'postgres' {
+  return env.RATE_LIMIT_STORE ?? (env.NODE_ENV === 'production' ? 'postgres' : 'memory');
+}
 
 /** Pool size: explicit DB_POOL_MAX, else 10 in production and 5 elsewhere. */
 export function resolvePoolMax(env: {
@@ -383,22 +429,28 @@ export function assertStoragePolicy(env: {
   STORAGE_SIGNING_SECRET?: string | undefined;
   STORAGE_GCS_BUCKET?: string | undefined;
   DEADLINE_RECEIPT_SECRET?: string | undefined;
+  SIGNING_KEYS?: string | undefined;
 }): void {
   const issues: string[] = [];
+  try {
+    parseSigningKeys(env.SIGNING_KEYS);
+  } catch (err) {
+    issues.push(err instanceof Error ? err.message : 'SIGNING_KEYS: invalid');
+  }
   if (env.STORAGE_DRIVER === 'local') {
     if (env.NODE_ENV === 'production') {
       issues.push(
         'STORAGE_DRIVER: "local" is a development driver and is not allowed when NODE_ENV=production',
       );
     }
-    if (!env.STORAGE_SIGNING_SECRET) {
+    if (!env.STORAGE_SIGNING_SECRET && !env.SIGNING_KEYS) {
       issues.push('STORAGE_SIGNING_SECRET: required (32+ characters) when STORAGE_DRIVER=local');
     }
   } else if (!env.STORAGE_GCS_BUCKET) {
     issues.push('STORAGE_GCS_BUCKET: required when STORAGE_DRIVER=gcs');
   }
   // the receipts of deadline fairness are signed with their own key, or one derived from the storage key (local driver)
-  if (!env.DEADLINE_RECEIPT_SECRET && !env.STORAGE_SIGNING_SECRET) {
+  if (!env.DEADLINE_RECEIPT_SECRET && !env.STORAGE_SIGNING_SECRET && !env.SIGNING_KEYS) {
     issues.push(
       'DEADLINE_RECEIPT_SECRET: required (32+ characters) when there is no STORAGE_SIGNING_SECRET',
     );
@@ -453,6 +505,7 @@ export function assertAuthPolicy(
     SENDGRID_API_KEY?: string | undefined;
     NOTIFY_SIGNING_SECRET?: string | undefined;
     STORAGE_SIGNING_SECRET?: string | undefined;
+    SIGNING_KEYS?: string | undefined;
   },
   source: Record<string, string | undefined>,
 ): void {
@@ -465,7 +518,7 @@ export function assertAuthPolicy(
   if (provider === 'sendgrid' && !env.SENDGRID_API_KEY) {
     issues.push('SENDGRID_API_KEY: required when EMAIL_PROVIDER=sendgrid');
   }
-  if (!env.NOTIFY_SIGNING_SECRET && !env.STORAGE_SIGNING_SECRET) {
+  if (!env.NOTIFY_SIGNING_SECRET && !env.STORAGE_SIGNING_SECRET && !env.SIGNING_KEYS) {
     issues.push(
       'NOTIFY_SIGNING_SECRET: required (32+ characters) when there is no STORAGE_SIGNING_SECRET',
     );

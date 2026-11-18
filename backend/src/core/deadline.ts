@@ -1,6 +1,7 @@
 import { createHash, createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 import cookie from '@fastify/cookie';
 import type { FastifyContextConfig, FastifyInstance, FastifyRequest } from 'fastify';
+import { type KeyRing, open, ringOf, seal } from './keyring';
 import { hashToken } from './tokens';
 
 // DEADLINE FAIRNESS UNDER LOAD. A request that arrived before a deadline must not be marked late because it waited for a
@@ -61,6 +62,7 @@ export interface ReceiptSigner {
 }
 
 const LABEL = 'lms deadline receipts v1';
+const PURPOSE = 'receipt';
 
 /** The signing key: the configured one, or derived (HKDF, own label) from the storage key. */
 export function receiptKey(opts: {
@@ -72,29 +74,28 @@ export function receiptKey(opts: {
 }
 
 export function createReceiptSigner(opts: {
-  key: string;
+  key: string | KeyRing;
   windowSeconds: number;
   now?: () => number;
 }): ReceiptSigner {
   const now = opts.now ?? (() => Date.now());
-  const mac = (payload: string) => createHmac('sha256', opts.key).update(payload).digest();
+  const ring = ringOf(PURPOSE, opts.key);
   return {
     windowSeconds: opts.windowSeconds,
     sign(c) {
       const claims: ReceiptClaims = { v: 1, ...c, e: now() + opts.windowSeconds * 1000 };
-      const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
-      return `${payload}.${mac(payload).toString('base64url')}`;
+      return seal(ring, PURPOSE, Buffer.from(JSON.stringify(claims)).toString('base64url'));
     },
     verify(token) {
       if (typeof token !== 'string' || token.length > 900) return null;
-      const dot = token.indexOf('.');
-      if (dot < 1) return null;
-      const payload = token.slice(0, dot);
-      const given = Buffer.from(token.slice(dot + 1), 'base64url');
-      const want = mac(payload);
-      if (given.length !== want.length || !timingSafeEqual(given, want)) return null;
+      const opened = open(ring, PURPOSE, token, {
+        mac: (key, payload) => createHmac('sha256', key).update(payload).digest('base64url'),
+      });
+      if (!opened) return null;
       try {
-        const c = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')) as ReceiptClaims;
+        const c = JSON.parse(
+          Buffer.from(opened.payload, 'base64url').toString('utf8'),
+        ) as ReceiptClaims;
         if (
           c.v !== 1 ||
           typeof c.t !== 'string' ||

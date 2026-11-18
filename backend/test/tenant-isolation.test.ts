@@ -349,6 +349,7 @@ describe('lms_app privileges', () => {
         'email_outbox',
         'email_suppressions',
         'email_events',
+        'rate_limit_counters',
         'jobs',
         'member_profiles',
         'offering_sections',

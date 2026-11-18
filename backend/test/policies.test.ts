@@ -83,6 +83,8 @@ describe('tables reachable only through SECURITY DEFINER functions', () => {
       'notify_content_marks',
       'notify_scan_state',
       'notify_runs',
+      // step 14a: the shared rate limiter's counters
+      'rate_limit_counters',
     ]) {
       const { rows } = await owner.query<{ roles: string[] }>(
         "SELECT roles::text[] AS roles FROM pg_policies WHERE schemaname = 'lms' AND tablename = $1",

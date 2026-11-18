@@ -23,6 +23,18 @@ paths = ['''^backend/src/config/__tests__/env\.unit\.test\.ts$''']
 regexTarget = "secret"
 regexes = ['''^SG\.0123456789$''']
 
+# Made-up password SENTINELS of the log-hygiene test (step 14a): the test pushes these through real flows (failed login, password
+# change, invite accept) and then fails if any of them appears in a log line. They belong to no account and no system. Both
+# conditions must hold (AND): this file AND exactly one of these three values, so any other key-looking value in this file is
+# still flagged.
+[[allowlists]]
+description = "Fake password sentinels of the log-hygiene test"
+condition = "AND"
+targetRules = ["generic-api-key"]
+paths = ['''^backend/test/log-hygiene\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^(?:Wr0ng-Passw0rd-SENTINEL|N3w-Passw0rd-SENTINEL-x|Inv1te-Passw0rd-SENTINEL)$''']
+
 [[allowlists]]
 description = "Known dead / throwaway values"
 regexTarget = "match"

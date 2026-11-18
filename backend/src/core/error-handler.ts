@@ -2,6 +2,8 @@ import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from
 import type { ErrorResponse } from '../contracts';
 import { issueReceipt } from './deadline';
 import { AppError } from './errors';
+import { isStorageInfrastructureError } from './storage';
+import { StorageUnavailableError } from './storage/storage';
 
 const CLIENT_CODES: Record<number, string> = {
   400: 'bad_request',
@@ -22,6 +24,32 @@ function body(
   details?: ErrorResponse['error']['details'],
 ): ErrorResponse {
   return { error: { code, message, requestId, ...(details ? { details } : {}) } };
+}
+
+/**
+ * The database is unreachable or going away (a restart, a failover, too many connections): transient, so the client is told to
+ * retry (503 + Retry-After) instead of seeing a 500 that looks like a bug. SQLSTATE class 08 (connection exception), 57P01-57P03
+ * (shutdown, crash recovery, cannot connect now), 53300 (too many connections), and the socket errors a dead connection raises.
+ */
+export function isDatabaseUnavailable(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e && depth < 4; depth++) {
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === 'string') {
+      if (/^08/.test(code) || ['57P01', '57P02', '57P03', '53300', '53400'].includes(code))
+        return true;
+      if (['ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'ETIMEDOUT', 'EHOSTUNREACH'].includes(code))
+        return true;
+    }
+    if (
+      e instanceof Error &&
+      /Connection terminated|Query read timeout|rollback timed out|terminating connection|the database system is (shutting down|starting up|in recovery)|Client has encountered a connection error|read ECONNRESET|connect ECONNREFUSED/i.test(
+        e.message,
+      )
+    )
+      return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 /** pg-pool's own error when no connection became free in time (it has no code; the message is stable). */
@@ -69,6 +97,35 @@ async function handleError(err: FastifyError, request: FastifyRequest, reply: Fa
       .status(503)
       .header('retry-after', '2')
       .send(body(request.id, 'busy', 'The service is busy right now. Try again in a moment.'));
+  }
+
+  if (isDatabaseUnavailable(err)) {
+    request.log.warn({ err }, 'database unavailable');
+    return reply
+      .status(503)
+      .header('retry-after', '2')
+      .send(
+        body(
+          request.id,
+          'database_unavailable',
+          'The service is temporarily unavailable. Try again shortly.',
+        ),
+      );
+  }
+
+  // Storage that is unwell (disk full, I/O error, a deadline): a clean, retryable 503, not a 500.
+  if (err instanceof StorageUnavailableError || isStorageInfrastructureError(err)) {
+    request.log.warn({ err }, 'storage unavailable');
+    return reply
+      .status(503)
+      .header('retry-after', '5')
+      .send(
+        body(
+          request.id,
+          'storage_unavailable',
+          'File storage is not available right now. Try again shortly.',
+        ),
+      );
   }
 
   // Everything else is a bug or an infrastructure failure: log it, never leak it.
