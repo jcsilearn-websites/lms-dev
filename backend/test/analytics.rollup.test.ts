@@ -426,26 +426,30 @@ async function mutate(rand: () => number) {
         [newId(), A.tenantId, a.id, e.offeringId, p, Math.floor(rand() * 40), newId()],
       );
     },
+    // Source rows carry the COLLEGE-LOCAL day (what the product writes: lms.local_day) and not the database session's date: between
+    // 18:30 and 24:00 UTC the IST date is one ahead of the UTC date, and a row dated by the session fell outside the rollup's day window
+    // (the CI run at 00:08 IST failed all three seeds). The reference below still counts every source row; nothing about it changed.
     async () => {
       await owner.query(
         `INSERT INTO lms.video_watch_days (tenant_id, participant_id, item_id, asset_id, day, seconds)
-         VALUES ($1,$2,$3,$4, (now() - ($5 || ' days')::interval)::date, $6)
+         VALUES ($1,$2,$3,$4, lms.local_day(now(), $7) - $5::int, $6)
          ON CONFLICT (tenant_id, participant_id, item_id, asset_id, day) DO UPDATE SET seconds = EXCLUDED.seconds`,
         [
           A.tenantId,
           pick(pids),
           pick(textItems).id,
           '00000000-0000-7000-8000-000000000001',
-          String(Math.floor(rand() * 2)),
+          Math.floor(rand() * 2),
           1 + Math.floor(rand() * 600),
+          TZ,
         ],
       );
     },
     async () => {
       const u = pick(e.learners).userId;
       await owner.query(
-        `INSERT INTO lms.member_activity_days (tenant_id, user_id, day) VALUES ($1,$2,(now() - ($3 || ' days')::interval)::date) ON CONFLICT DO NOTHING`,
-        [A.tenantId, u, String(Math.floor(rand() * 2))],
+        `INSERT INTO lms.member_activity_days (tenant_id, user_id, day) VALUES ($1,$2, lms.local_day(now(), $4) - $3::int) ON CONFLICT DO NOTHING`,
+        [A.tenantId, u, Math.floor(rand() * 2), TZ],
       );
     },
   ];
