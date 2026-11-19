@@ -530,8 +530,12 @@ export function createContentRepository() {
     }> {
       const t = sql`${v.tenantId}::uuid`;
       const target = sql`${v.targetId}::uuid`;
+      // Dates move by whole CALENDAR days in the COLLEGE's zone (never the session zone, never a fixed 24 h step): a 17:00
+      // deadline stays 17:00 local across a DST change. Migration 0058 also pins the app role's session zone to UTC.
       const sh = (col: string) =>
-        sql`(CASE WHEN (SELECT clear FROM sh) THEN NULL ELSE ${sql.raw(col)} + make_interval(days => (SELECT d FROM sh)) END)`;
+        sql`(CASE WHEN (SELECT clear FROM sh) THEN NULL
+                  ELSE ((${sql.raw(col)} AT TIME ZONE (SELECT tz FROM sh)) + make_interval(days => (SELECT d FROM sh)))
+                       AT TIME ZONE (SELECT tz FROM sh) END)`;
       const inlineOk = gates ? sql`(SELECT n FROM cnt) <= ${gates.inlineLimit}` : sql`TRUE`;
       const allowed = gates
         ? sql`EXISTS (SELECT 1 FROM acc WHERE ${may}) AND EXISTS (SELECT 1 FROM src WHERE src.visible AND src.allowed)
@@ -551,7 +555,8 @@ export function createContentRepository() {
                                    WHERE tenant_id = ${t} AND offering_id = ${v.targetId}::uuid), '') AS prefix),
         sh AS (
           SELECT coalesce(${v.shiftDays ?? null}::int, (tt.start_date - st.start_date)) AS d,
-                 ${v.clearDates === true}::boolean AS clear
+                 ${v.clearDates === true}::boolean AS clear,
+                 lms.tenant_tz(${t}) AS tz
             FROM lms.course_offerings so JOIN lms.terms st ON st.tenant_id = so.tenant_id AND st.id = so.term_id,
                  lms.course_offerings tg JOIN lms.terms tt ON tt.tenant_id = tg.tenant_id AND tt.id = tg.term_id
            WHERE so.tenant_id = ${t} AND so.id = ${v.sourceId}::uuid AND tg.tenant_id = ${t} AND tg.id = ${target}),

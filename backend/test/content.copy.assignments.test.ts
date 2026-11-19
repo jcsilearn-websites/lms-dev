@@ -1,6 +1,7 @@
 // biome-ignore-all lint/style/noNonNullAssertion: test fixtures: the arrays hold what the setup just created
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { newId } from '../src/core/uuid';
 import { COPY_INLINE_LIMIT } from '../src/modules/content';
 import { makeApp, type TestApp } from './app';
 import { addAssessment, addQuestion, fixed, pool, q, startAttempt } from './assessments-helpers';
@@ -461,6 +462,87 @@ describe('the copy', () => {
       .rows[0];
     expect([g2.opens_at, g2.due_at, g2.late_cutoff_at]).toEqual([null, null, null]);
     expect(g2.late_policy).toBe('none');
+  });
+
+  // The shift is made of whole calendar days in the COLLEGE's zone, never of 24 h steps and never in the session zone.
+  // New York: 17:00 EDT on 30 Oct 2026, copied 14 days later across the end of DST (1 Nov 2026): must be 17:00 EST.
+  it('a New York college: a 17:00 deadline stays 17:00 local across a DST change; Kolkata keeps exact day steps', async () => {
+    const localTime = async (iso: string, zone: string) =>
+      (
+        await owner.query<{ t: string }>(
+          `SELECT to_char($1::timestamptz AT TIME ZONE $2, 'YYYY-MM-DD HH24:MI') AS t`,
+          [iso, zone],
+        )
+      ).rows[0]?.t;
+    const dueOf = async (offeringId: string) => {
+      const [item] = await copied(offeringId, 'assignment');
+      return (
+        await owner.query(
+          'SELECT opens_at, due_at, late_cutoff_at FROM lms.assignments WHERE item_id = $1',
+          [item.id],
+        )
+      ).rows[0];
+    };
+    const setSource = async (s: Setup, due: string, opens: string, cutoff: string) => {
+      const src = (await copied(s.src.id, 'assignment'))[0];
+      await owner.query(
+        'UPDATE lms.assignments SET opens_at = $2, due_at = $3, late_cutoff_at = $4 WHERE item_id = $1',
+        [src.id, opens, due, cutoff],
+      );
+    };
+    const tenantId = (await owner.query('SELECT id FROM lms.tenants WHERE slug = $1', ['cp-a']))
+      .rows[0].id;
+    try {
+      await owner.query(
+        `INSERT INTO lms.tenant_settings (id, tenant_id, key, value) VALUES ($2, $1, 'timezone', '"America/New_York"')
+         ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value`,
+        [tenantId, newId()],
+      );
+      const s = await setup();
+      // 17:00 EDT = 21:00Z; opens 09:00 EDT; cutoff 23:59 EDT on 6 Nov 2026 is after the change in the SOURCE
+      await setSource(s, '2026-10-30T21:00:00Z', '2026-10-26T13:00:00Z', '2026-11-06T04:59:00Z');
+      ok(
+        await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, {
+          sourceOfferingId: s.src.id,
+          shiftDays: 14,
+        }),
+      );
+      const g = await dueOf(s.dst.id);
+      expect(await localTime(g.due_at.toISOString(), 'America/New_York')).toBe('2026-11-13 17:00');
+      expect(g.due_at.toISOString()).toBe('2026-11-13T22:00:00.000Z'); // not 21:00Z (a 24 h step)
+      expect(await localTime(g.opens_at.toISOString(), 'America/New_York')).toBe(
+        '2026-11-09 09:00',
+      );
+      // the other direction: back across the change, and the spring change (8 Mar 2026): 17:00 EST + 7 days = 17:00 EDT
+      const s2 = await setup();
+      await setSource(s2, '2026-03-04T22:00:00Z', '2026-03-02T14:00:00Z', '2026-03-05T22:00:00Z');
+      ok(
+        await s2.teacher.client.post(`/offerings/${s2.dst.id}/copy`, {
+          sourceOfferingId: s2.src.id,
+          shiftDays: 7,
+        }),
+      );
+      const g2 = await dueOf(s2.dst.id);
+      expect(await localTime(g2.due_at.toISOString(), 'America/New_York')).toBe('2026-03-11 17:00');
+      expect(g2.due_at.toISOString()).toBe('2026-03-11T21:00:00.000Z');
+    } finally {
+      await owner.query(
+        `DELETE FROM lms.tenant_settings WHERE tenant_id = $1 AND key = 'timezone'`,
+        [tenantId],
+      );
+    }
+    // Kolkata (the default zone, no DST): 17:00 IST = 11:30Z stays 17:00 IST, exact 24 h steps, whatever the session zone
+    const k = await setup();
+    await setSource(k, '2026-10-30T11:30:00Z', '2026-10-26T03:30:00Z', '2026-11-06T18:29:00Z');
+    ok(
+      await k.teacher.client.post(`/offerings/${k.dst.id}/copy`, {
+        sourceOfferingId: k.src.id,
+        shiftDays: 14,
+      }),
+    );
+    const gk = await dueOf(k.dst.id);
+    expect(gk.due_at.toISOString()).toBe('2026-11-13T11:30:00.000Z');
+    expect(await localTime(gk.due_at.toISOString(), 'Asia/Kolkata')).toBe('2026-11-13 17:00');
   });
 
   it('into another COURSE: the settings come, the questions and the rubric do not', async () => {
