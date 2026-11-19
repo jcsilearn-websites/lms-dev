@@ -16,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run --project unit --project db && vitest run --project serial --maxWorkers=1 --no-file-parallelism",
     "test:remote": "cross-env REMOTE_DB=1 vitest run --project unit --project db --project serial",
+    "test:dates": "vitest run --project unit --project db test/date-hygiene.unit.test.ts test/local-day.boundary.test.ts test/analytics.rollup.test.ts test/analytics.functions.test.ts test/analytics.api.test.ts test/notifications.scan.test.ts test/notifications.events.test.ts",
     "test:serial": "vitest run --project serial --maxWorkers=1 --no-file-parallelism",
     "db:local:setup": "tsx src/cli/local-setup.ts",
     "db:migrate": "tsx src/db/migrate-cli.ts",

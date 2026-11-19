@@ -31,7 +31,7 @@ afterAll(async () => {
   await owner.end();
 });
 
-const day = (d: Date) => d.toISOString().slice(0, 10);
+const day = (d: Date) => d.toISOString().slice(0, 10); // date-ok: academic year / term dates with margins of 30-300 days, one day of skew is harmless
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
 
 /** An academic year and term around TODAY (the shared helper's term has fixed dates). */

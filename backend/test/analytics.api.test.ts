@@ -17,6 +17,7 @@ import {
   type Structure,
   structure,
 } from './courses-helpers';
+import { monthInZone } from './dates';
 import { assignment, type Class, gradebookClass, participantIds, quiz } from './gradebook-helpers';
 import {
   type AuthFixture,
@@ -554,7 +555,9 @@ describe('college reports and exports', () => {
 });
 
 describe('usage metering', () => {
-  const month = new Date().toISOString().slice(0, 7);
+  // the month of the COLLEGE (IST): on the last evening of a UTC month (18:30-24:00 UTC) the college is already in the next one,
+  // and the month of the UTC clock named the wrong one (the activity below is written with the college-local day)
+  const month = monthInZone(new Date());
   const first = `${month}-01`;
   const mix = { '360p': 0.2, '480p': 0.3, '720p': 0.5 };
   let assetId: string;

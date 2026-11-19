@@ -131,6 +131,18 @@ jobs:
 
       - run: pnpm test
 
+      # Time-of-day / time-zone check (CLAUDE.md "Time-dependent tests"): the product's day is the COLLEGE-LOCAL day (Asia/Kolkata), the CI
+      # session zone is UTC, and a test that takes a day from the session fails only between 18:30 and 24:00 UTC. The date-sensitive subset
+      # (about 35 s per zone) runs under zones whose date differs from IST's at ANY hour: Pago_Pago (UTC-11) is behind it 00:00-10:00 and
+      # 18:30-24:00 UTC, Kiritimati (UTC+14) is ahead of it 10:00-18:30 UTC; UTC is the default CI session.
+      - name: Date-sensitive tests under shifted session time zones
+        run: |
+          for tz in Pacific/Pago_Pago Pacific/Kiritimati UTC; do
+            echo "::group::session time zone $tz"
+            PGOPTIONS="-c timezone=$tz" pnpm --filter @lms/backend run test:dates
+            echo "::endgroup::"
+          done
+
   # Bundle budgets: login page <= 125 KB gzip (initial load), every route <= 150 KB gzip.
   bundle-size:
     if: github.event_name != 'schedule'
