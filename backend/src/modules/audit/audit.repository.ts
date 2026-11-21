@@ -101,7 +101,7 @@ export function createAuditRepository() {
       const res = await tx.execute(
         sql`SELECT a.id, a.actor_user_id, a.action, a.target_type, a.target_id, a.metadata, a.created_at,
                    ${CURSOR_AT_A} AS cursor_at, u.display_name::text AS actor_name, u.email::text AS actor_email
-              FROM lms.audit_log a LEFT JOIN lms.users u ON u.id = a.actor_user_id
+              FROM lms.audit_log a LEFT JOIN lms.member_identity u ON u.tenant_id = a.tenant_id AND u.user_id = a.actor_user_id
              WHERE ${sql.join(where, sql` AND `)}
              ORDER BY a.created_at DESC, a.id DESC LIMIT ${f.limit}`,
       );

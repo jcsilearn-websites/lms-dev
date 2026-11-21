@@ -447,7 +447,7 @@ export function createCoursesRepository() {
                             ${part} ${status} ${after}
                           ORDER BY p.id LIMIT ${page.limit + 1}) p
                    JOIN lms.tenant_memberships m ON m.tenant_id = p.tenant_id AND m.id = p.membership_id
-                   JOIN lms.users u ON u.id = m.user_id
+                   JOIN lms.member_identity u ON u.tenant_id = m.tenant_id AND u.membership_id = m.id
                    LEFT JOIN lms.sections s ON s.tenant_id = p.tenant_id AND s.id = p.source_section_id) r),
                  '[]'::jsonb) AS rows`);
       const r = res.rows[0];
@@ -687,5 +687,5 @@ function participantRow(src: SQL): SQL {
            p.status::text AS status, p.created_at
       FROM ${src} p
       JOIN lms.tenant_memberships m ON m.tenant_id = p.tenant_id AND m.id = p.membership_id
-      JOIN lms.users u ON u.id = m.user_id`;
+      JOIN lms.member_identity u ON u.tenant_id = m.tenant_id AND u.membership_id = m.id`;
 }

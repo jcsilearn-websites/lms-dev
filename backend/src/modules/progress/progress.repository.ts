@@ -81,10 +81,10 @@ export function classPageStatement(a: AccessSpec, q: ClassQuery): SQL {
     vis AS (${visibleItems(a.tenantId, a.offeringId, true)}),
     mods AS (${modulesOf(a.tenantId, a.offeringId)}),
     parts AS MATERIALIZED (
-      SELECT p.id AS pid, u.id AS user_id, u.display_name, u.email, s.code AS section_name, p.status = 'removed' AS removed
+      SELECT p.id AS pid, u.user_id AS user_id, u.display_name, u.email, s.code AS section_name, p.status = 'removed' AS removed
         FROM lms.course_participants p
         JOIN lms.tenant_memberships tm ON tm.tenant_id = p.tenant_id AND tm.id = p.membership_id
-        JOIN lms.users u ON u.id = tm.user_id
+        JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id
         LEFT JOIN lms.member_profiles mp ON mp.tenant_id = p.tenant_id AND mp.membership_id = tm.id
         LEFT JOIN lms.sections s ON s.tenant_id = mp.tenant_id AND s.id = mp.section_id
        WHERE p.tenant_id = ${t} AND p.offering_id = ${o} AND p.participation = 'learner'
@@ -319,7 +319,7 @@ export function createProgressRepository() {
           SELECT p.id, u.display_name, u.email, p.status = 'removed' AS removed
             FROM lms.course_participants p
             JOIN lms.tenant_memberships tm ON tm.tenant_id = p.tenant_id AND tm.id = p.membership_id
-            JOIN lms.users u ON u.id = tm.user_id
+            JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id
            WHERE p.tenant_id = ${t} AND p.offering_id = ${o} AND p.id = ${participantId}::uuid
              AND p.participation = 'learner' AND EXISTS (SELECT 1 FROM acc WHERE acc.visible AND acc.allowed)),
         vis AS (${visibleItems(a.tenantId, a.offeringId, false)}),

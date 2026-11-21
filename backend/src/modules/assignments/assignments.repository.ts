@@ -103,7 +103,7 @@ function classCtes(
              sec.code AS section_name
         FROM lms.course_participants p
         JOIN lms.tenant_memberships tm ON tm.tenant_id = p.tenant_id AND tm.id = p.membership_id
-        JOIN lms.users u ON u.id = tm.user_id
+        JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id
         LEFT JOIN lms.member_profiles mp ON mp.tenant_id = p.tenant_id AND mp.membership_id = tm.id
         LEFT JOIN lms.sections sec ON sec.tenant_id = mp.tenant_id AND sec.id = mp.section_id
         LEFT JOIN lms.assignment_learners al ON al.tenant_id = p.tenant_id AND al.assignment_item_id = ${ITEM}
@@ -384,7 +384,7 @@ export function createAssignmentsRepository() {
                            FROM lms.assignment_extensions x
                            JOIN lms.course_participants cp ON cp.tenant_id = x.tenant_id AND cp.id = x.participant_id
                            JOIN lms.tenant_memberships tm ON tm.tenant_id = cp.tenant_id AND tm.id = cp.membership_id
-                           JOIN lms.users u ON u.id = tm.user_id
+                           JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id
                           WHERE x.tenant_id = ${T(a)} AND x.assignment_item_id = ${ITEM}), '[]'::jsonb) AS rows`);
       const r = res.rows[0];
       return { acc: asAcc(r?.acc), found: r?.found === true, rows: (r?.rows as Row[]) ?? [] };
@@ -448,7 +448,7 @@ export function createAssignmentsRepository() {
                   FROM up
                   JOIN lms.course_participants cp ON cp.tenant_id = ${T(a)} AND cp.id = up.participant_id
                   JOIN lms.tenant_memberships tm ON tm.tenant_id = cp.tenant_id AND tm.id = cp.membership_id
-                  JOIN lms.users u ON u.id = tm.user_id) AS row`);
+                  JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id) AS row`);
       const r = res.rows[0];
       return {
         acc: asAcc(r?.acc),

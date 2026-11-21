@@ -235,7 +235,7 @@ export function createAssessmentsRepository() {
                   FROM lms.assessment_accommodations x
                   JOIN lms.course_participants cp ON cp.tenant_id = x.tenant_id AND cp.id = x.participant_id
                   JOIN lms.tenant_memberships tm ON tm.tenant_id = cp.tenant_id AND tm.id = cp.membership_id
-                  JOIN lms.users u ON u.id = tm.user_id
+                  JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id
                  WHERE x.tenant_id = ${T(a)} AND x.assessment_item_id = ${ITEM}), '[]'::jsonb) AS rows`);
       const r = res.rows[0];
       return { acc: asAcc(r?.acc), found: r?.found === true, rows: (r?.rows as Row[]) ?? [] };
@@ -291,7 +291,7 @@ export function createAssessmentsRepository() {
                   FROM up
                   JOIN lms.course_participants cp ON cp.tenant_id = ${T(a)} AND cp.id = up.participant_id
                   JOIN lms.tenant_memberships tm ON tm.tenant_id = cp.tenant_id AND tm.id = cp.membership_id
-                  JOIN lms.users u ON u.id = tm.user_id) AS row`);
+                  JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id) AS row`);
       const r = res.rows[0];
       return {
         acc: asAcc(r?.acc),
@@ -470,7 +470,7 @@ export function createAssessmentsRepository() {
                            FROM page p
                            JOIN lms.course_participants cp ON cp.tenant_id = p.tenant_id AND cp.id = p.participant_id
                            JOIN lms.tenant_memberships tm ON tm.tenant_id = cp.tenant_id AND tm.id = cp.membership_id
-                           JOIN lms.users u ON u.id = tm.user_id
+                           JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id
                           WHERE EXISTS (SELECT 1 FROM it)), '[]'::jsonb) AS rows`);
       const r = res.rows[0];
       return { acc: asAcc(r?.acc), found: r?.found === true, rows: (r?.rows as Row[]) ?? [] };
@@ -545,7 +545,7 @@ export function createAssessmentsRepository() {
                            JOIN lms.attempts at ON at.tenant_id = ${T(a)} AND at.id = p.attempt_id
                            JOIN lms.course_participants cp ON cp.tenant_id = at.tenant_id AND cp.id = at.participant_id
                            JOIN lms.tenant_memberships tm ON tm.tenant_id = cp.tenant_id AND tm.id = cp.membership_id
-                           JOIN lms.users u ON u.id = tm.user_id), '[]'::jsonb) AS rows`);
+                           JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id), '[]'::jsonb) AS rows`);
       const r = res.rows[0];
       return {
         acc: asAcc(r?.acc),
@@ -570,7 +570,7 @@ export function createAssessmentsRepository() {
                   'attempt', (SELECT ${attemptRowJson(sql`at`)}
                                 FROM lms.course_participants cp
                                 JOIN lms.tenant_memberships tm ON tm.tenant_id = cp.tenant_id AND tm.id = cp.membership_id
-                                JOIN lms.users u ON u.id = tm.user_id
+                                JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id
                                WHERE cp.tenant_id = at.tenant_id AND cp.id = at.participant_id),
                   'feedback', at.feedback,
                   'events', coalesce((SELECT jsonb_agg(jsonb_build_object('kind', e.kind, 'at', e.at) ORDER BY e.n)
@@ -812,7 +812,7 @@ export function createAssessmentsRepository() {
                               JOIN lms.attempts at ON at.tenant_id = ${t} AND at.id = c.attempt_id
                               JOIN lms.course_participants cp ON cp.tenant_id = at.tenant_id AND cp.id = at.participant_id
                               JOIN lms.tenant_memberships tm ON tm.tenant_id = cp.tenant_id AND tm.id = cp.membership_id
-                              JOIN lms.users u ON u.id = tm.user_id
+                              JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id
                              WHERE c.before_score IS DISTINCT FROM c.after_score OR c.before_max IS DISTINCT FROM c.after_max
                              ORDER BY delta DESC, c.attempt_id LIMIT 100) z), '[]'::jsonb))) AS summary
                ${p.dryRun ? sql`` : sql`, (SELECT count(*) FROM upd_aq) + (SELECT count(*) FROM upd_att) + (SELECT count(*) FROM run) + (SELECT count(*) FROM chg_ins) + (SELECT count(*) FROM au) AS n`}`);
@@ -837,7 +837,7 @@ export function createAssessmentsRepository() {
                coalesce((SELECT jsonb_agg(jsonb_build_object('id', g.id, 'questionId', g.question_id, 'action', g.action,
                            'affectedAttempts', g.affected_attempts, 'createdAt', g.created_at, 'createdByName', u.display_name)
                            ORDER BY g.created_at DESC, g.id)
-                           FROM lms.regrade_runs g LEFT JOIN lms.users u ON u.id = g.created_by
+                           FROM lms.regrade_runs g LEFT JOIN lms.member_identity u ON u.tenant_id = g.tenant_id AND u.user_id = g.created_by
                           WHERE g.tenant_id = ${T(a)} AND g.assessment_item_id = ${ITEM}), '[]'::jsonb) AS rows`);
       const r = res.rows[0];
       return { acc: asAcc(r?.acc), found: r?.found === true, rows: (r?.rows as Row[]) ?? [] };

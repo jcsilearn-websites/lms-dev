@@ -130,7 +130,7 @@ export function createQuestionsRepository() {
                           'createdByName', u.display_name) ORDER BY v.version DESC)
                            FROM lms.questions q
                            JOIN lms.question_versions v ON v.tenant_id = q.tenant_id AND v.question_id = q.id
-                           LEFT JOIN lms.users u ON u.id = v.created_by
+                           LEFT JOIN lms.member_identity u ON u.tenant_id = q.tenant_id AND u.user_id = v.created_by
                           WHERE q.tenant_id = ${a.tenantId}::uuid AND q.course_id = ${a.courseId}::uuid
                             AND q.id = ${questionId}::uuid AND ${ok}), '[]'::jsonb) AS rows`);
       const r = res.rows[0];

@@ -74,7 +74,7 @@ describe('GET /audit: who did it', () => {
     expect(res.json().items).toHaveLength(3);
     const reads = t.statements.statements.filter((s) => /audit_log/i.test(s));
     expect(reads).toHaveLength(1);
-    expect(reads[0]).toMatch(/LEFT JOIN lms\.users/i);
+    expect(reads[0]).toMatch(/LEFT JOIN lms\.member_identity/i);
   });
 
   it('keeps naming an actor who was (soft) removed from the college: their history is kept', async () => {

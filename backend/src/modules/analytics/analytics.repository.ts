@@ -347,7 +347,7 @@ export function createAnalyticsRepository() {
           SELECT f.*, u.display_name, u.email, r.last_activity_at, r.enrolled_at, r.avg_score, r.scored_items, r.missed_deadlines
             FROM fl f
             JOIN lms.rollup_learner_offering r ON r.tenant_id = ${t} AND r.participant_id = f.participant_id
-            JOIN lms.users u ON u.id = f.user_id
+            JOIN lms.member_identity u ON u.tenant_id = ${t} AND u.user_id = f.user_id
            ${q.after ? sql`WHERE f.participant_id > ${q.after}::uuid` : sql``}
            ORDER BY f.participant_id LIMIT ${q.limit + 1}),
         vis AS MATERIALIZED (${visibleItems(a.tenantId, a.offeringId, true)}),

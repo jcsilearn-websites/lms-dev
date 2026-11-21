@@ -114,7 +114,7 @@ function toMember(r: Record<string, unknown>): MemberRow {
 // with null profile fields). The profile tables belong to the profiles module; this is a read-only join.
 const MEMBER_COLUMNS = sql`m.id, m.user_id, u.email, u.display_name, m.role, m.status, m.created_at,
   p.profile_type, p.register_number, p.employee_id, p.department_id, p.batch_id, p.section_id`;
-const MEMBER_FROM = sql`lms.tenant_memberships m JOIN lms.users u ON u.id = m.user_id
+const MEMBER_FROM = sql`lms.tenant_memberships m JOIN lms.member_identity u ON u.tenant_id = m.tenant_id AND u.membership_id = m.id
   LEFT JOIN lms.member_profiles p ON p.tenant_id = m.tenant_id AND p.membership_id = m.id`;
 
 export function createMembershipsRepository() {
@@ -257,7 +257,7 @@ export function createMembershipsRepository() {
                COALESCE(upd.role, old.role) AS role, COALESCE(upd.status, old.status) AS status,
                old.created_at, (upd.id IS NOT NULL) AS changed,
                (SELECT count(*) FROM rev) AS revoked
-          FROM old JOIN lms.users u ON u.id = old.user_id LEFT JOIN upd ON upd.id = old.id`);
+          FROM old JOIN lms.member_identity u ON u.tenant_id = ${a.tenantId}::uuid AND u.membership_id = old.id LEFT JOIN upd ON upd.id = old.id`);
       const r = res.rows[0];
       if (!r) return { found: false, changed: false, member: null, before: null };
       return {

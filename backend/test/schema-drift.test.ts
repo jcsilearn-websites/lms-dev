@@ -82,6 +82,7 @@ import {
 } from '../src/modules/imports/imports.model';
 import { jobStatus, jobs } from '../src/modules/jobs/jobs.model';
 import {
+  membershipDisplayOverrides,
   membershipRole,
   membershipStatus,
   tenantMemberships,
@@ -116,6 +117,7 @@ const schema = {
   tenantSettings,
   users,
   tenantMemberships,
+  membershipDisplayOverrides,
   auditLog,
   platformAuditLog,
   userCredentials,

@@ -23,3 +23,12 @@ export const tenantMemberships = lms.table('tenant_memberships', {
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
+
+// "This member is shown under this name in this college" (data protection, step 14b). Written only by the erasure functions;
+// every college-scoped reader of a name or an address reads it through the view lms.member_identity (migration 0060).
+export const membershipDisplayOverrides = lms.table('membership_display_overrides', {
+  tenantId: uuid('tenant_id').notNull(),
+  membershipId: uuid('membership_id').notNull(),
+  pseudonym: text('pseudonym').notNull(),
+  createdAt: createdAt(),
+});
