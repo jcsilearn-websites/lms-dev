@@ -119,4 +119,26 @@ describe('login lockout: parallel guesses', () => {
     expect(s.failed_attempts).toBe(MAX); // attempts while locked are not counted
     expect(s.lock_audits).toBe(1);
   });
+
+  it('a locked account answers a wrong password with the same status and body as an unlocked one (apart from the request id)', async () => {
+    const strip = (body: string) => {
+      const j = JSON.parse(body) as { error: { requestId?: string } };
+      j.error.requestId = undefined;
+      return j;
+    };
+    const f = await createAuthFixture(owner, 'lockout-c');
+    const normal = await new TestClient(t, f.host).login(f.memberEmail, 'wrong password!!');
+    const unknown = await new TestClient(t, f.host).login(
+      'nobody@lockout-c.test',
+      'wrong password!!',
+    );
+    for (let i = 0; i < MAX; i++)
+      await new TestClient(t, f.host).login(f.memberEmail, 'wrong password!!');
+    expect((await state(f.memberEmail)).locked_until).not.toBeNull();
+    const locked = await new TestClient(t, f.host).login(f.memberEmail, 'wrong password!!');
+    expect(normal.statusCode).toBe(401);
+    expect(locked.statusCode).toBe(normal.statusCode);
+    expect(strip(locked.body)).toEqual(strip(normal.body));
+    expect(strip(unknown.body)).toEqual(strip(normal.body));
+  });
 });

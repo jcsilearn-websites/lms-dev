@@ -111,6 +111,7 @@ function setup() {
         (e: unknown) => (e instanceof InvalidCredentialsError ? ('401' as const) : (e as Error)),
       );
   return {
+    service,
     account,
     counted,
     login,
@@ -167,5 +168,42 @@ describe('login lockout under parallel guesses (fake database model)', () => {
     expect(s.sessions()).toBe(0);
     expect(s.account.lockEvents).toBe(1);
     expect(s.account.failed).toBe(MAX);
+  });
+
+  it('a guess dropped by skipIf is the SAME error as a normal wrong password, and only an already-locked account drops guesses', async () => {
+    // below the threshold nothing is ever dropped: every guess runs argon2 and is counted
+    const calm = setup();
+    const few = await Promise.all(Array.from({ length: MAX - 1 }, () => calm.login('wrong')));
+    expect(few.every((r) => r === '401')).toBe(true);
+    expect(calm.runs()).toBe(MAX - 1);
+    expect(calm.account.failed).toBe(MAX - 1);
+    expect(calm.account.lockedUntil).toBeNull();
+
+    // the error object of a dropped guess and of a normal one: same class, code, status, message, details
+    const s = setup();
+    const errs: unknown[] = [];
+    const attempt = (pw: string) =>
+      s.service
+        .login({
+          email: 'ada@example.com',
+          password: pw,
+          tenant,
+          client: { ip: '10.0.0.1', userAgent: 'x' },
+        })
+        .catch((e: unknown) => errs.push(e));
+    await Promise.all([...Array.from({ length: MAX + 3 }, () => attempt('wrong'))]);
+    expect(s.runs()).toBeLessThan(MAX + 3); // some were dropped
+    expect(errs).toHaveLength(MAX + 3);
+    const shape = (e: unknown) => {
+      const x = e as InvalidCredentialsError;
+      return [
+        x.constructor.name,
+        x.code,
+        x.statusCode,
+        x.message,
+        JSON.stringify(x.details ?? null),
+      ];
+    };
+    for (const e of errs) expect(shape(e)).toEqual(shape(errs[0]));
   });
 });
