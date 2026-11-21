@@ -79,6 +79,11 @@ export function createAuthService(deps: {
   const { db, authRepo, hasher, securityMail, background, sessionsService, usersService } = deps;
   const { membershipsService, auditService } = deps;
   const config: AuthConfig = { ...DEFAULT_AUTH_CONFIG, ...deps.config };
+  // Per instance, an optimisation only (the database decides): a logical clock and "user -> the tick at
+  // which this instance saw the account get locked". A request that started before that tick read a stale
+  // lockout; one that started after it reads the real one from the database.
+  let lockClock = 0;
+  const lockSeen = new Map<string, number>();
 
   function meResponse(args: {
     user: { id: string; email: string; displayName: string };
@@ -108,8 +113,9 @@ export function createAuthService(deps: {
      * (requires is_platform_admin). Two database statements on success: `auth_login_begin` (tenant
      * status, account, credentials, membership) and, after the argon2 check, `auth_login_complete`
      * (clear failures, create session, audit). Every failure is the same InvalidCredentialsError and
-     * a verification always runs (a dummy hash for unknown emails); failure bookkeeping is one
-     * deferred statement, so response time does not reveal whether the account exists.
+     * a verification always runs (a dummy hash for unknown emails); a failure is counted in ONE
+     * statement BEFORE the 401 is returned (a known account costs one statement more than an unknown one;
+     * the argon2 verify dominates the time and runs either way).
      */
     async login(input: {
       email: string;
@@ -119,6 +125,7 @@ export function createAuthService(deps: {
     }): Promise<LoginResult> {
       const email = normalizeEmail(input.email);
       const tenantId = input.tenant?.id ?? null;
+      const startedAt = ++lockClock; // ordered before this request's read of the lockout
       const begin = await db.withoutTenant((exec) => authRepo.loginBegin(exec, email, tenantId));
 
       // the plugin's slug cache may be up to a minute stale: the database says what is true now
@@ -127,10 +134,15 @@ export function createAuthService(deps: {
       }
 
       const known = begin.userId !== null && begin.passwordHash !== null;
+      // A guess that read the account before another guess locked it, and only now gets its hashing slot,
+      // is dropped without argon2 work (it counts as "while locked": not counted, never a success).
+      const lockedMeanwhile = () =>
+        known && (lockSeen.get(begin.userId as string) ?? 0) > startedAt;
       const passwordOk = known
-        ? await hasher.verify(begin.passwordHash as string, input.password)
+        ? await hasher.verify(begin.passwordHash as string, input.password, lockedMeanwhile)
         : await hasher.verifyDummy(input.password);
-      const locked = !!begin.lockedUntil && begin.lockedUntil.getTime() > Date.now();
+      const locked =
+        (!!begin.lockedUntil && begin.lockedUntil.getTime() > Date.now()) || lockedMeanwhile();
       const allowedHere = input.tenant
         ? begin.membershipStatus === 'active'
         : begin.isPlatformAdmin;
@@ -139,23 +151,28 @@ export function createAuthService(deps: {
         if (known && !locked) {
           const userId = begin.userId as string;
           const wrongPassword = !passwordOk;
-          background.run(async () => {
-            // only wrong passwords count towards the lockout; attempts while locked are ignored
-            await db.withoutTenant((exec) =>
-              authRepo.loginFailed(exec, {
-                userId,
-                tenantId,
-                countAttempt: wrongPassword,
-                reason: wrongPassword ? 'bad_password' : 'no_membership',
-                maxAttempts: config.maxAttempts,
-                baseSeconds: config.lockBaseSeconds,
-                maxSeconds: config.lockMaxSeconds,
-                ip: input.client.ip,
-                auditId: newId(),
-                lockAuditId: newId(),
-              }),
-            );
-          });
+          // Counted BEFORE the 401 goes out (one statement, row-locked in the database): a client that has
+          // an answer has also been counted, so it cannot out-run the bookkeeping. Only wrong passwords
+          // count towards the lockout; attempts while locked are ignored.
+          const failed = await db.withoutTenant((exec) =>
+            authRepo.loginFailed(exec, {
+              userId,
+              tenantId,
+              countAttempt: wrongPassword,
+              reason: wrongPassword ? 'bad_password' : 'no_membership',
+              maxAttempts: config.maxAttempts,
+              baseSeconds: config.lockBaseSeconds,
+              maxSeconds: config.lockMaxSeconds,
+              ip: input.client.ip,
+              auditId: newId(),
+              lockAuditId: newId(),
+            }),
+          );
+          if (failed.justLocked) {
+            lockSeen.delete(userId);
+            lockSeen.set(userId, ++lockClock);
+            if (lockSeen.size > 1000) lockSeen.delete(lockSeen.keys().next().value as string);
+          }
         }
         throw new InvalidCredentialsError();
       }

@@ -12,7 +12,12 @@ const normalize = (password: string) => password.normalize('NFKC');
 
 export interface PasswordHasher {
   hash(password: string): Promise<string>;
-  verify(passwordHash: string, password: string): Promise<boolean>;
+  /**
+   * `skipIf` is asked once the request has a hashing slot (after any queueing): when it answers true no
+   * argon2 work is done and the result is false. Login uses it to drop guesses that queued behind the
+   * guess that locked the account.
+   */
+  verify(passwordHash: string, password: string, skipIf?: () => boolean): Promise<boolean>;
   /** Verifies against a throwaway hash so unknown accounts cost the same as known ones. */
   verifyDummy(password: string): Promise<false>;
   needsRehash(passwordHash: string): boolean;
@@ -64,8 +69,12 @@ export function createPasswordHasher(opts: {
 
   return {
     hash: (password) => limited(() => hash(normalize(password), ARGON2_PARAMS)),
-    verify: (passwordHash, password) =>
-      limited(() => verify(passwordHash, normalize(password)).catch(() => false)),
+    verify: (passwordHash, password, skipIf) =>
+      limited(() =>
+        skipIf?.()
+          ? Promise.resolve(false)
+          : verify(passwordHash, normalize(password)).catch(() => false),
+      ),
     async verifyDummy(password) {
       const h = await dummyHash();
       await limited(() => verify(h, normalize(password)).catch(() => false));
