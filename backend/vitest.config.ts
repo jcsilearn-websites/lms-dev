@@ -18,6 +18,8 @@ export const SERIAL_FILES = [
   // runs the migration runner itself: the only code that can ALTER ROLE lms_app (cluster-wide), plus
   // advisory locks, copied migration folders and a deliberately broken migration
   'test/migrate.test.ts',
+  // builds a scratch database at migration 0060, applies 0061 and compares the replaced functions; the runner may ALTER ROLE
+  'test/migrations.identity.test.ts',
   // spawns a real server process and delivers SIGTERM: process-level state and wall-clock timing
   'test/shutdown.test.ts',
   // wall-clock timing: 3 s leases, adaptive poll intervals, multi-second jobs and grace periods
