@@ -8,7 +8,7 @@ import type { PasswordHasher } from '../../core/password';
 import { generateToken, hashToken } from '../../core/tokens';
 import { newId } from '../../core/uuid';
 import type { Database } from '../../db/client';
-import type { AuditEntryInput, AuditService } from '../audit';
+import type { AuditService } from '../audit';
 import {
   MemberNotFoundError,
   MemberNotPendingError,
@@ -73,24 +73,12 @@ export function createAuthService(deps: {
   sessionsService: Pick<SessionsService, 'completeLogin' | 'logout'>;
   usersService: Pick<UsersService, 'ensureUser'>;
   membershipsService: Pick<MembershipsService, 'getMembership' | 'invite'>;
-  auditService: Pick<AuditService, 'record' | 'recordIn' | 'recordPlatform'>;
+  auditService: Pick<AuditService, 'recordIn'>;
   config?: Partial<AuthConfig>;
 }) {
   const { db, authRepo, hasher, securityMail, background, sessionsService, usersService } = deps;
   const { membershipsService, auditService } = deps;
   const config: AuthConfig = { ...DEFAULT_AUTH_CONFIG, ...deps.config };
-
-  /** Audit into the tenant's audit_log, or into platform_audit_log on the admin host. */
-  function audit(
-    tenantId: string | null,
-    entry: AuditEntryInput,
-    client?: ClientInfo | null,
-  ): Promise<void> {
-    const metadata = { ...(entry.metadata ?? {}), ...(client?.ip ? { ip: client.ip } : {}) };
-    return tenantId
-      ? auditService.record(tenantId, { ...entry, metadata })
-      : auditService.recordPlatform({ ...entry, metadata, ip: client?.ip ?? null });
-  }
 
   function meResponse(args: {
     user: { id: string; email: string; displayName: string };
@@ -228,22 +216,15 @@ export function createAuthService(deps: {
       const record = await db.withoutTenant((exec) => authRepo.findLogin(exec, email));
       if (!record) return;
       background.run(async () => {
-        await securityMail.enqueue({
-          tenantId: input.scope.tenant?.id ?? null,
-          userId: record.userId,
-          template: 'password_reset',
-          params: {},
-          key: `reset:${newId()}`,
-        });
-        await audit(
-          input.scope.tenant?.id ?? null,
-          {
-            actorUserId: record.userId,
-            action: 'auth.password_reset_requested',
-            targetType: 'user',
-            targetId: record.userId,
-          },
-          input.client,
+        // the queued email and the audit row are ONE statement (a lost connection cannot leave one without the other)
+        await db.withoutTenant((exec) =>
+          authRepo.passwordResetRequested(exec, {
+            userId: record.userId,
+            tenantId: input.scope.tenant?.id ?? null,
+            key: `reset:${newId()}`,
+            auditId: newId(),
+            ip: input.client.ip ?? null,
+          }),
         );
       });
     },
@@ -446,20 +427,12 @@ export function createAuthService(deps: {
           tokenHash: hashToken(input.token),
           expectedTenantId: input.tenantId,
           passwordHash,
+          auditId: newId(),
+          ip: input.client.ip ?? null,
         }),
       );
       if (result.status === 'password_required') throw new PasswordRequiredError();
       if (result.status !== 'ok' || !result.userId) throw new InvalidTokenError();
-      await audit(
-        input.tenantId,
-        {
-          actorUserId: result.userId,
-          action: 'auth.invite_accepted',
-          targetType: 'user',
-          targetId: result.userId,
-        },
-        input.client,
-      );
     },
 
     /**
@@ -474,16 +447,15 @@ export function createAuthService(deps: {
       } else if (!can(ctx, 'platform.user.unlock')) {
         throw new ForbiddenError();
       }
-      await db.withoutTenant((exec) => authRepo.clearFailures(exec, targetUserId));
-      await audit(
-        ctx.tenantId,
-        {
+      // the unlock and its audit row are ONE statement
+      await db.withoutTenant((exec) =>
+        authRepo.unlockUser(exec, {
+          userId: targetUserId,
+          tenantId: ctx.tenantId,
           actorUserId: ctx.userId,
-          action: 'auth.account_unlocked',
-          targetType: 'user',
-          targetId: targetUserId,
-        },
-        ctx,
+          auditId: newId(),
+          ip: ctx.ip ?? null,
+        }),
       );
     },
 

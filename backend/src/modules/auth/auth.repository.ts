@@ -118,8 +118,37 @@ export function createAuthRepository() {
       );
     },
 
-    async clearFailures(db: Executor, userId: string): Promise<void> {
-      await db.execute(sql`select lms.auth_clear_failures(${userId}::uuid)`);
+    /** Clears a lockout and writes the 'auth.account_unlocked' audit row in ONE statement (tenantId null = the admin host). */
+    async unlockUser(
+      db: Executor,
+      a: {
+        userId: string;
+        tenantId: string | null;
+        actorUserId: string;
+        auditId: string;
+        ip: string | null;
+      },
+    ): Promise<void> {
+      await db.execute(
+        sql`select lms.auth_unlock_user(${a.userId}::uuid, ${a.tenantId}::uuid, ${a.actorUserId}::uuid, ${a.auditId}::uuid, ${a.ip}::inet)`,
+      );
+    },
+
+    /** Queues the reset email and writes the 'auth.password_reset_requested' audit row in ONE statement. */
+    async passwordResetRequested(
+      db: Executor,
+      a: {
+        userId: string;
+        tenantId: string | null;
+        key: string;
+        auditId: string;
+        ip: string | null;
+      },
+    ): Promise<boolean> {
+      const res = await db.execute(
+        sql`select lms.auth_password_reset_requested(${a.userId}::uuid, ${a.tenantId}::uuid, ${a.key}::text, ${a.auditId}::uuid, ${a.ip}::inet) as queued`,
+      );
+      return (res.rows[0] as { queued: boolean } | undefined)?.queued === true;
     },
 
     /** Sets/creates the password hash and clears failed attempts and any lock (login rehash). */
@@ -231,10 +260,17 @@ export function createAuthRepository() {
 
     async acceptInvite(
       db: Executor,
-      args: { tokenHash: Buffer; expectedTenantId: string | null; passwordHash: string | null },
+      args: {
+        tokenHash: Buffer;
+        expectedTenantId: string | null;
+        passwordHash: string | null;
+        auditId: string;
+        ip: string | null;
+      },
     ): Promise<{ status: AcceptInviteStatus; userId: string | null; tenantId: string | null }> {
+      // ONE statement: the redemption and its 'auth.invite_accepted' audit row commit together (or not at all)
       const res = await db.execute(
-        sql`select r_status, r_user_id, r_tenant_id from lms.auth_accept_invite(${args.tokenHash}::bytea, ${args.expectedTenantId}::uuid, ${args.passwordHash}::text)`,
+        sql`select r_status, r_user_id, r_tenant_id from lms.auth_accept_invite_audited(${args.tokenHash}::bytea, ${args.expectedTenantId}::uuid, ${args.passwordHash}::text, ${args.auditId}::uuid, ${args.ip}::inet)`,
       );
       const r = res.rows[0] as {
         r_status: AcceptInviteStatus;

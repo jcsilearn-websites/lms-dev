@@ -17,13 +17,17 @@ const fakeRepo = (o: Partial<AuditRepository> = {}) =>
   }) as unknown as AuditRepository;
 
 describe('audit service (fake repository)', () => {
-  it('record() stamps the tenant id and defaults actor/target/metadata', async () => {
+  it('recordIn() stamps the tenant id and defaults actor/target/metadata', async () => {
     const tenantId = newId();
     const insert = vi.fn().mockResolvedValue(undefined);
-    await createAuditService({ db: fakeDb(), auditRepo: fakeRepo({ insert }) }).record(tenantId, {
-      action: 'tenant.updated',
-      targetType: 'tenant',
-    });
+    await createAuditService({ db: fakeDb(), auditRepo: fakeRepo({ insert }) }).recordIn(
+      tx,
+      tenantId,
+      {
+        action: 'tenant.updated',
+        targetType: 'tenant',
+      },
+    );
     expect(insert).toHaveBeenCalledWith(tx, {
       id: expect.stringMatching(/^[0-9a-f-]{36}$/),
       tenantId,
@@ -35,13 +39,13 @@ describe('audit service (fake repository)', () => {
     });
   });
 
-  it('record() rejects empty or over-long actions without writing', async () => {
+  it('recordIn() rejects empty or over-long actions without writing', async () => {
     const insert = vi.fn();
     const service = createAuditService({ db: fakeDb(), auditRepo: fakeRepo({ insert }) });
     for (const action of ['', 'x'.repeat(101)]) {
-      await expect(service.record(newId(), { action, targetType: 't' })).rejects.toBeInstanceOf(
-        InvalidAuditEntryError,
-      );
+      await expect(
+        service.recordIn(tx, newId(), { action, targetType: 't' }),
+      ).rejects.toBeInstanceOf(InvalidAuditEntryError);
     }
     expect(insert).not.toHaveBeenCalled();
   });

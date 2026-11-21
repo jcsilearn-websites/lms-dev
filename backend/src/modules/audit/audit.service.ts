@@ -110,22 +110,6 @@ export function createAuditService(deps: {
   }
 
   return {
-    /** Tenant-less audit event (platform-admin host logins, lockouts, unlocks, ...). */
-    async recordPlatform(entry: AuditEntryInput & { ip?: string | null }): Promise<void> {
-      assertAction(entry.action);
-      await db.withoutTenant((exec) =>
-        auditRepo.insertPlatform(exec, {
-          id: newId(),
-          actorUserId: entry.actorUserId ?? null,
-          action: entry.action,
-          targetType: entry.targetType,
-          targetId: entry.targetId ?? null,
-          metadata: entry.metadata ?? {},
-          ip: entry.ip ?? null,
-        }),
-      );
-    },
-
     /**
      * Runs `fn` inside a tenant transaction on behalf of a PLATFORM ADMIN (who is not a member of
      * the tenant) and writes the audit_log entry in the SAME transaction, so access can never go
@@ -175,14 +159,11 @@ export function createAuditService(deps: {
       );
     },
 
-    async record(tenantId: string, entry: AuditEntryInput): Promise<void> {
-      await db.withTenant(tenantId, (tx) => recordIn(tx, tenantId, entry));
-    },
-
     /**
      * The same entry, written in a transaction the CALLER already holds (a tenant transaction of `tenantId`): the entry then exists
-     * exactly when the change it records does. Use this, not `record`, whenever the change and its audit row must be all or nothing
-     * (an invite: membership + audit row + the email the audit trigger queues).
+     * exactly when the change it records does. This is the ONLY way for a service to write an audit row: a service that audited in a
+     * second transaction (the former `record` / `recordPlatform`, removed) could lose the row with the connection (CI found it twice).
+     * Fused statements and definer functions carry their own audit insert; `test/audit-atomicity.unit.test.ts` pins the rule.
      */
     recordIn,
 

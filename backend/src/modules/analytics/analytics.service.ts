@@ -301,6 +301,7 @@ export function createAnalyticsService(deps: {
     async updateSettings(ctx: RequestContext, body: UpdateAnalyticsSettingsRequest) {
       const tenantId = tenantOf(ctx);
       const ok = await db.withTenant(tenantId, async (tx) => {
+        await repo.lockSettings(tx, tenantId); // read-merge-write: one admin at a time
         const before = toSettings(await repo.getSettings(tx, tenantId));
         const after: AnalyticsSettings = {
           timeZone: body.timeZone ?? before.timeZone,

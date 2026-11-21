@@ -15,7 +15,7 @@ import {
 
 // QUERY BUDGETS of Step 13 (see query-budget.test.ts for the rules). The bell is the session lookup + ONE definer call = 2
 // (a 304 costs the same: the ETag is computed from the count). The member's list / mark read / preferences are the lookup +
-// one transaction with ONE statement = 4; settings PATCH 5 (read, merge, write: a rare admin action). Suppressions and the
+// one transaction with ONE statement = 4; settings PATCH 6 (lock, read, merge, write: a rare admin action; the lock keeps two admins from losing each other's change). Suppressions and the
 // platform inbox are one definer call = 2. Public unsubscribe calls have no session: the slug is cached, ONE call = 1. The
 // provider webhook (no college, no session): 1. Sending happens in the worker, never in a request.
 
@@ -122,12 +122,12 @@ describe('the member', () => {
 });
 
 describe('the college', () => {
-  it('settings: read 4, write 5; suppressions: 2', async () => {
+  it('settings: read 4, write 6 (lock + read + write); suppressions: 2', async () => {
     await run('GET /notifications/settings', () => admin.get('/notifications/settings'), 4);
     await run(
       'PATCH /notifications/settings',
       () => admin.patch('/notifications/settings', { digestHour: 8 }),
-      5,
+      6,
     );
     await run('GET /email/suppressions', () => admin.get('/email/suppressions'), 2);
     await owner.query(

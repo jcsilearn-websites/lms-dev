@@ -56,6 +56,7 @@ function make(o: Record<string, unknown> = {}) {
     })),
     upsertPreference: vi.fn(async () => ({ settings: SETTINGS, rows: [] })),
     settings: vi.fn(async () => ({ settings: SETTINGS, tz: 'Asia/Kolkata', emailFrom: null })),
+    lockSettings: vi.fn(async () => undefined),
     setSettings: vi.fn(async () => undefined),
     unsubscribeInfo: vi.fn(async () => ({
       college: 'Alpha',

@@ -138,25 +138,30 @@ export function createMembershipsService(deps: {
       const role = input.role;
       return db.withTenant(tenantId, async (tx) => {
         const write = async (): Promise<Membership> => {
-          const existing = await membershipsRepo.findByUserId(tx, input.userId);
-          if (existing && existing.status === 'removed') {
-            // the SAME membership comes back (as pending, until the invite is accepted): history stays attached
-            return (await membershipsRepo.reinstate(tx, existing.id, role)) ?? existing;
+          // Look, then create; when the create loses to a concurrent invite of the same person (the unique key (tenant, user)
+          // decides) look AGAIN: the statement after the conflict sees the winner's row. At most two rounds; the common path costs
+          // the same two statements as before.
+          for (let round = 0; round < 3; round++) {
+            const existing = await membershipsRepo.findByUserId(tx, input.userId);
+            if (existing && existing.status === 'removed') {
+              // the SAME membership comes back (as pending, until the invite is accepted): history stays attached
+              return (await membershipsRepo.reinstate(tx, existing.id, role)) ?? existing;
+            }
+            if (existing && existing.status !== 'pending') throw new MembershipAlreadyExistsError();
+            if (existing) {
+              const updated = await membershipsRepo.updateRole(tx, existing.id, role);
+              return updated ?? existing;
+            }
+            const row = await membershipsRepo.insertIfAbsent(tx, {
+              id: newId(),
+              tenantId,
+              userId: input.userId,
+              role,
+              status: 'pending',
+            });
+            if (row) return row;
           }
-          if (existing && existing.status !== 'pending') throw new MembershipAlreadyExistsError();
-          if (existing) {
-            const updated = await membershipsRepo.updateRole(tx, existing.id, role);
-            return updated ?? existing;
-          }
-          const row = await membershipsRepo.insert(tx, {
-            id: newId(),
-            tenantId,
-            userId: input.userId,
-            role,
-            status: 'pending',
-          });
-          if (!row) throw new MembershipNotFoundError();
-          return row;
+          throw new MembershipNotFoundError();
         };
         const membership = await write();
         if (within) await within(tx, membership);

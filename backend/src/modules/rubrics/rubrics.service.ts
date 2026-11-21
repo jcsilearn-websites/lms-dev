@@ -6,6 +6,7 @@ import { ForbiddenError } from '../../core/errors';
 import { buildPage, normalizePage } from '../../core/pagination';
 import { newId } from '../../core/uuid';
 import type { Database } from '../../db/client';
+import { isUniqueViolation, pgConstraint } from '../../db/pg-errors';
 import { assertCourseAccess, type CourseAccessSpec } from '../courses';
 import { InvalidRubricError, RubricNotFoundError } from './rubrics.errors';
 import type { RubricsRepository } from './rubrics.repository';
@@ -137,14 +138,23 @@ export function createRubricsService(deps: {
     async update(ctx: RequestContext, courseId: string, rubricId: string, input: RubricInput) {
       const a = spec(ctx, courseId, 'rubric.manage');
       const { criteria, maxPoints } = normalizeCriteria(input.criteria);
-      const r = await db.withTenant(a.tenantId, (tx) =>
-        repo.addVersion(tx, a, rubricId, newId(), {
-          title: input.title.trim(),
-          criteria,
-          maxPoints,
-          userId: ctx.userId,
-        }),
-      );
+      const write = () =>
+        db.withTenant(a.tenantId, (tx) =>
+          repo.addVersion(tx, a, rubricId, newId(), {
+            title: input.title.trim(),
+            criteria,
+            maxPoints,
+            userId: ctx.userId,
+          }),
+        );
+      // The version number is read in the statement's own snapshot, taken BEFORE it waits for the rubric row lock: a simultaneous
+      // edit that committed meanwhile makes this one compute the same number and lose on the unique key (rubric_versions_number_key).
+      // The retry is a NEW statement and sees that version. The unique key stays the guarantee; this only turns its error into success.
+      const r = await write().catch((err: unknown) => {
+        if (isUniqueViolation(err) && pgConstraint(err) === 'rubric_versions_number_key')
+          return write();
+        throw err;
+      });
       assertCourseAccess(r.acc);
       if (!r.row) throw new RubricNotFoundError();
       return r.row;

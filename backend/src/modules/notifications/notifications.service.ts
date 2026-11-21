@@ -175,6 +175,7 @@ export function createNotificationsService(deps: {
       const tenantId = member(ctx);
       if (!can(ctx, 'notification.settings.manage')) throw new ForbiddenError();
       return db.withTenant(tenantId, async (tx) => {
+        await repo.lockSettings(tx, tenantId); // read-merge-write: one admin at a time
         const cur = await repo.settings(tx, tenantId);
         const before = stored(cur.settings);
         const defaults = { ...before.defaults };

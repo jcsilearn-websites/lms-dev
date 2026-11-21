@@ -1,4 +1,5 @@
 import { type SQL, sql } from 'drizzle-orm';
+import { SETTINGS_LOCK_CLASS, settingsLockKey } from '../../core/locks';
 import type { Executor } from '../../db/client';
 import { type AccessRow, type AccessSpec, accessCte } from '../courses';
 
@@ -51,6 +52,16 @@ export function createAnalyticsRepository() {
     },
 
     // ------------------------------------------------------------ settings
+    /**
+     * First statement of a settings PATCH: one writer at a time per college. The read that follows is a NEW statement (a new
+     * snapshot), so it sees what the previous writer committed: without this two admins changing different fields lost one change.
+     */
+    async lockSettings(tx: Executor, tenantId: string): Promise<void> {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${settingsLockKey(tenantId)}::text, ${SETTINGS_LOCK_CLASS}::bigint))`,
+      );
+    },
+
     async getSettings(tx: Executor, tenantId: string): Promise<SettingsRow> {
       const r = await tx.execute(sql`
         SELECT lms.tenant_tz(${T(tenantId)}) AS tz, lms.atrisk_settings(${T(tenantId)}) AS at_risk,

@@ -115,11 +115,11 @@ describe('institution admin reports', () => {
       admin.get('/reports/at-risk/export', { query: 'format=xlsx' }),
     );
   });
-  it('changing the settings reads, merges and writes: 5 (a rare admin action: the reason is the merge with what is stored)', async () => {
+  it('changing the settings locks, reads, merges and writes: 6 (a rare admin action: the lock is its own statement because the read must be a NEW snapshot, see test/races.test.ts)', async () => {
     await run(
       'PATCH /analytics/settings',
       () => admin.request('PATCH', '/analytics/settings', { body: { courseHealthWeeks: 4 } }),
-      5,
+      6,
     );
   });
 });

@@ -22,6 +22,7 @@ const fakeRepo = (o: Partial<MembershipsRepository> = {}) =>
     change: vi.fn(),
     remove: vi.fn(),
     insert: vi.fn(),
+    insertIfAbsent: vi.fn(),
     updateRole: vi.fn(),
     findByUserId: vi.fn(),
     ...o,
@@ -105,6 +106,33 @@ describe('memberships service (fake repository)', () => {
     expect(err).toMatchObject({ statusCode: 409, code: 'membership_already_exists' });
   });
 
+  it('invite: when the insert loses to a concurrent invite it looks again and re-uses the winner (pending) or conflicts (active)', async () => {
+    const userId = newId();
+    const winner = (status: string) => ({ id: 'w', userId, role: 'member', status });
+    const run = (second: unknown) => {
+      const findByUserId = vi.fn().mockResolvedValueOnce(undefined).mockResolvedValue(second);
+      const insertIfAbsent = vi.fn().mockResolvedValue(undefined); // lost: someone else created it
+      const updateRole = vi
+        .fn()
+        .mockResolvedValue({ ...winner('pending'), role: 'institution_admin' });
+      const svc = createMembershipsService({
+        db: fakeDb(),
+        membershipsRepo: fakeRepo({ findByUserId, insertIfAbsent, updateRole }),
+      });
+      return { svc, findByUserId, updateRole };
+    };
+    const pending = run(winner('pending'));
+    await expect(
+      pending.svc.invite(T, { userId, role: 'institution_admin' }),
+    ).resolves.toMatchObject({
+      role: 'institution_admin',
+    });
+    expect(pending.findByUserId).toHaveBeenCalledTimes(2);
+    await expect(
+      run(winner('active')).svc.invite(T, { userId, role: 'member' }),
+    ).rejects.toBeInstanceOf(MembershipAlreadyExistsError);
+  });
+
   it('invite creates a PENDING membership; an active or suspended member is a conflict; a pending one is re-used', async () => {
     const userId = newId();
     const insert = vi
@@ -115,7 +143,7 @@ describe('memberships service (fake repository)', () => {
         db: fakeDb(),
         membershipsRepo: fakeRepo({
           findByUserId: vi.fn().mockResolvedValue(found),
-          insert,
+          insertIfAbsent: insert,
           updateRole: vi
             .fn()
             .mockResolvedValue({ id: 'old', userId, role: 'institution_admin', status: 'pending' }),

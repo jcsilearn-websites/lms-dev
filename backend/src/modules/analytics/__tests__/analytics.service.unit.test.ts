@@ -40,6 +40,7 @@ const fakeRepo = (o: Record<string, unknown> = {}) =>
       analytics: null,
       usage: null,
     })),
+    lockSettings: vi.fn(async () => undefined),
     setSettings: vi.fn(async () => true),
     activityTouch: vi.fn(async () => new Date(Date.now() + 3_600_000)),
     reportRows: vi.fn(),

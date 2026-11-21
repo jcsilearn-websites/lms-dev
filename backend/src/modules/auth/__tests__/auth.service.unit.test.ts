@@ -61,7 +61,8 @@ function setup(
       lockedUntil: null,
       isPlatformAdmin: false,
     }),
-    clearFailures: vi.fn().mockResolvedValue(undefined),
+    unlockUser: vi.fn().mockResolvedValue(undefined),
+    passwordResetRequested: vi.fn().mockResolvedValue(true),
     setPassword: vi.fn().mockResolvedValue(undefined),
     resetPassword: vi.fn().mockResolvedValue(userId),
     changePassword: vi.fn().mockResolvedValue(undefined),
@@ -102,11 +103,8 @@ function setup(
       },
     ),
   };
-  const auditService = {
-    record: vi.fn().mockResolvedValue(undefined),
-    recordIn: vi.fn().mockResolvedValue(undefined),
-    recordPlatform: vi.fn().mockResolvedValue(undefined),
-  };
+  // the service may only write an audit row INSIDE a transaction it holds (recordIn): `record` / `recordPlatform` no longer exist
+  const auditService = { recordIn: vi.fn().mockResolvedValue(undefined) };
   const usersService = { ensureUser: vi.fn().mockResolvedValue({ userId, created: true }) };
   const service = createAuthService({
     db: fakeDb(),
@@ -161,7 +159,7 @@ describe('auth service: login (fake repositories)', () => {
     });
     await s.background.drain();
     expect(s.authRepo.loginFailed).not.toHaveBeenCalled();
-    expect(s.authRepo.clearFailures).not.toHaveBeenCalled(); // done inside auth_login_complete
+    expect(s.authRepo.unlockUser).not.toHaveBeenCalled(); // the failures are cleared inside auth_login_complete
   });
 
   it('a suspended or unknown tenant (fresh status from the database) is a 404, not a login', async () => {
@@ -320,16 +318,23 @@ describe('auth service: password reset, change, invites (fake repositories)', ()
     const unknown = setup({ repo: { findLogin: vi.fn().mockResolvedValue(undefined) } });
     await unknown.service.requestPasswordReset({ email: 'x@y.zz', scope, client });
     await unknown.background.drain();
-    expect(unknown.securityMail.enqueue).not.toHaveBeenCalled();
+    expect(unknown.authRepo.passwordResetRequested).not.toHaveBeenCalled();
 
     const known = setup();
     await known.service.requestPasswordReset({ email: 'x@y.zz', scope, client });
     await known.background.drain();
     // the token is minted by the worker when it sends, never stored in the outbox
     expect(known.authRepo.createToken).not.toHaveBeenCalled();
-    expect(known.securityMail.enqueue).toHaveBeenCalledWith(
-      expect.objectContaining({ tenantId: tenant.id, template: 'password_reset', params: {} }),
+    // the queued email and the audit row are ONE call (auth_password_reset_requested)
+    expect(known.authRepo.passwordResetRequested).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        userId,
+        tenantId: tenant.id,
+        key: expect.stringMatching(/^reset:/),
+      }),
     );
+    expect(known.securityMail.enqueue).not.toHaveBeenCalled();
   });
 
   it('the worker mints a 30-minute reset token, and an invite token only for a still-pending member', async () => {
@@ -441,7 +446,6 @@ describe('auth service: password reset, change, invites (fake repositories)', ()
     // no token in the request: the audit row queues the invite email (trigger), the worker mints the token
     expect(s.authRepo.createToken).not.toHaveBeenCalled();
     // the audit row is written INSIDE the membership's transaction (one commit), never as a second transaction
-    expect(s.auditService.record).not.toHaveBeenCalled();
     expect(s.auditService.recordIn).toHaveBeenCalledWith(
       expect.anything(),
       tenant.id,
@@ -469,10 +473,14 @@ describe('auth service: password reset, change, invites (fake repositories)', ()
     const target = newId();
     const ok = setup();
     await ok.service.unlockMember(adminCtx, target);
-    expect(ok.authRepo.clearFailures).toHaveBeenCalledWith(expect.anything(), target);
-    expect(ok.auditService.record).toHaveBeenCalledWith(
-      tenant.id,
-      expect.objectContaining({ action: 'auth.account_unlocked', targetId: target }),
+    // the unlock and its audit row are ONE call
+    expect(ok.authRepo.unlockUser).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        userId: target,
+        tenantId: tenant.id,
+        actorUserId: adminCtx.userId,
+      }),
     );
 
     const stranger = setup();
@@ -480,7 +488,7 @@ describe('auth service: password reset, change, invites (fake repositories)', ()
     await expect(stranger.service.unlockMember(adminCtx, target)).rejects.toMatchObject({
       code: 'member_not_found',
     });
-    expect(stranger.authRepo.clearFailures).not.toHaveBeenCalled();
+    expect(stranger.authRepo.unlockUser).not.toHaveBeenCalled();
 
     await expect(
       setup().service.unlockMember(ctxOf({ role: 'member' }), target),
@@ -491,8 +499,9 @@ describe('auth service: password reset, change, invites (fake repositories)', ()
       ctxOf({ tenantId: null, role: null, isPlatformAdmin: true }),
       target,
     );
-    expect(platform.auditService.recordPlatform).toHaveBeenCalledWith(
-      expect.objectContaining({ action: 'auth.account_unlocked' }),
+    expect(platform.authRepo.unlockUser).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ userId: target, tenantId: null }),
     );
   });
 

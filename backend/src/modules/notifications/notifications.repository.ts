@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm';
+import { SETTINGS_LOCK_CLASS, settingsLockKey } from '../../core/locks';
 import type { Executor } from '../../db/client';
 import { auditInsertFrom } from '../audit';
 
@@ -117,6 +118,16 @@ export function createNotificationsRepository() {
         settings: StoredSettings;
         rows: { category: string; email: boolean; in_app: boolean }[];
       };
+    },
+
+    /**
+     * First statement of a settings PATCH: one writer at a time per college. The read that follows is a NEW statement (a new
+     * snapshot), so it sees what the previous writer committed: without this two admins changing different fields lost one change.
+     */
+    async lockSettings(tx: Executor, tenantId: string): Promise<void> {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${settingsLockKey(tenantId)}::text, ${SETTINGS_LOCK_CLASS}::bigint))`,
+      );
     },
 
     /** settings + zone + the verified From address, ONE statement */

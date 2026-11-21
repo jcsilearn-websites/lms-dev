@@ -178,6 +178,19 @@ export function createMembershipsRepository() {
       return row;
     },
 
+    /**
+     * Inserts the membership unless one exists for (tenant, user) - the unique key decides, also against a transaction that has
+     * not committed yet (the insert waits for it). undefined = someone else created it first: the caller looks again.
+     */
+    async insertIfAbsent(tx: Executor, input: MembershipInput): Promise<MembershipRow | undefined> {
+      const [row] = await tx
+        .insert(tenantMemberships)
+        .values(input)
+        .onConflictDoNothing({ target: [tenantMemberships.tenantId, tenantMemberships.userId] })
+        .returning(drizzleColumns);
+      return row;
+    },
+
     /** A REMOVED member invited again: the same membership comes back as pending (history stays attached). */
     async reinstate(tx: Executor, id: string, role: MembershipRole) {
       const [row] = await tx
