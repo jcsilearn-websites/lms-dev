@@ -9,8 +9,9 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # a manual (workflow_dispatch) run, e.g. the flakiness check, is never cancelled by a later push: it gets its own group
+  group: ci-${{ github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.run_id) || github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' }}
 
 permissions:
   contents: read
@@ -93,9 +94,10 @@ jobs:
       # The XLSX export of the gradebook is opened by an independent reader: LibreOffice converts it headless and the test
       # checks that numbers are numbers and that text which looks like a formula is still text. It fails in CI when missing.
       - name: Install LibreOffice Calc (headless; used only by the XLSX export test)
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-calc
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends libreoffice-calc
           soffice --version
 
       # The ZIP of assignment submissions is validated by tools that are NOT ours (unzip -t, Python's zipfile): the tests
@@ -289,9 +291,10 @@ jobs:
       - name: Install ffmpeg (pinned, checksum verified; development and CI only, never in a production image)
         run: bash .github/scripts/install-ffmpeg.sh
       - name: Install LibreOffice Calc (headless; used only by the XLSX export test)
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libreoffice-calc
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update
+          sudo apt-get -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends libreoffice-calc
       - name: Create the anon / authenticated roles
         env:
           PGPASSWORD: postgres
