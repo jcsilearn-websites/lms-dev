@@ -644,6 +644,49 @@ module), `docs/asvs.md` (ASVS 4.0.3 Level 2, with the gaps), `docs/key-rotation.
 - **Migrations of step 14a**: 0054 (the rate-limit table and function, `lms.ops_metrics()`), 0055 (`lms.job_defer`). NOT applied to the dev database by the agent: `pnpm db:migrate`.
   Round trips: every budget above is unchanged; `GET /metrics` costs at most 1 statement per 5 s; the limiter's own statements are 0 on a hot route and 1 per key on a strict one.
 
+## Data protection (step 14b-1, in progress: parts 1 and 2 built, erasure NOT built)
+
+Plan approved by the owner (12 decisions, 7 amendments); the rest of 14b-1 is built part by part with a review stop after each.
+- **How a member is shown inside a college is decided in ONE place: the view `lms.member_identity`** (migration 0060, `security_invoker`, a plain inlinable join of
+  `tenant_memberships`, `users` and `membership_display_overrides`). Columns: `tenant_id, membership_id, user_id, display_name, email, erased`. An override row
+  (`tenant_id, membership_id, pseudonym`; `lms_app` can only SELECT it, the erasure functions of the next part write it) makes `display_name` the pseudonym and
+  `email` the EMPTY STRING (never NULL: the response contracts say `string`). **Every college-scoped reader of a name or an address joins this view** (alias `u`:
+  `JOIN lms.member_identity u ON u.tenant_id = tm.tenant_id AND u.membership_id = tm.id`, or `... AND u.user_id = x` for an actor / author column), never `lms.users`.
+  Direct readers of `lms.users` are an explicit list WITH reasons: `test/identity-readers.unit.test.ts` (files) and `test/identity-readers.test.ts` (database functions,
+  from the catalog); a new reader fails them until it uses the view or is listed. The search keys (`search_name` / `search_email`) follow the override through two
+  triggers (0060), so searching by the real name finds nobody.
+- **Migration 0061** recreated the 8 functions that showed names inside a college (`gradebook_config / _explain / _excluded / _queue / _snapshot_meta / _grid /
+  _review_action`, `email_suppressions_for_tenant`) and CHECKS ITSELF that each kept its `proconfig`, ACL, SECURITY DEFINER, volatility and owner (`test/migrations.identity.test.ts`
+  proves the check by feeding it a broken copy). **A function recreated for any reason must keep every SET clause** (search_path, `enable_*`, `jit = off`).
+  The approval snapshot of a member erased BEFORE the approval is written under the pseudonym; a snapshot written earlier keeps what it recorded (the academic record:
+  said plainly to the client's counsel in the preview and in `docs/data-retention.md`, both still to be written).
+- **The sentinel test** (`test/member-identity.test.ts`): two people with recognisable names and addresses in real data; every GET route is called with the real ids
+  as admin / instructor / assistant / learner; before the override the sentinels are seen (the check has teeth), after it they appear in no answer except the listed
+  ones, and the whole DATABASE (every text / jsonb / inet column) is scanned for them: the exact list of places that hold a person is pinned (`users`, the search keys,
+  `email_outbox.to_email`, `import_rows`, `gradebook_snapshot_rows`). A new place that stores a name or an address fails that test until it is reviewed.
+- **Download my data (part 2, migration 0062, module `privacy`)**: `POST /me/data-exports` (body `{password}`: **password re-entry** through `authService.confirmPassword`, a wrong one is counted by the sign-in lockout and
+  answers 400 `invalid_current_password`; `strictRateLimit` `DATA_EXPORT_RATE_PER_HOUR`, default 10, per address), `GET /me/data-exports` (own rows only: the RLS policy has `user_id = current_user_id`),
+  `GET /me/data-exports/:id/download` (owner only, ready and not expired, a signed link, the download is audited). The request, its `privacy.export` job and its audit row are ONE definer call
+  (`privacy_export_request`: person advisory lock, one in progress, at most 3 a day); the worker claims, collects ONE JSON document (`privacy_export_collect`, the only reader), builds a store-only ZIP
+  (`privacy.archive.ts`: formula-safe CSVs + `account.json` + a README that says what is NOT in it), stores it with the new `StorageProvider.put` and finishes (`ready`, 7 days, SHA-256, counts) with its audit row.
+  `privacy.purge_exports` (scheduled) deletes the objects, then clears the keys; the row stays as the record. Scope: the caller's data in THAT college plus the global account row. Included only when
+  RELEASED (the learner's own rules: `lms.results_visible`, `assignment_final_scores.released`); never other people, grader notes, override / waiver / accommodation / extension reasons, the integrity log, the audit log,
+  sent e-mail, or another college. Every function takes `p_now`; tests use explicit instants. Budgets: request 3, refused password 3, list 4, download 2. Tests: `test/privacy.export.test.ts` (sentinel test over the
+  UNZIPPED bytes, both ways; held-lock race; audit failure injection for request and "ready"; expiry; cross-user / cross-college), the unit tests in the module, `frontend/test/my-data.test.tsx`, E2E `16-my-data.spec.ts` (axe light / dark / 360 px).
+  No notification is sent when an archive is ready (the page follows the state); a whole-account export across colleges is not built.
+- **ACCEPTANCE CHECKLIST for the erasure part (part 3); each item needs a test that fails without it:**
+  - [ ] Execution revokes ALL of the member's sessions in that college IN THE SAME STATEMENT as the override (a signed-in erased member would otherwise still read their own `/auth/me` and `/me/email-status`: the sweep allowlists that only because part 1 has no execution).
+  - [ ] The membership is set to `removed` in that statement, so `notify_fanout`, `email_enqueue_security`, `email_suppression_clear_tenant` and `notify_unsubscribe_info` (they read the live address on purpose and filter `status <> 'removed'`) can never address an erased member; a test sends every event type to an erased member and finds no outbox row.
+  - [ ] The member's `email_outbox` rows are blanked (`to_email`, `params`) in the same statement and the sender skips a blanked row.
+  - [ ] `email_events` rows of the member's address are blanked.
+  - [ ] `email_suppressions` of the address are kept as a SALTED HASH of the address, not the plain address (the suppression must keep working, so the sender compares hashes; the plain address is not stored after erasure).
+  - [ ] `import_rows` of the member's address are scrubbed while the import's retention window runs; `audit_log` `ip` / `email` keys are scrubbed through the audited owner-only function (rows never deleted).
+  - [ ] Profile personal fields (phone, designation, register number, employee id) are nulled; `search_name` / `search_email` already follow the override (part 1).
+  - [ ] The preview and `docs/data-retention.md` say plainly that gradebook snapshots keep the name and register number as the academic record, flagged for the client's counsel.
+  - [ ] Every request / approve / cancel / execute / scrub is one transaction with its audit row (failure-injection test), races tested with the held-lock pattern, time-dependent paths take `p_now`, a request that expires after 30 days notifies the member in-app and by e-mail.
+- Measured (A/B on two scratch databases, with and without 0061; docs/benchmarks.md has no entry yet): the gradebook grid chunk of 500 learners +9 % (fresh) / noise
+  (analyzed), approve +12 % fresh / equal analyzed, one learner's explanation +2-4 ms; all equal at 1,200 learners.
+
 ## Deadline fairness under load (step 10b)
 
 Full reasoning: `docs/adr/0018-assignments.md` ("Deadline fairness under load"). Numbers: `docs/benchmarks.md` (Step 10b).
@@ -1077,7 +1120,7 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
   - **Rules for new code**: (1) never write an audit row after the change in a separate call; (2) a definer function that reads, decides, then writes must lock what it decided on (`FOR UPDATE` / advisory lock) or put the condition INTO the write (`UPDATE ... WHERE status = ...`,
     `INSERT ... ON CONFLICT`); (3) a read-merge-write of JSON settings takes the advisory lock first, in its own statement (the read must be a new snapshot).
 - **Migrations 0058 and 0059** are applied to the dev database by the agent in step 14a follow-ups; 0059 replaces `auth_accept_invite`, `auth_login_complete`, `platform_admin_invite`, `assignment_upload_begin` (same signatures: grants stay) and adds three `auth_*` functions (listed in `test/auth.functions.test.ts`).
-- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0060. MFA (TOTP) is planned as step 14c.** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0063 (0060 / 0061 are step 14b-1 part 1, 0062 part 2, below). MFA (TOTP) is planned as step 14c.** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
   payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend

@@ -384,6 +384,10 @@ const ROWS: Row[] = [
   memberOnly('POST', `/notifications/${U}/read`, 200),
   memberOnly('GET', '/me/notification-preferences', 200),
   memberOnly('PUT', '/me/notification-preferences', 400, {}),
+  // ---- data protection (step 14b): the caller's own data export (members of a college only)
+  memberOnly('POST', '/me/data-exports', 400, {}),
+  memberOnly('GET', '/me/data-exports', 200),
+  memberOnly('GET', `/me/data-exports/${U}/download`, 404),
   tenantPerm('GET', '/notifications/settings', 200),
   tenantPerm('PATCH', '/notifications/settings', 200, {}),
   authenticated('GET', '/me/email-status', 200),

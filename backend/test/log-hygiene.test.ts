@@ -131,6 +131,26 @@ describe('logs never contain personal data, credentials or academic content', ()
     await deliverEmails(t);
     await t.app.modules.background.drain();
 
+    // --- data export (step 14b): the password asked again, the archive built by the worker from the learner's own data
+    expect(
+      (await learner.client.post('/me/data-exports', { password: SENTINELS.wrongPassword }))
+        .statusCode,
+    ).toBe(400);
+    const asked = await learner.client.post('/me/data-exports', { password: TEST_PASSWORD });
+    expect(asked.statusCode, asked.body).toBe(202);
+    await t.app.modules.handlers['privacy.export']?.run(
+      { exportId: asked.json().export.id },
+      {
+        jobId: asked.json().export.id,
+        queue: 'privacy.export',
+        tenantId: A.tenantId,
+        attempt: 1,
+        maxAttempts: 3,
+        signal: new AbortController().signal,
+      },
+    );
+    emails.add(learner.email);
+
     // --- the search
     const text = JSON.stringify(t.logs);
     expect(t.logs.length).toBeGreaterThan(50); // the flows really were logged

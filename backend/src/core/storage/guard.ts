@@ -29,7 +29,7 @@ export function isStorageInfrastructureError(err: unknown): boolean {
 }
 
 // methods that stream a caller-controlled body: only the error translation applies (a slow CLIENT is not a slow storage)
-const STREAMING = new Set(['write', 'writeAt']);
+const STREAMING = new Set(['write', 'writeAt', 'put']);
 // bulk operations over many objects: a long deadline
 const BULK = new Set(['putFile', 'replacePrefix', 'removePrefix']);
 

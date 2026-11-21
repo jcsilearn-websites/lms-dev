@@ -323,6 +323,41 @@ export function createAuthService(deps: {
      * Change password (needs the current one): verify, then ONE statement sets the new password,
      * revokes every OTHER session of the user and audits.
      */
+    /**
+     * Password re-entry for a sensitive action (the data export, later the erasure): the signed-in person proves they hold the password,
+     * not just a session. A wrong password is COUNTED like a failed sign-in (it feeds the same lockout, so a stolen session cannot
+     * be used to guess the password through this door) and answers 400 `invalid_current_password`; while the account is locked the
+     * password is not even checked.
+     */
+    async confirmPassword(ctx: RequestContext, password: string): Promise<void> {
+      const record = await db.withoutTenant((exec) =>
+        authRepo.findLogin(exec, normalizeEmail(ctx.email)),
+      );
+      const locked = !!record?.lockedUntil && record.lockedUntil.getTime() > Date.now();
+      const ok =
+        record && !locked
+          ? await hasher.verify(record.passwordHash, password)
+          : await hasher.verifyDummy(password);
+      if (record && !locked && ok) return;
+      if (record && !locked) {
+        await db.withoutTenant((exec) =>
+          authRepo.loginFailed(exec, {
+            userId: record.userId,
+            tenantId: ctx.tenantId ?? null,
+            countAttempt: true,
+            reason: 'bad_password_reauth',
+            maxAttempts: config.maxAttempts,
+            baseSeconds: config.lockBaseSeconds,
+            maxSeconds: config.lockMaxSeconds,
+            ip: ctx.ip ?? null,
+            auditId: newId(),
+            lockAuditId: newId(),
+          }),
+        );
+      }
+      throw new InvalidCurrentPasswordError();
+    },
+
     async changePassword(
       ctx: RequestContext,
       input: { currentPassword: string; newPassword: string },

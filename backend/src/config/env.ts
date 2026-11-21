@@ -143,6 +143,8 @@ const authFields = {
   RATE_LIMIT_LOGIN_PER_IP: Type.Integer({ minimum: 1, default: 10 }),
   RATE_LIMIT_LOGIN_PER_EMAIL: Type.Integer({ minimum: 1, default: 5 }),
   RATE_LIMIT_AUTH_WINDOW_MS: Type.Integer({ minimum: 1000, default: 60_000 }),
+  // "download my data" asks for the password again: this many requests an hour per address (the strict, shared limiter)
+  DATA_EXPORT_RATE_PER_HOUR: Type.Integer({ minimum: 1, default: 10 }),
   PASSWORD_HASH_CONCURRENCY: Type.Integer({ minimum: 1, maximum: 8, default: 2 }),
   TENANT_CACHE_TTL_MS: Type.Integer({ minimum: 0, default: 60_000 }),
   TENANT_CACHE_MAX: Type.Integer({ minimum: 1, default: 1000 }),

@@ -931,3 +931,43 @@ round-trip budgets of every endpoint are unchanged (the limiter's statement is c
 
 272 routes x up to 5 callers x up to 2 id sets = **1,576 requests** (statuses: 111 x 2xx, 194 x 400, 262 x 401, 319 x 403, 668 x 404, 7 x 409,
 no 500) in about 10 s; no id, address or name of the other college in any answer and its data byte-identical afterwards.
+
+## Step 14b: the identity view (`lms.member_identity`, migrations 0060 / 0061)
+
+Every college-scoped reader of a name or an address now joins the view instead of `lms.users` (an extra primary-key probe of `tenant_memberships` and a
+`LEFT JOIN` to the override table). Measured A/B on two SCRATCH databases made for the purpose (OLD = migrations up to 0059 and the previous repository code,
+NEW = everything), same machine (2-core laptop, PostgreSQL 17 native), one run after the other, medians. The `bench:*` scripts were pointed at the scratch
+databases with `DATABASE_URL` / `DATABASE_APP_URL`.
+
+**Gradebook** (`bench:gradebook`, 500 learners x 60 items):
+
+| Statement                                 | OLD fresh | NEW fresh | OLD analyzed | NEW analyzed |
+| ----------------------------------------- | --------- | --------- | ------------ | ------------ |
+| grid chunk of 500 (compute + JSON)        | 465 ms    | 505 ms    | 454 ms       | 565 ms       |
+| lock: approve (compute + snapshot insert) | 1,017 ms  | 1,141 ms  | 982 ms       | 978 ms       |
+| review (compute twice)                    | 907 ms    | 986 ms    | 918 ms       | 912 ms       |
+| ONE learner, learner view                 | 13.5 ms   | 13.4 ms   | 12.3 ms      | 12.7 ms      |
+| ONE learner, staff explanation            | 17.2 ms   | 19.3 ms   | 16.3 ms      | 21.0 ms      |
+
+At 1,200 learners the same statements are equal within noise (grid chunk 525 / 525 ms fresh, 456 / 463 ms analyzed; approve 2,624 / 2,599 ms fresh,
+2,454 / 2,444 ms analyzed). The bench's own rule (one learner at 1,200 <= 1.5x one at 500) holds. The grid chunk at 500 is the only place with a visible cost
+(+9 % fresh, +24 % analyzed with a noisy OLD run); the approve is +12 % fresh and equal analyzed.
+
+**Progress** (`bench:progress`, 500 learners x 100 items, class view of 100 learners):
+
+| Statement                       | OLD       | NEW       |
+| ------------------------------- | --------- | --------- |
+| page of 100, by name            | 77.5 ms   | 79.2 ms   |
+| page of 100, by progress        | 73.8 ms   | 77.2 ms   |
+| page of 100, by last activity   | 73.4 ms   | 77.1 ms   |
+| status = behind                 | 65.1 ms   | 67.2 ms   |
+| second page (keyset)            | 75.4 ms   | 78.2 ms   |
+| one learner, item by item       | 6.8 ms    | 7.8 ms    |
+| heartbeats over HTTP (64 conns) | 472 req/s | 459 req/s |
+
+The view costs about +3 % on the class view. Both columns are slower than Step 8's 47 - 51 ms: that gap is in OLD too (it is the machine and the later
+migrations, not the view); a FIRST run of the NEW code on a test database that still held earlier bench colleges measured 233 ms and is NOT a valid number (leftover
+data and statistics), which is why the comparison above uses fresh scratch databases.
+
+Known bench defect (not changed here): the scripts' final `deleteTenantCascade` fails on `rollup_dirty_offerings_tenant_id_fkey`, so the throwaway college stays
+in the database it ran on (the test databases are truncated before every test file; a scratch database is simply dropped).

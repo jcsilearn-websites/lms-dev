@@ -42,6 +42,8 @@ export interface StorageProvider {
   inspect(key: string): Promise<StoredObject | null>;
   /** The object's bytes as a stream with its size (bulk exports read many objects one after another); null when missing. */
   read(key: string): Promise<{ stream: Readable; size: number } | null>;
+  /** Stores a stream under `key` (replacing any object), never more than `maxBytes`; returns the bytes written. The server-built archives use it. */
+  put(key: string, body: Readable, maxBytes: number): Promise<number>;
   /** Deletes objects; a missing object is not an error. */
   remove(keys: readonly string[]): Promise<void>;
 }

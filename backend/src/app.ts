@@ -37,6 +37,7 @@ import { createImportsRoutes } from './modules/imports';
 import { createMembershipsRoutes } from './modules/memberships';
 import { createNotificationsRoutes } from './modules/notifications';
 import { createCspReportRoutes, createMetricsRoutes } from './modules/ops';
+import { createPrivacyRoutes } from './modules/privacy';
 import { createProfilesRoutes } from './modules/profiles';
 import { createProgressRoutes } from './modules/progress';
 import { createQuestionsRoutes } from './modules/questions';
@@ -214,6 +215,12 @@ export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
       void api.register(createAuditRoutes({ auditController: modules.audit.controller }));
       void api.register(
         createNotificationsRoutes({ notificationsController: modules.notifications.controller }),
+      );
+      void api.register(
+        createPrivacyRoutes({
+          privacyController: modules.privacy.controller,
+          exportRatePerHour: modules.config.privacy.exportRatePerHour,
+        }),
       );
       void api.register(createEmailRoutes({ emailController: modules.email.controller }));
       void api.register(createSessionsRoutes({ sessionsController: modules.sessions.controller }));

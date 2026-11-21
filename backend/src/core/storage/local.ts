@@ -194,6 +194,10 @@ export function createLocalStorage(opts: {
       }
     },
 
+    async put(key, body, maxBytes): Promise<number> {
+      return this.write(key, body, maxBytes);
+    },
+
     async read(key) {
       const file = fileOf(key);
       try {

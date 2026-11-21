@@ -171,6 +171,9 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/imports/templates/students.csv` | `import.run` |
 | GET | `/api/me/courses` | any signed-in user |
 | GET | `/api/me/dashboard` | any signed-in user |
+| GET | `/api/me/data-exports` | any signed-in user |
+| POST | `/api/me/data-exports` | any signed-in user |
+| GET | `/api/me/data-exports/:id/download` | any signed-in user |
 | GET | `/api/me/email-status` | any signed-in user |
 | GET | `/api/me/notification-preferences` | any signed-in user |
 | PUT | `/api/me/notification-preferences` | any signed-in user |

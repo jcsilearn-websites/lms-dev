@@ -36,13 +36,36 @@ const ALLOWED: Record<string, string> = {
   notify_fanout: LIVE_ADDRESS,
   notify_unsubscribe_info:
     'the masked address of a non-removed member, for the public unsubscribe page',
+  privacy_export_collect:
+    'the OWN account row of the person asking, in THEIR OWN data export (read for the claimed export of that user only)',
   notify_usage_closed: 'the address of the platform administrators',
 };
-// the platform area (admin host): platform administrators check their own flag; they are not members of any college
-const ALLOWED_PREFIX: Record<string, string> = {
-  platform_:
-    'platform area: re-checks that the actor is a platform administrator, or reads the platform audit log (not college-scoped)',
-};
+// The platform area (admin host). REVIEWED one by one (step 14b-1): none of them lists the members of one college. The only
+// college-scoped member list on the admin host, GET /platform/tenants/:id/members, is served by memberships.listPageIn, which reads
+// lms.member_identity (so a platform administrator sees the pseudonym of an erased member too; tested in member-identity.test.ts).
+const ACTOR_CHECK =
+  'only re-checks that the actor is a platform administrator (reads the flag, no name or address)';
+const ALLOWED_PREFIX: Record<string, string> = {};
+Object.assign(ALLOWED, {
+  platform_admin_invite:
+    'GLOBAL: invites or promotes a person by address (creates or finds the account); a member list is not returned',
+  platform_create_tenant: ACTOR_CHECK,
+  platform_get_tenant: ACTOR_CHECK,
+  platform_list_tenants: `${ACTOR_CHECK}; lists colleges, not people`,
+  platform_set_tenant_status: ACTOR_CHECK,
+  platform_update_tenant: ACTOR_CHECK,
+  platform_set_email_sender: ACTOR_CHECK,
+  platform_usage: `${ACTOR_CHECK}; aggregates only`,
+  platform_notifications_page: ACTOR_CHECK,
+  platform_notifications_read: ACTOR_CHECK,
+  platform_notifications_unread: ACTOR_CHECK,
+  platform_email_suppressions:
+    'GLOBAL: lists suppressed ADDRESSES (global by address) with the college slug, never a member name',
+  platform_email_suppression_clear: 'GLOBAL: clears a suppression by id; no name returned',
+  platform_list_audit: `${ACTOR_CHECK}; the platform log is written by platform administrators`,
+  platform_list_audit_v2:
+    'GLOBAL: names the ACTORS of the platform audit log, who are platform administrators (not members of a college)',
+});
 
 describe('database functions that read lms.users directly', () => {
   it('are exactly the listed ones, each with its reason', async () => {

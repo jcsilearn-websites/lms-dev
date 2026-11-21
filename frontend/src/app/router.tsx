@@ -375,6 +375,10 @@ const myNotificationsRoute = child(
     'NotificationPreferencesPage',
   ),
 );
+const myDataRoute = child(
+  '/me/data',
+  lazyPage(() => import('../features/privacy/MyDataPage'), 'MyDataPage'),
+);
 const notificationSettingsRoute = child(
   '/settings/notifications',
   lazyPage(
@@ -461,6 +465,7 @@ function buildRouteTree() {
           settingsRoute,
           notificationsRoute,
           myNotificationsRoute,
+          myDataRoute,
           notificationSettingsRoute,
           emailSuppressionsRoute,
         ];

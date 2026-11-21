@@ -13,6 +13,7 @@ export function createGcsStorage(_opts: { bucket: string }): StorageProvider {
     driver: 'gcs',
     createUploadTarget: unavailable,
     createDownloadTarget: unavailable,
+    put: async () => unavailable(),
     inspect: async () => unavailable(),
     read: async () => unavailable(),
     remove: async () => unavailable(),

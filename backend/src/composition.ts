@@ -146,6 +146,12 @@ import {
 } from './modules/notifications';
 import { createOpsController, createOpsRepository, createOpsService } from './modules/ops';
 import {
+  createPrivacyController,
+  createPrivacyHandlers,
+  createPrivacyRepository,
+  createPrivacyService,
+} from './modules/privacy';
+import {
   createProfilesController,
   createProfilesHandlers,
   createProfilesRepository,
@@ -229,6 +235,7 @@ export interface ModulesConfig {
   sessions: SessionsConfig;
   auth: Partial<AuthConfig>;
   authRateLimits: AuthRateLimitConfig;
+  privacy: { exportRatePerHour: number };
   tenantCache: TenantCacheOptions;
   passwordHashConcurrency: number;
   baseDomain: string;
@@ -331,6 +338,7 @@ export function modulesConfigFromEnv(
     | 'RATE_LIMIT_LOGIN_PER_IP'
     | 'RATE_LIMIT_LOGIN_PER_EMAIL'
     | 'RATE_LIMIT_AUTH_WINDOW_MS'
+    | 'DATA_EXPORT_RATE_PER_HOUR'
     | 'PASSWORD_HASH_CONCURRENCY'
     | 'TENANT_CACHE_TTL_MS'
     | 'TENANT_CACHE_MAX'
@@ -445,6 +453,7 @@ export function modulesConfigFromEnv(
       perEmail: env.RATE_LIMIT_LOGIN_PER_EMAIL,
       windowMs: env.RATE_LIMIT_AUTH_WINDOW_MS,
     },
+    privacy: { exportRatePerHour: env.DATA_EXPORT_RATE_PER_HOUR },
     tenantCache: { ttlMs: env.TENANT_CACHE_TTL_MS, maxEntries: env.TENANT_CACHE_MAX },
     passwordHashConcurrency: env.PASSWORD_HASH_CONCURRENCY,
     purge: {
@@ -784,6 +793,17 @@ export function createModules(db: Database, config: ModulesConfig) {
       },
     }),
   );
+  // ---- data protection (step 14b): "download my data"; the password is asked again through the auth module
+  const privacyService = traced(
+    'privacy',
+    createPrivacyService({
+      db,
+      privacyRepo: createPrivacyRepository(),
+      passwords: { confirm: (ctx, password) => authService.confirmPassword(ctx, password) },
+      storage,
+      jobsService,
+    }),
+  );
   // ---- video (step 7). `local` = ffmpeg in the worker + HLS served by this API: development and CI only.
   const video = config.video;
   const localStorage = config.storage.driver === 'local' ? (storage as LocalStorage) : null;
@@ -941,6 +961,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createAcademicsHandlers({ academicsService }),
     ...createProfilesHandlers({ profilesService }),
     ...createImportsHandlers({ importsService, purge: config.purge }),
+    ...createPrivacyHandlers({ privacyService, purge: { everyMs: config.purge.everyMs } }),
     ...createContentHandlers({ contentService }),
     ...createProgressHandlers(),
     ...createAnalyticsHandlers({
@@ -990,6 +1011,10 @@ export function createModules(db: Database, config: ModulesConfig) {
       service: notificationsService,
       unsubscribe: unsubscribeTokens,
       controller: createNotificationsController({ notificationsService }),
+    },
+    privacy: {
+      service: privacyService,
+      controller: createPrivacyController({ privacyService }),
     },
     imports: {
       service: importsService,

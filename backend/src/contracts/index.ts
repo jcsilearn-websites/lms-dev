@@ -16,6 +16,7 @@ export * from './imports';
 export * from './members';
 export * from './notifications';
 export * from './platform';
+export * from './privacy';
 export * from './profiles';
 export * from './progress';
 export * from './questions';
