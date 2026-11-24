@@ -47,6 +47,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'import.run',
     'notification.settings.manage',
     'email.suppression.manage',
+    'privacy.erasure.approve',
   ]),
   // every active member reads the academic structure and their own profile; `profile_type`
   // (student / faculty / staff) is only a LABEL and grants nothing

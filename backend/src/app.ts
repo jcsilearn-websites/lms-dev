@@ -219,6 +219,7 @@ export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
       void api.register(
         createPrivacyRoutes({
           privacyController: modules.privacy.controller,
+          erasureController: modules.privacy.erasureController,
           exportRatePerHour: modules.config.privacy.exportRatePerHour,
         }),
       );

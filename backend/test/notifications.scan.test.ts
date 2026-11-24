@@ -452,6 +452,47 @@ describe('daily digests in the college time zone', () => {
     ).toHaveLength(2);
   });
 
+  it('the daily digest is once per LOCAL DATE: a zone whose date was already consumed sends nothing, one with another date does (E2E 14 across IST midnight)', async () => {
+    // The college starts in Asia/Kolkata. The worker's first scan at 18:29 UTC = 23:59 on the 21st there consumes the digest of the 21st.
+    // At 18:36 UTC it is 00:06 on the 22nd in Kolkata, 07:36 on the 21st in Pacific/Pago_Pago (the date ALREADY consumed: no digest) and
+    // 08:36 on the 22nd in Pacific/Kiritimati (another date: the digest runs). The E2E spec used to pick Pago by comparing with the date
+    // NOW (the 22nd) instead of the date of the start-up scan (the 21st): CI found it at 18:35 UTC.
+    const { A, admin, st, scan } = await college('ntf-dig-straddle');
+    await owner.query(
+      `INSERT INTO lms.tenant_settings (id, tenant_id, key, value) VALUES (lms.uuid_v7(), $1, 'notifications', '{"digestHour":0}'::jsonb)
+       ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value`,
+      [A.tenantId],
+    );
+    const e = await exam(owner, t, A, admin, st, 2);
+    const [a] = e.learners as [Json];
+    await scan(new Date('2026-11-21T18:29:00Z')); // Asia/Kolkata (the default): the daily run of the 21st is consumed here
+    const zone = (tz: string) =>
+      owner.query(
+        `INSERT INTO lms.tenant_settings (id, tenant_id, key, value) VALUES (lms.uuid_v7(), $1, 'timezone', to_jsonb($2::text))
+         ON CONFLICT (tenant_id, key) DO UPDATE SET value = EXCLUDED.value`,
+        [A.tenantId, tz],
+      );
+    ok(
+      await e.instructor.client.post(`/offerings/${e.offeringId}/modules/${e.moduleId}/items`, {
+        kind: 'link',
+        title: 'Digest reading',
+        url: 'https://example.com/read',
+        published: true,
+      }),
+    );
+    // the item became visible "just now" in the scenario's clock (the row was written by the real clock of the test run)
+    await owner.query(
+      `UPDATE lms.notify_content_marks SET visible_at = '2026-11-21T18:35:30Z' WHERE tenant_id = $1`,
+      [A.tenantId],
+    );
+    await zone('Pacific/Pago_Pago');
+    expect((await scan(new Date('2026-11-21T18:36:00Z'))).contentDigests ?? 0).toBe(0);
+    expect(await notificationsOf(owner, a.userId, 'content_digest')).toHaveLength(0);
+    await zone('Pacific/Kiritimati');
+    expect((await scan(new Date('2026-11-21T18:37:00Z'))).contentDigests).toBe(2);
+    expect(await notificationsOf(owner, a.userId, 'content_digest')).toHaveLength(1);
+  });
+
   it('work waiting to be graded: one digest per instructor / assistant (counts), nothing to learners', async () => {
     const { A, admin, st, scan } = await college('ntf-grd');
     const e = await exam(owner, t, A, admin, st, 2);

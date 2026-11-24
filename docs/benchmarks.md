@@ -965,9 +965,12 @@ At 1,200 learners the same statements are equal within noise (grid chunk 525 / 5
 | one learner, item by item       | 6.8 ms    | 7.8 ms    |
 | heartbeats over HTTP (64 conns) | 472 req/s | 459 req/s |
 
-The view costs about +3 % on the class view. Both columns are slower than Step 8's 47 - 51 ms: that gap is in OLD too (it is the machine and the later
-migrations, not the view); a FIRST run of the NEW code on a test database that still held earlier bench colleges measured 233 ms and is NOT a valid number (leftover
-data and statistics), which is why the comparison above uses fresh scratch databases.
+The view costs about +3 % on the class view. Both columns above are slower than Step 8's 47 - 51 ms, and the cause is the MACHINE, not the code: the same
+bench on a quiet machine (nothing else running, a fresh scratch database, the current code) gives **52.5 ms by name, 51.4 by progress, 50.1 by last activity,
+41.9 with the status filter, 50.6 for the second page** - Step 8's numbers. Resetting the role-level settings of migration 0058 on that same scratch database
+(`ALTER ROLE lms_app RESET jit; RESET timezone`) changes nothing measurable (54.5 / 53.5 / 52.8 / 43.9 / 53.0 ms: noise), so neither `jit = off`, `timezone = UTC`
+nor the identity view slowed the class view down. The A/B table above was measured while other work was running on the laptop, and a FIRST run on a test database
+that still held earlier bench colleges measured 233 ms and is not a valid number either. Rule: a benchmark number is only comparable to another taken on the same quiet machine.
 
 Known bench defect (not changed here): the scripts' final `deleteTenantCascade` fails on `rollup_dirty_offerings_tenant_id_fkey`, so the throwaway college stays
 in the database it ran on (the test databases are truncated before every test file; a scratch database is simply dropped).

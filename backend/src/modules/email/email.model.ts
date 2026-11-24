@@ -1,5 +1,5 @@
 import { integer, jsonb, text, timestamp, uuid } from 'drizzle-orm/pg-core';
-import { lms } from '../../db/lms-schema';
+import { bytea, lms } from '../../db/lms-schema';
 
 // Tables owned by the email module (migration 0052). lms_app has NO privilege on any of them: every read and write is a
 // hardened definer function (email_enqueue_security, email_claim, email_mark, email_webhook_ingest, the suppression
@@ -38,6 +38,9 @@ export const emailSuppressions = lms.table('email_suppressions', {
   clearedAt: timestamp('cleared_at', { withTimezone: true }),
   clearedBy: uuid('cleared_by'),
   clearedInTenant: uuid('cleared_in_tenant'),
+  // HMAC-SHA256 of the address under the key emailHashKid (migration 0064; core/keyed-hash.ts)
+  emailHash: bytea('email_hash'),
+  emailHashKid: text('email_hash_kid'),
 });
 
 export const emailEvents = lms.table('email_events', {

@@ -22,6 +22,8 @@ frontend/.e2e-tmp/
 # local file storage (development) and the throwaway directory of the tests
 .storage/
 backend/.storage/
+.erasure-ledger/
+backend/.erasure-ledger/
 backend/.storage-test/
 .storage-test/
 

@@ -15,6 +15,7 @@ export const PERMISSION_GROUPS = {
   profile: ['profile.read_own', 'profile.manage'],
   import: ['import.run'],
   notification: ['notification.settings.manage', 'email.suppression.manage'],
+  privacy: ['privacy.erasure.approve'],
   course: [
     'course.read',
     'course.create',
@@ -136,4 +137,6 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
   'notification.settings.manage':
     "Set the college's notification defaults, quiet hours, digest hour and email sender name",
   'email.suppression.manage': "See and clear bouncing email addresses of the college's members",
+  'privacy.erasure.approve':
+    "Approve, reject or cancel a member's request to be erased from the college (never your own)",
 };

@@ -235,6 +235,15 @@ const storageFields = {
   // while SIGNING_LEGACY_TOKENS=on; switch it off 90 days after the key-id format shipped.
   SIGNING_KEYS: Type.Optional(Type.String({ minLength: 34 })),
   SIGNING_LEGACY_TOKENS: Type.Union([Type.Literal('on'), Type.Literal('off')], { default: 'on' }),
+  // Data protection (step 14b). SUPPRESSION_HASH_KEYS: `kid:secret,kid:secret` (the same format and rules as SIGNING_KEYS, 32+ characters
+  // each; a SEPARATE secret): the keys of the keyed hash (HMAC-SHA256) that replaces a suppressed address once its owner is erased. The FIRST
+  // key hashes, ALL are tried when an address is looked up; an old key stays until no suppression row uses its id (docs/production-config.md).
+  // Required when NODE_ENV=production; elsewhere a key derived from STORAGE_SIGNING_SECRET is used (development and tests only).
+  SUPPRESSION_HASH_KEYS: Type.Optional(Type.String({ minLength: 34 })),
+  // The erasure ledger (ids only, outside the database; core/erasure-ledger.ts): a directory for the local driver.
+  ERASURE_LEDGER_DIR: Type.String({ minLength: 1, default: '.erasure-ledger' }),
+  // how often the worker looks for erasures that are due, undecided requests that expired and ledger entries still to write
+  PRIVACY_ERASURE_SCAN_SECONDS: Type.Integer({ minimum: 5, maximum: 3600, default: 300 }),
 };
 
 /**
@@ -411,12 +420,43 @@ export function assertSslPolicy(
   if (issues.length > 0) throw new EnvError(issues);
 }
 
+/** Data protection (step 14b): the keyed hash of a suppressed address needs its own key in production. */
+export function assertPrivacyPolicy(env: {
+  NODE_ENV: string;
+  SUPPRESSION_HASH_KEYS?: string | undefined;
+  STORAGE_SIGNING_SECRET?: string | undefined;
+}): void {
+  const issues: string[] = [];
+  try {
+    parseSigningKeys(env.SUPPRESSION_HASH_KEYS);
+  } catch (err) {
+    issues.push(
+      (err instanceof Error ? err.message : 'invalid').replace(
+        /SIGNING_KEYS/g,
+        'SUPPRESSION_HASH_KEYS',
+      ),
+    );
+  }
+  if (env.NODE_ENV === 'production' && !env.SUPPRESSION_HASH_KEYS) {
+    issues.push(
+      'SUPPRESSION_HASH_KEYS: required (a key of its own, 32+ characters) when NODE_ENV=production',
+    );
+  }
+  if (env.NODE_ENV !== 'production' && !env.SUPPRESSION_HASH_KEYS && !env.STORAGE_SIGNING_SECRET) {
+    issues.push(
+      'SUPPRESSION_HASH_KEYS: set it (or STORAGE_SIGNING_SECRET, development only) so that an erased address can be hashed',
+    );
+  }
+  if (issues.length > 0) throw new EnvError(issues);
+}
+
 export function parseApiEnv(source: Record<string, string | undefined> = process.env): ApiEnv {
   const env = parseEnv(apiEnvSchema, source);
   assertSslPolicy(env, [env.DATABASE_APP_URL]);
   assertAuthPolicy(env, source);
   assertStoragePolicy(env);
   assertVideoPolicy(env);
+  assertPrivacyPolicy(env);
   return env;
 }
 
@@ -564,6 +604,7 @@ export function parseWorkerEnv(
   assertAuthPolicy(env, source);
   assertStoragePolicy(env);
   assertVideoPolicy(env);
+  assertPrivacyPolicy(env);
   return env;
 }
 

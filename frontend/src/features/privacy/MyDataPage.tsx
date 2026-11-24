@@ -7,6 +7,7 @@ import { Field } from '../../shared/ui/field';
 import { Badge, Card, PageHeader } from '../../shared/ui/layout';
 import { EmptyState, ErrorState, ListSkeleton } from '../../shared/ui/states';
 import { toast } from '../../shared/ui/toast';
+import { ErasureSection } from './ErasureSection';
 import { dataExportLink, listDataExports, privacyKeys, requestDataExport } from './privacy.api';
 
 const STATUS_TEXT: Record<DataExport['status'], string> = {
@@ -145,6 +146,7 @@ export function MyDataPage() {
           </ul>
         )}
       </Card>
+      <ErasureSection />
     </div>
   );
 }

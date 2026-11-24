@@ -23,6 +23,7 @@
     "bench": "pnpm --filter @lms/backend run bench",
     "docs:permissions": "pnpm --filter @lms/backend run docs:permissions",
     "admin:create": "pnpm --filter @lms/backend run admin:create --",
+    "privacy:reapply-erasures": "pnpm --filter @lms/backend run privacy:reapply-erasures --",
     "start": "pnpm --filter @lms/backend run start",
     "db:dev:clean": "pnpm --filter @lms/backend run db:dev:clean --",
     "prepare": "git config core.hooksPath .githooks || exit 0",

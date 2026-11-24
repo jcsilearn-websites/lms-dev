@@ -181,7 +181,12 @@ const reset = async () => {
   // between scenarios: no export, no job, no privacy audit row (the owner may delete what the app role cannot)
   await owner.query('DELETE FROM lms.data_exports');
   await owner.query("DELETE FROM lms.jobs WHERE queue = 'privacy.export'");
-  await owner.query("DELETE FROM lms.audit_log WHERE action LIKE 'privacy.%'");
+  await owner.query('ALTER TABLE lms.audit_log DISABLE TRIGGER audit_log_append_only');
+  try {
+    await owner.query("DELETE FROM lms.audit_log WHERE action LIKE 'privacy.%'");
+  } finally {
+    await owner.query('ALTER TABLE lms.audit_log ENABLE TRIGGER audit_log_append_only');
+  }
 };
 
 // ------------------------------------------------------------------------------------------------------------------ request

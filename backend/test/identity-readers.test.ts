@@ -38,6 +38,20 @@ const ALLOWED: Record<string, string> = {
     'the masked address of a non-removed member, for the public unsubscribe page',
   privacy_export_collect:
     'the OWN account row of the person asking, in THEIR OWN data export (read for the claimed export of that user only)',
+  audit_log_guard:
+    "the append-only guard of the audit log: reads the erased member's address only to decide whether a scrub concerns that member",
+  privacy_scrub_audit:
+    "the one scrub of the audit log: finds the rows that carry the erased member's address (internal, no EXECUTE for lms_app)",
+  privacy_erasure_preview:
+    "counts only: it matches staged import rows by the member's OWN address, and returns numbers, never a value",
+  privacy_erasure_prepare:
+    'hands the worker the address of a member whose erasure is DUE (it is hashed with the key the database does not have)',
+  privacy_erasure_execute:
+    "the erasure itself: checks the address the worker hashed is still the member's, then erases (one transaction)",
+  privacy_erasure_reapply_prepare:
+    'after a restore: the address of a person the ledger says was erased and is not erased in the restored database',
+  privacy_erasure_reapply:
+    'after a restore: erases the person from the ledger again (checks the address, then the same core as the execution)',
   notify_usage_closed: 'the address of the platform administrators',
 };
 // The platform area (admin host). REVIEWED one by one (step 14b-1): none of them lists the members of one college. The only

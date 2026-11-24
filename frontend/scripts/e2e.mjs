@@ -6,6 +6,7 @@ import { FRONTEND, withStack } from './stack.mjs';
 
 const isWindows = process.platform === 'win32';
 let code = 1;
+const startedAt = Date.now();
 try {
   code = await withStack(({ webPort, mailFile, password }) => {
     console.log('> running Playwright');
@@ -21,6 +22,8 @@ try {
           E2E_WEB_PORT: String(webPort),
           E2E_MAIL_FILE: mailFile,
           E2E_PASSWORD: password,
+          // when the stack was started: the worker's first notification scan consumes the daily digest of THAT local date (spec 14)
+          E2E_STARTED_AT: String(startedAt),
         },
       },
     );

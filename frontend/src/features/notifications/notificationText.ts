@@ -42,6 +42,25 @@ export function notificationText(n: Pick<Notification, 'type' | 'params'>): Noti
       return { title: `Opens in ${hours}: ${item}`, detail: `${course} · ${when(p.at)}` };
     case 'quiz_closes':
       return { title: `Closes in ${hours}: ${item}`, detail: `${course} · ${when(p.at)}` };
+    case 'erasure_request_received':
+      return {
+        title: 'A member asked to be erased from the college',
+        detail: 'Review the request',
+      };
+    case 'erasure_request_approved':
+      return {
+        title: 'Your request to be erased was approved',
+        detail: `It is carried out after ${num(p.days)} days; you can still cancel`,
+      };
+    case 'erasure_request_rejected':
+      return { title: 'Your request to be erased was not approved', detail: 'Nothing was changed' };
+    case 'erasure_request_cancelled':
+      return { title: 'Your request to be erased was cancelled', detail: 'Nothing was changed' };
+    case 'erasure_request_expired':
+      return {
+        title: 'Your request to be erased has expired',
+        detail: 'Nobody decided within 30 days',
+      };
     case 'extension_granted':
       return { title: `Your deadline for ${item} was changed`, detail: course };
     case 'accommodation_updated':

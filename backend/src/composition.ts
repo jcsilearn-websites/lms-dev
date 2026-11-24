@@ -4,7 +4,9 @@ import { signingFromEnv } from './config/signing';
 import type { AuthContext } from './core/auth-context';
 import type { AuthRateLimitConfig } from './core/auth-rate-limit';
 import { createBackgroundTasks } from './core/background';
+import { createGcsLedger, createLocalLedger } from './core/erasure-ledger';
 import type { HandlerMap } from './core/handlers';
+import { createAddressHasher, parseHashKeys } from './core/keyed-hash';
 import { createKeyRing, type SigningKeyEntry } from './core/keyring';
 import {
   type BounceWebhookAdapter,
@@ -146,6 +148,9 @@ import {
 } from './modules/notifications';
 import { createOpsController, createOpsRepository, createOpsService } from './modules/ops';
 import {
+  createErasureController,
+  createErasureRepository,
+  createErasureService,
   createPrivacyController,
   createPrivacyHandlers,
   createPrivacyRepository,
@@ -235,7 +240,13 @@ export interface ModulesConfig {
   sessions: SessionsConfig;
   auth: Partial<AuthConfig>;
   authRateLimits: AuthRateLimitConfig;
-  privacy: { exportRatePerHour: number };
+  privacy: {
+    exportRatePerHour: number;
+    /** keys of the keyed hash of a suppressed address (the first hashes, all are tried) */
+    hashKeys: SigningKeyEntry[];
+    ledgerDir: string;
+    scanEveryMs: number;
+  };
   tenantCache: TenantCacheOptions;
   passwordHashConcurrency: number;
   baseDomain: string;
@@ -339,6 +350,9 @@ export function modulesConfigFromEnv(
     | 'RATE_LIMIT_LOGIN_PER_EMAIL'
     | 'RATE_LIMIT_AUTH_WINDOW_MS'
     | 'DATA_EXPORT_RATE_PER_HOUR'
+    | 'SUPPRESSION_HASH_KEYS'
+    | 'ERASURE_LEDGER_DIR'
+    | 'PRIVACY_ERASURE_SCAN_SECONDS'
     | 'PASSWORD_HASH_CONCURRENCY'
     | 'TENANT_CACHE_TTL_MS'
     | 'TENANT_CACHE_MAX'
@@ -453,7 +467,15 @@ export function modulesConfigFromEnv(
       perEmail: env.RATE_LIMIT_LOGIN_PER_EMAIL,
       windowMs: env.RATE_LIMIT_AUTH_WINDOW_MS,
     },
-    privacy: { exportRatePerHour: env.DATA_EXPORT_RATE_PER_HOUR },
+    privacy: {
+      exportRatePerHour: env.DATA_EXPORT_RATE_PER_HOUR,
+      // outside production a key derived from the storage secret is used (assertPrivacyPolicy refuses a missing key in production)
+      hashKeys: env.SUPPRESSION_HASH_KEYS
+        ? parseHashKeys(env.SUPPRESSION_HASH_KEYS)
+        : [{ kid: 'dev0', secret: (env.STORAGE_SIGNING_SECRET ?? '').padEnd(32, '-') }],
+      ledgerDir: env.ERASURE_LEDGER_DIR,
+      scanEveryMs: env.PRIVACY_ERASURE_SCAN_SECONDS * 1000,
+    },
     tenantCache: { ttlMs: env.TENANT_CACHE_TTL_MS, maxEntries: env.TENANT_CACHE_MAX },
     passwordHashConcurrency: env.PASSWORD_HASH_CONCURRENCY,
     purge: {
@@ -804,6 +826,20 @@ export function createModules(db: Database, config: ModulesConfig) {
       jobsService,
     }),
   );
+  // ---- erasure inside a college (14b-1 part 3): the keyed hash of an address, the ledger OUTSIDE the database, the request workflow
+  const erasureService = traced(
+    'privacy.erasure',
+    createErasureService({
+      db,
+      erasureRepo: createErasureRepository(),
+      passwords: { confirm: (ctx, password) => authService.confirmPassword(ctx, password) },
+      hasher: createAddressHasher(config.privacy.hashKeys),
+      ledger:
+        config.storage.driver === 'local'
+          ? createLocalLedger({ dir: config.privacy.ledgerDir })
+          : createGcsLedger(),
+    }),
+  );
   // ---- video (step 7). `local` = ffmpeg in the worker + HLS served by this API: development and CI only.
   const video = config.video;
   const localStorage = config.storage.driver === 'local' ? (storage as LocalStorage) : null;
@@ -961,7 +997,12 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createAcademicsHandlers({ academicsService }),
     ...createProfilesHandlers({ profilesService }),
     ...createImportsHandlers({ importsService, purge: config.purge }),
-    ...createPrivacyHandlers({ privacyService, purge: { everyMs: config.purge.everyMs } }),
+    ...createPrivacyHandlers({
+      privacyService,
+      erasureService,
+      purge: { everyMs: config.purge.everyMs },
+      erasure: { everyMs: config.privacy.scanEveryMs },
+    }),
     ...createContentHandlers({ contentService }),
     ...createProgressHandlers(),
     ...createAnalyticsHandlers({
@@ -1015,6 +1056,8 @@ export function createModules(db: Database, config: ModulesConfig) {
     privacy: {
       service: privacyService,
       controller: createPrivacyController({ privacyService }),
+      erasureService,
+      erasureController: createErasureController({ erasureService }),
     },
     imports: {
       service: importsService,

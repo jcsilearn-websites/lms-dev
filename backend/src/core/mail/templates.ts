@@ -39,6 +39,12 @@ export const TEMPLATE_PARAMS = {
   quiz_opens: obj({ course: str(), item: str(), hours: Type.Integer(), at: str(40), link }),
   quiz_closes: obj({ course: str(), item: str(), hours: Type.Integer(), at: str(40), link }),
   extension_granted: obj({ course: str(), item: str(), link }),
+  // erasure inside a college (step 14b): no name, no count, no reason: they say "a request" and link to the page
+  erasure_request_received: obj({ link }),
+  erasure_request_approved: obj({ days: Type.Integer({ minimum: 1 }), link }),
+  erasure_request_rejected: obj({ link }),
+  erasure_request_cancelled: obj({ link }),
+  erasure_request_expired: obj({ link }),
   accommodation_updated: obj({ course: str(), item: str(), link }),
   content_digest: obj({
     course: str(),
@@ -209,6 +215,49 @@ const BUILDERS: Builders = {
       'You have not submitted it yet.',
     ],
     action: { label: 'Open it', url: at(ctx, p.link) },
+  }),
+  erasure_request_received: (p, ctx) => ({
+    subject: 'A member asked to be erased from your college',
+    heading: 'A request to be erased is waiting',
+    paragraphs: [
+      'A member of your college asked for their personal data to be erased from it.',
+      'Another institution admin has to approve or reject the request. It expires after 30 days if nobody decides.',
+    ],
+    action: { label: 'Review the request', url: at(ctx, p.link) },
+  }),
+  erasure_request_approved: (p, ctx) => ({
+    subject: 'Your request to be erased was approved',
+    heading: 'Your request was approved',
+    paragraphs: [
+      `Your personal data will be erased from the college after ${p.days} days. You can still cancel until then.`,
+      'After that you cannot sign in to this college any more.',
+    ],
+    action: { label: 'See your request', url: at(ctx, p.link) },
+  }),
+  erasure_request_rejected: (p, ctx) => ({
+    subject: 'Your request to be erased was not approved',
+    heading: 'Your request was not approved',
+    paragraphs: [
+      'Your request to be erased from the college was not approved. Nothing was changed.',
+    ],
+    action: { label: 'See your request', url: at(ctx, p.link) },
+  }),
+  erasure_request_cancelled: (p, ctx) => ({
+    subject: 'Your request to be erased was cancelled',
+    heading: 'Your request was cancelled',
+    paragraphs: [
+      'An administrator of the college cancelled your request to be erased. Nothing was changed.',
+    ],
+    action: { label: 'See your request', url: at(ctx, p.link) },
+  }),
+  erasure_request_expired: (p, ctx) => ({
+    subject: 'Your request to be erased has expired',
+    heading: 'Your request has expired',
+    paragraphs: [
+      'Nobody decided on your request to be erased within 30 days, so it ended. Nothing was changed.',
+      'You can ask again whenever you like.',
+    ],
+    action: { label: 'Ask again', url: at(ctx, p.link) },
   }),
   extension_granted: (p, ctx) => ({
     subject: `Your deadline for ${p.item} was changed`,

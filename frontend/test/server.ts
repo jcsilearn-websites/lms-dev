@@ -34,6 +34,7 @@ export const ADMIN_PERMISSIONS = [
   'import.run',
   'notification.settings.manage',
   'email.suppression.manage',
+  'privacy.erasure.approve',
   'course.read',
   'course.create',
   'course.manage',

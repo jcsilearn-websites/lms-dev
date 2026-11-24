@@ -72,13 +72,20 @@ async function accessibleEverywhere(page: Page, label: string) {
   await page.setViewportSize({ width: 1280, height: 720 });
 }
 
-/** A zone whose LOCAL DATE differs from the college's today: the daily digest of "today" already ran at start-up (once per date). */
+/**
+ * A zone whose LOCAL DATE differs from the date the college's daily digest ALREADY ran for. That run happened when the worker started
+ * (the college is in Asia/Kolkata then, `once per local date`), so the date to avoid is the college's date AT START-UP (scripts/e2e.mjs
+ * passes the start time), NOT its date now: a run that starts a few minutes before 18:30 UTC (= midnight in Kolkata) and reaches this spec
+ * after it used to pick Pacific/Pago_Pago, whose date is then exactly the date that had been consumed (found by CI at 18:35 UTC).
+ */
 function zoneWithAnotherDate(): string {
-  const date = (tz: string) =>
-    new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
-  const home = date('Asia/Kolkata');
+  const date = (tz: string, at: Date) =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(at);
+  const started = new Date(Number(process.env.E2E_STARTED_AT ?? Date.now()) + 90_000); // the worker's first scan is within a minute or two
+  const consumed = date('Asia/Kolkata', started);
+  const now = new Date();
   return (
-    ['Pacific/Pago_Pago', 'Pacific/Kiritimati'].find((z) => date(z) !== home) ??
+    ['Pacific/Pago_Pago', 'Pacific/Kiritimati'].find((z) => date(z, now) !== consumed) ??
     'Pacific/Kiritimati'
   );
 }

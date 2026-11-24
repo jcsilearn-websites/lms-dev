@@ -34,6 +34,8 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | **notification** | | | | | | | |
 | `notification.settings.manage` |  | yes |  |  |  |  | Set the college's notification defaults, quiet hours, digest hour and email sender name |
 | `email.suppression.manage` |  | yes |  |  |  |  | See and clear bouncing email addresses of the college's members |
+| **privacy** | | | | | | | |
+| `privacy.erasure.approve` |  | yes |  |  |  |  | Approve, reject or cancel a member's request to be erased from the college (never your own) |
 | **course** | | | | | | | |
 | `course.read` |  | yes |  |  |  |  | View the course catalog of the college |
 | `course.create` |  | yes |  |  |  |  | Create courses |
@@ -73,7 +75,7 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `platform.usage.read` | yes |  |  |  |  |  | Read the monthly usage of every college (aggregates only, admin host) |
 | `platform.email.manage` | yes |  |  |  |  |  | Manage email delivery: clear any suppressed address, set a college's verified From address (admin host) |
 
-52 permissions. Notes:
+53 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
 - "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
@@ -175,6 +177,10 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/me/data-exports` | any signed-in user |
 | GET | `/api/me/data-exports/:id/download` | any signed-in user |
 | GET | `/api/me/email-status` | any signed-in user |
+| GET | `/api/me/erasure` | any signed-in user |
+| POST | `/api/me/erasure` | any signed-in user |
+| POST | `/api/me/erasure/cancel` | any signed-in user |
+| GET | `/api/me/erasure/preview` | any signed-in user |
 | GET | `/api/me/notification-preferences` | any signed-in user |
 | PUT | `/api/me/notification-preferences` | any signed-in user |
 | GET | `/api/me/profile` | `profile.read_own` |
@@ -330,6 +336,10 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/platform/tenants/:id/suspend` | `platform.tenant.manage` |
 | GET | `/api/platform/usage` | `platform.usage.read` |
 | GET | `/api/platform/usage/export` | `platform.usage.read` |
+| GET | `/api/privacy/erasure-requests` | `privacy.erasure.approve` |
+| POST | `/api/privacy/erasure-requests/:id/approve` | `privacy.erasure.approve` |
+| POST | `/api/privacy/erasure-requests/:id/cancel` | `privacy.erasure.approve` |
+| POST | `/api/privacy/erasure-requests/:id/reject` | `privacy.erasure.approve` |
 | GET | `/api/programs` | `academic.read` |
 | POST | `/api/programs` | `academic.manage` |
 | DELETE | `/api/programs/:id` | `academic.manage` |

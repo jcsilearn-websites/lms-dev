@@ -95,7 +95,7 @@ import {
   notifyScanState,
   platformNotifications,
 } from '../src/modules/notifications/notifications.model';
-import { dataExports } from '../src/modules/privacy/privacy.model';
+import { dataExports, erasureRequests } from '../src/modules/privacy/privacy.model';
 import { memberProfiles, profileType } from '../src/modules/profiles/profiles.model';
 import { itemProgress } from '../src/modules/progress/progress.model';
 import {
@@ -120,6 +120,7 @@ const schema = {
   tenantMemberships,
   membershipDisplayOverrides,
   dataExports,
+  erasureRequests,
   auditLog,
   platformAuditLog,
   userCredentials,

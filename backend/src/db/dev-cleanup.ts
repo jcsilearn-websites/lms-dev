@@ -92,6 +92,9 @@ export async function deleteTenantCascade(client: pg.Client, tenantId: string): 
     'import_rows',
     'import_jobs',
     'jobs',
+    'data_exports',
+    'erasure_requests',
+    'membership_display_overrides',
     'member_profiles',
     'sections',
     'batches',
@@ -102,8 +105,14 @@ export async function deleteTenantCascade(client: pg.Client, tenantId: string): 
   ]) {
     await client.query(`DELETE FROM lms.${table} WHERE tenant_id = $1`, [tenantId]);
   }
-  // audit rows first: audit_log.actor_user_id has no ON DELETE action
-  await client.query('DELETE FROM lms.audit_log WHERE tenant_id = $1', [tenantId]);
+  // audit rows first: audit_log.actor_user_id has no ON DELETE action. The audit log refuses DELETE for everybody (trigger,
+  // migration 0064); a DEV cleanup is the one place that removes rows, with the trigger switched off and always on again.
+  try {
+    await client.query('ALTER TABLE lms.audit_log DISABLE TRIGGER audit_log_append_only');
+    await client.query('DELETE FROM lms.audit_log WHERE tenant_id = $1', [tenantId]);
+  } finally {
+    await client.query('ALTER TABLE lms.audit_log ENABLE TRIGGER audit_log_append_only');
+  }
   await client.query('DELETE FROM lms.auth_tokens WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM lms.sessions WHERE tenant_id = $1', [tenantId]);
   await client.query('DELETE FROM lms.tenant_settings WHERE tenant_id = $1', [tenantId]);
@@ -172,6 +181,7 @@ export async function cleanDevNoise(client: pg.Client): Promise<CleanResult> {
           [seedIds],
         )
       ).rowCount ?? 0;
+    await client.query('ALTER TABLE lms.audit_log DISABLE TRIGGER audit_log_append_only');
     result.tenantAudit =
       (
         await client.query(
@@ -179,6 +189,7 @@ export async function cleanDevNoise(client: pg.Client): Promise<CleanResult> {
           [seedIds],
         )
       ).rowCount ?? 0;
+    await client.query('ALTER TABLE lms.audit_log ENABLE TRIGGER audit_log_append_only');
     result.platformAudit =
       (await client.query("DELETE FROM lms.platform_audit_log WHERE action LIKE 'auth.%'"))
         .rowCount ?? 0;

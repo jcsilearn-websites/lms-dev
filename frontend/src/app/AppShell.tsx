@@ -129,6 +129,11 @@ export function AppShell() {
                   <Link to={'/me/data' as '/'} className={navLink}>
                     My data
                   </Link>
+                  {has('privacy.erasure.approve') && (
+                    <Link to={'/privacy/erasure' as '/'} className={navLink}>
+                      Erasure requests
+                    </Link>
+                  )}
                   {has('notification.settings.manage') && (
                     // in the account menu, not the main navigation: the administrators' header is already full at 1280 px
                     <Link to={'/settings/notifications' as '/'} className={navLink}>

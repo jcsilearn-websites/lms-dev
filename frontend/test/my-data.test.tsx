@@ -1,7 +1,7 @@
 import type { DataExport } from '@lms/backend/contracts';
 import { screen, waitFor } from '@testing-library/react';
 import { HttpResponse, http } from 'msw';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 import { renderApp } from './render';
 import { API, memberMe, mockSignedIn, server } from './server';
 
@@ -16,6 +16,23 @@ const exp = (over: Partial<DataExport> & Pick<DataExport, 'id' | 'status'>): Dat
   sizeBytes: null,
   counts: null,
   ...over,
+});
+
+// the page also shows the erasure section: its preview (nothing open, nothing special)
+const preview = {
+  lastAdmin: false,
+  open: null,
+  erased: {},
+  kept: {},
+  rules: {
+    requestExpiresAfterDays: 30,
+    graceDays: 7,
+    backupRetentionDays: 30,
+    exportRetentionDays: 7,
+  },
+};
+beforeEach(() => {
+  server.use(http.get(`${API}/me/erasure/preview`, () => HttpResponse.json(preview)));
 });
 
 describe('My data', () => {

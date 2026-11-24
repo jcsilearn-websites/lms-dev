@@ -387,6 +387,11 @@ const notificationSettingsRoute = child(
   ),
   'notification.settings.manage',
 );
+const erasureRequestsRoute = child(
+  '/privacy/erasure',
+  lazyPage(() => import('../features/privacy/ErasureRequestsPage'), 'ErasureRequestsPage'),
+  'privacy.erasure.approve',
+);
 const emailSuppressionsRoute = child(
   '/settings/email',
   lazyPage(
@@ -467,6 +472,7 @@ function buildRouteTree() {
           myNotificationsRoute,
           myDataRoute,
           notificationSettingsRoute,
+          erasureRequestsRoute,
           emailSuppressionsRoute,
         ];
   return rootRoute.addChildren([...publicRoutes, appRoute.addChildren(children)]);

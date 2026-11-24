@@ -64,6 +64,11 @@ const SAMPLE: Record<string, Record<string, unknown>> = {
     link: '/offerings/o/items/q',
   },
   extension_granted: { course: 'Physics I', item: 'Lab 3', link: '/offerings/o/items/i' },
+  erasure_request_received: { link: '/privacy/erasure' },
+  erasure_request_approved: { days: 7, link: '/me/data' },
+  erasure_request_rejected: { link: '/me/data' },
+  erasure_request_cancelled: { link: '/me/data' },
+  erasure_request_expired: { link: '/me/data' },
   accommodation_updated: { course: 'Physics I', item: 'Quiz 2', link: '/offerings/o/items/q' },
   content_digest: {
     course: 'Physics I',

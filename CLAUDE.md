@@ -644,7 +644,7 @@ module), `docs/asvs.md` (ASVS 4.0.3 Level 2, with the gaps), `docs/key-rotation.
 - **Migrations of step 14a**: 0054 (the rate-limit table and function, `lms.ops_metrics()`), 0055 (`lms.job_defer`). NOT applied to the dev database by the agent: `pnpm db:migrate`.
   Round trips: every budget above is unchanged; `GET /metrics` costs at most 1 statement per 5 s; the limiter's own statements are 0 on a hot route and 1 per key on a strict one.
 
-## Data protection (step 14b-1, in progress: parts 1 and 2 built, erasure NOT built)
+## Data protection (step 14b-1, in progress: parts 1, 2 and 3 built; account-level erasure NOT built)
 
 Plan approved by the owner (12 decisions, 7 amendments); the rest of 14b-1 is built part by part with a review stop after each.
 - **How a member is shown inside a college is decided in ONE place: the view `lms.member_identity`** (migration 0060, `security_invoker`, a plain inlinable join of
@@ -659,7 +659,7 @@ Plan approved by the owner (12 decisions, 7 amendments); the rest of 14b-1 is bu
   _review_action`, `email_suppressions_for_tenant`) and CHECKS ITSELF that each kept its `proconfig`, ACL, SECURITY DEFINER, volatility and owner (`test/migrations.identity.test.ts`
   proves the check by feeding it a broken copy). **A function recreated for any reason must keep every SET clause** (search_path, `enable_*`, `jit = off`).
   The approval snapshot of a member erased BEFORE the approval is written under the pseudonym; a snapshot written earlier keeps what it recorded (the academic record:
-  said plainly to the client's counsel in the preview and in `docs/data-retention.md`, both still to be written).
+  said plainly to the client's counsel in the erasure preview and in `docs/data-retention.md`).
 - **The sentinel test** (`test/member-identity.test.ts`): two people with recognisable names and addresses in real data; every GET route is called with the real ids
   as admin / instructor / assistant / learner; before the override the sentinels are seen (the check has teeth), after it they appear in no answer except the listed
   ones, and the whole DATABASE (every text / jsonb / inet column) is scanned for them: the exact list of places that hold a person is pinned (`users`, the search keys,
@@ -674,16 +674,35 @@ Plan approved by the owner (12 decisions, 7 amendments); the rest of 14b-1 is bu
   sent e-mail, or another college. Every function takes `p_now`; tests use explicit instants. Budgets: request 3, refused password 3, list 4, download 2. Tests: `test/privacy.export.test.ts` (sentinel test over the
   UNZIPPED bytes, both ways; held-lock race; audit failure injection for request and "ready"; expiry; cross-user / cross-college), the unit tests in the module, `frontend/test/my-data.test.tsx`, E2E `16-my-data.spec.ts` (axe light / dark / 360 px).
   No notification is sent when an archive is ready (the page follows the state); a whole-account export across colleges is not built.
-- **ACCEPTANCE CHECKLIST for the erasure part (part 3); each item needs a test that fails without it:**
-  - [ ] Execution revokes ALL of the member's sessions in that college IN THE SAME STATEMENT as the override (a signed-in erased member would otherwise still read their own `/auth/me` and `/me/email-status`: the sweep allowlists that only because part 1 has no execution).
-  - [ ] The membership is set to `removed` in that statement, so `notify_fanout`, `email_enqueue_security`, `email_suppression_clear_tenant` and `notify_unsubscribe_info` (they read the live address on purpose and filter `status <> 'removed'`) can never address an erased member; a test sends every event type to an erased member and finds no outbox row.
-  - [ ] The member's `email_outbox` rows are blanked (`to_email`, `params`) in the same statement and the sender skips a blanked row.
-  - [ ] `email_events` rows of the member's address are blanked.
-  - [ ] `email_suppressions` of the address are kept as a SALTED HASH of the address, not the plain address (the suppression must keep working, so the sender compares hashes; the plain address is not stored after erasure).
-  - [ ] `import_rows` of the member's address are scrubbed while the import's retention window runs; `audit_log` `ip` / `email` keys are scrubbed through the audited owner-only function (rows never deleted).
-  - [ ] Profile personal fields (phone, designation, register number, employee id) are nulled; `search_name` / `search_email` already follow the override (part 1).
-  - [ ] The preview and `docs/data-retention.md` say plainly that gradebook snapshots keep the name and register number as the academic record, flagged for the client's counsel.
-  - [ ] Every request / approve / cancel / execute / scrub is one transaction with its audit row (failure-injection test), races tested with the held-lock pattern, time-dependent paths take `p_now`, a request that expires after 30 days notifies the member in-app and by e-mail.
+- **Erasure inside a college (part 3, migrations 0063 / 0064 / 0065, module `privacy`, `docs/data-retention.md`)**: the member asks (`POST /me/erasure`, **password re-entry** like the export; counts-only
+  `GET /me/erasure/preview`), an institution admin who is NOT the member approves (`privacy.erasure.approve`; the database refuses self-approval), **7 days of grace from the approval** (cancel by either side while `p_now <
+  grace_until`; at the instant the execution runs and the cancel is "too late"), an undecided request **expires after 30 days** and the member is told in the bell AND by e-mail (security category: cannot be switched off).
+  `privacy_erasure_request / _decide / _expire` write their audit row and their notices in the same call. **Execution** = `privacy_erasure_execute` (worker job `privacy.erasure_run`, every `PRIVACY_ERASURE_SCAN_SECONDS`):
+  ONE transaction, lock order request -> membership -> the tenant's last-admin lock (the same order as the demotion trigger: no deadlock), `privacy_erase_core` does the nine items below, then the ledger entry is written AFTER the commit
+  (`ledger_at` marks it; a failed append is retried by the next scan, never lost, never "done" without being written). **The last administrator is checked at the request, at the approval and again at the execution** (execution rejects the
+  request with `reason = last_admin` and tells the member). **The audit log is append-only for EVERYONE** from 0064 (trigger `audit_log_append_only`; the owner too: a DEV cleanup / test reset switches the trigger off and on again, like the gradebook's):
+  the single exception is `privacy_scrub_audit` (no EXECUTE for lms_app), which works only inside an EXECUTING request of the same college, for rows about that member, and only removes the allowlist of `lms.audit_scrub_metadata`
+  (top level `ip`, `email`, `toEmail`, `address`, `recipient`; inside `before` / `after` phone, designation, register number, employee id); `test/privacy.audit-guard.test.ts` proves every other way fails (and found a NULL-logic hole in the first
+  version of the guard: **a guard condition built from comparisons of possibly-absent keys needs `coalesce(..., false)`**). **Suppressions**: `email_hash` = HMAC-SHA256 under a key of `SUPPRESSION_HASH_KEYS` (HKDF label `lms.suppression-hash`,
+  computed by the APPLICATION, never the database), `email_hash_kid` = the key id; the first key hashes, all are tried on a lookup, an old key stays until `privacy_suppression_key_usage()` shows no row with its id (docs/production-config.md).
+  **College level keeps the plain address beside the hash** (the global account still exists and can be invited from another college: the suppression must keep working); `privacy_suppression_seal(..., p_drop_plain => true)` is for account
+  level (next). **The ledger** (`core/erasure-ledger.ts`, JSON lines, ids only, only the seven known fields are ever written; the GCS ledger is a 503 stub for the GCP step) and **`pnpm privacy:reapply-erasures --yes`**
+  (idempotent; after any restore): `test/privacy.erasure.execute.test.ts` restores an older state and the person is erased again. **`notify_fanout` now refuses a removed member** (0065, self-checking like 0061): before, only the
+  event triggers filtered recipients. Tests: `test/privacy.erasure.test.ts` (workflow, last admin x3 incl. held-lock races, races approve/cancel, execute/cancel at 7 days and 7 days minus 1 s, execute/suspension, duplicates, expiry with notices,
+  audit failure injection for request / approve / reject / cancel / expiry / execute / scrub, notice privacy, budgets: preview 2, my request 2, ask 3, approve 2, cancel 3, list 4), `test/privacy.erasure.execute.test.ts` (the nine items,
+  sentinel sweep over every GET route, the database-wide scan with the allowed places, cross-college byte-identity, the ledger), `test/privacy.audit-guard.test.ts`, `test/privacy.suppression.test.ts`, unit tests for the hasher, the ledger and
+  the env policy, `frontend/test/erasure.test.tsx`, E2E `17-erasure.spec.ts` (axe in light, dark and 360 px; the execution needs the 7 days, so it is the backend tests that run it). A reader of audit rows must remember that
+  the profile audit rows kept the whole profile row in `before` / `after` (Stop 1's inventory had missed it: found by this part's sentinel scan).
+- **ERASURE CHECKLIST (part 3): all nine are BUILT and each has a test**:
+  - [x] Execution revokes ALL of the member's sessions in that college in the same transaction as the override (test: every session row revoked with its address and agent wiped, both cookies 401).
+  - [x] The membership is `removed` in that transaction; **nothing can be sent to them**: `notify_fanout` itself refuses a removed member (0065) and `email_enqueue_security`, `notify_unsubscribe_info`, `email_suppression_clear_tenant` already did (tests send every category and template to an erased member: no bell row, no outbox row).
+  - [x] Their `email_outbox` rows are blanked (`to_email = 'erased.invalid'`, params `{}`), queued ones are `skipped`, and the sender sends nothing to the old address.
+  - [x] `email_events` of those rows lose the address.
+  - [x] `email_suppressions` carry the KEYED hash. **Deliberate deviation, to be confirmed by the owner:** at COLLEGE level the plain address stays beside it, because converting it while `users.email` still holds the address would only break the protection against mailing a bouncing address from another college; the plain address goes at ACCOUNT level.
+  - [x] `import_rows` of the address are scrubbed; the audit trail loses only the allowlisted keys through the guarded function; rows are never deleted (count asserted).
+  - [x] Profile phone / designation / register number / employee id are NULL; search keys follow the override; notifications, preferences and activity days are deleted; the data export archives expire and are deleted.
+  - [x] The preview and `docs/data-retention.md` say plainly that gradebook snapshots keep the name and register number as the academic record, flagged for the client's counsel (the screen test asserts the words).
+  - [x] Every state change and its audit row are one transaction (failure injection), races use the held-lock pattern, every time decision takes `p_now` and is tested at the boundary, the 30-day expiry notifies in the bell and by e-mail.
 - Measured (A/B on two scratch databases, with and without 0061; docs/benchmarks.md has no entry yet): the gradebook grid chunk of 500 learners +9 % (fresh) / noise
   (analyzed), approve +12 % fresh / equal analyzed, one learner's explanation +2-4 ms; all equal at 1,200 learners.
 
@@ -1120,7 +1139,7 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
   - **Rules for new code**: (1) never write an audit row after the change in a separate call; (2) a definer function that reads, decides, then writes must lock what it decided on (`FOR UPDATE` / advisory lock) or put the condition INTO the write (`UPDATE ... WHERE status = ...`,
     `INSERT ... ON CONFLICT`); (3) a read-merge-write of JSON settings takes the advisory lock first, in its own statement (the read must be a new snapshot).
 - **Migrations 0058 and 0059** are applied to the dev database by the agent in step 14a follow-ups; 0059 replaces `auth_accept_invite`, `auth_login_complete`, `platform_admin_invite`, `assignment_upload_begin` (same signatures: grants stay) and adds three `auth_*` functions (listed in `test/auth.functions.test.ts`).
-- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0063 (0060 / 0061 are step 14b-1 part 1, 0062 part 2, below). MFA (TOTP) is planned as step 14c.** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0066 (0060 / 0061 are step 14b-1 part 1, 0062 part 2, 0063-0065 part 3, below). MFA (TOTP) is planned as step 14c.** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
   payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend
