@@ -1,6 +1,10 @@
 import type { Static } from '@sinclair/typebox';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import type { RequestDataExportSchema, RequestErasureSchema } from '../../contracts';
+import type {
+  PlatformAccountErasureBodySchema,
+  RequestDataExportSchema,
+  RequestErasureSchema,
+} from '../../contracts';
 import { contextFrom } from '../../core/context';
 import type { ErasureService } from './privacy.erasure.service';
 import type { IdParams } from './privacy.schemas';
@@ -41,6 +45,28 @@ export function createErasureController(deps: { erasureService: ErasureService }
       as<never>(await svc.cancelMine(contextFrom(request))),
     adminList: async (request: FastifyRequest) =>
       as<never>(await svc.adminList(contextFrom(request))),
+    accountMine: async (request: FastifyRequest) =>
+      as<never>(await svc.accountMine(contextFrom(request))),
+    requestAccount: async (
+      request: FastifyRequest<{ Body: Static<typeof RequestErasureSchema> }>,
+      reply: FastifyReply,
+    ) =>
+      reply
+        .code(202)
+        .send(as<never>(await svc.requestAccountErasure(contextFrom(request), request.body))),
+    platformRequest: async (
+      request: FastifyRequest<{ Body: Static<typeof PlatformAccountErasureBodySchema> }>,
+      reply: FastifyReply,
+    ) =>
+      reply
+        .code(202)
+        .send(as<never>(await svc.platformRequest(contextFrom(request), request.body))),
+    platformList: async (request: FastifyRequest) =>
+      as<never>(await svc.platformList(contextFrom(request))),
+    platformDecide:
+      (action: 'approve' | 'reject' | 'cancel') =>
+      async (request: FastifyRequest<{ Params: Static<typeof IdParams> }>) =>
+        as<never>(await svc.platformDecide(contextFrom(request), request.params.id, action)),
     decide:
       (action: 'approve' | 'reject' | 'cancel') =>
       async (request: FastifyRequest<{ Params: Static<typeof IdParams> }>) =>

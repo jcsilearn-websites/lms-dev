@@ -19,6 +19,7 @@ export interface RequestRow {
 export interface AdminRow extends RequestRow {
   memberName: string;
   memberEmail: string;
+  withAccount: boolean;
 }
 
 const iso = (v: unknown): string | null =>
@@ -49,7 +50,7 @@ export function createErasureRepository() {
 
     async adminList(tx: Executor, limit: number): Promise<AdminRow[]> {
       const res = await tx.execute(
-        sql`SELECT e.id, e.status, e.requested_at, e.expires_at, e.grace_until, i.display_name, i.email
+        sql`SELECT e.id, e.status, e.requested_at, e.expires_at, e.grace_until, e.with_account, i.display_name, i.email
               FROM lms.erasure_requests e
               JOIN lms.member_identity i ON i.tenant_id = e.tenant_id AND i.membership_id = e.membership_id
              ORDER BY (e.status IN ('pending_approval', 'approved')) DESC, e.requested_at DESC, e.id DESC LIMIT ${limit}`,
@@ -58,6 +59,7 @@ export function createErasureRepository() {
         ...toRow(r),
         memberName: r.display_name as string,
         memberEmail: r.email as string,
+        withAccount: r.with_account as boolean,
       }));
     },
 
@@ -167,6 +169,117 @@ export function createErasureRepository() {
         exec,
         sql`select lms.privacy_erasure_reapply(${a.tenantId}::uuid, ${a.membershipId}::uuid, ${a.userId}::uuid, ${a.requestId}::uuid,
               ${a.at}::timestamptz, ${a.now.toISOString()}::timestamptz, ${a.email}::text, ${`\\x${a.hash.toString('hex')}`}::bytea, ${a.kid}::text) as r`,
+      ),
+
+    // ------------------------------------------------------------ the global account (migrations 0066 / 0067)
+    accountMine: (exec: Executor, tenantId: string, userId: string) =>
+      call(exec, sql`select lms.privacy_account_mine(${tenantId}::uuid, ${userId}::uuid) as r`),
+
+    accountRequestCombined: (
+      exec: Executor,
+      a: { tenantId: string; userId: string; ip: string | null; now: Date },
+    ) =>
+      call(
+        exec,
+        sql`select lms.privacy_account_request_combined(${a.tenantId}::uuid, ${a.userId}::uuid, ${a.ip}::inet, ${a.now.toISOString()}::timestamptz) as r`,
+      ),
+
+    platformRequest: (
+      exec: Executor,
+      a: { actor: string; email: string; ip: string | null; now: Date },
+    ) =>
+      call(
+        exec,
+        sql`select lms.privacy_account_platform_request(${a.actor}::uuid, ${a.email}::text, ${a.ip}::inet, ${a.now.toISOString()}::timestamptz) as r`,
+      ),
+
+    platformDecide: (
+      exec: Executor,
+      a: {
+        actor: string;
+        id: string;
+        action: 'approve' | 'reject' | 'cancel';
+        now: Date;
+        ip: string | null;
+      },
+    ) =>
+      call(
+        exec,
+        sql`select lms.privacy_account_platform_decide(${a.actor}::uuid, ${a.id}::uuid, ${a.action}::text, ${a.now.toISOString()}::timestamptz, ${a.ip}::inet) as r`,
+      ),
+
+    platformList: (exec: Executor, actor: string, limit: number) =>
+      call(
+        exec,
+        sql`select lms.privacy_account_platform_list(${actor}::uuid, ${limit}::int, NULL::timestamptz, NULL::uuid) as r`,
+      ),
+
+    accountSync: (exec: Executor, now: Date, limit: number) =>
+      call(
+        exec,
+        sql`select lms.privacy_account_sync(${now.toISOString()}::timestamptz, ${limit}::int) as r`,
+      ),
+
+    async accountDue(exec: Executor, now: Date, limit: number): Promise<string[]> {
+      const res = await exec.execute(
+        sql`select r_id from lms.privacy_account_due(${now.toISOString()}::timestamptz, ${limit}::int)`,
+      );
+      return res.rows.map((r) => r.r_id as string);
+    },
+
+    accountPrepare: (exec: Executor, id: string, now: Date) =>
+      call(
+        exec,
+        sql`select lms.privacy_account_prepare(${id}::uuid, ${now.toISOString()}::timestamptz) as r`,
+      ),
+
+    accountExecute: (
+      exec: Executor,
+      a: { id: string; now: Date; email: string; hash: Buffer; kid: string },
+    ) =>
+      call(
+        exec,
+        sql`select lms.privacy_account_execute(${a.id}::uuid, ${a.now.toISOString()}::timestamptz, ${a.email}::text,
+              ${`\\x${a.hash.toString('hex')}`}::bytea, ${a.kid}::text) as r`,
+      ),
+
+    async accountLedgerPending(exec: Executor, limit: number) {
+      const res = await exec.execute(
+        sql`select r_id, r_user, r_at from lms.privacy_account_ledger_pending(${limit}::int)`,
+      );
+      return res.rows.map((r) => ({
+        requestId: r.r_id as string,
+        userId: r.r_user as string,
+        at: iso(r.r_at) as string,
+      }));
+    },
+
+    async accountLedgerDone(exec: Executor, ids: string[], now: Date): Promise<number> {
+      const res = await exec.execute(
+        sql`select lms.privacy_account_ledger_done(${`{${ids.join(',')}}`}::uuid[], ${now.toISOString()}::timestamptz) as n`,
+      );
+      return Number((res.rows[0] as { n: number }).n);
+    },
+
+    accountReapplyPrepare: (exec: Executor, userId: string) =>
+      call(exec, sql`select lms.privacy_account_reapply_prepare(${userId}::uuid) as r`),
+
+    accountReapply: (
+      exec: Executor,
+      a: {
+        userId: string;
+        requestId: string;
+        at: string;
+        now: Date;
+        email: string;
+        hash: Buffer;
+        kid: string;
+      },
+    ) =>
+      call(
+        exec,
+        sql`select lms.privacy_account_reapply(${a.userId}::uuid, ${a.requestId}::uuid, ${a.at}::timestamptz, ${a.now.toISOString()}::timestamptz,
+              ${a.email}::text, ${`\\x${a.hash.toString('hex')}`}::bytea, ${a.kid}::text) as r`,
       ),
   };
 }

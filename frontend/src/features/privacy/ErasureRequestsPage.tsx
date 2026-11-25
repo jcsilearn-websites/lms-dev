@@ -102,7 +102,10 @@ export function ErasureRequestsPage() {
               return (
                 <li key={x.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium">{x.memberName}</p>
+                    <p className="truncate text-sm font-medium">
+                      {x.memberName}
+                      {x.withAccount ? ' · and their whole account' : ''}
+                    </p>
                     <p className="text-sm text-muted-foreground">
                       Asked {when(x.requestedAt)}
                       {x.status === 'pending_approval' && x.expiresAt
@@ -153,6 +156,9 @@ export function ErasureRequestsPage() {
               notifications are removed, the member can no longer sign in to this college, and it
               cannot be undone. Their submissions, quiz attempts, grades and progress, the approved
               gradebooks and the audit trail are kept, as described to the member.
+              {target.item.withAccount
+                ? ' The member also asked for their whole account to be erased: it follows right after, with its sign-in, its password and the name it shows in every college.'
+                : ''}
             </>
           ) : target?.action === 'reject' ? (
             <>The member is told that the request was not approved. Nothing is changed.</>

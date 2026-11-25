@@ -1,4 +1,9 @@
-import { ERASURE_RULES, type ErasurePreview, type ErasureRequest } from '../../contracts';
+import {
+  type AccountErasureRequest,
+  ERASURE_RULES,
+  type ErasurePreview,
+  type ErasureRequest,
+} from '../../contracts';
 import { can } from '../../core/authz';
 import type { RequestContext } from '../../core/context';
 import type { ErasureLedger } from '../../core/erasure-ledger';
@@ -6,7 +11,11 @@ import { ConflictError, ForbiddenError, NotFoundError } from '../../core/errors'
 import type { AddressHasher } from '../../core/keyed-hash';
 import type { Database } from '../../db/client';
 import type { AdminRow, ErasureRepository, RequestRow } from './privacy.erasure.repository';
-import { NotAnActiveMemberError } from './privacy.errors';
+import {
+  AccountNotEligibleError,
+  ErasureAlreadyOpenError,
+  NotAnActiveMemberError,
+} from './privacy.errors';
 
 const toDto = (r: RequestRow): ErasureRequest => ({ ...r });
 
@@ -45,6 +54,10 @@ export function createErasureService(deps: {
   };
 
   const asRequest = (j: unknown): ErasureRequest | null => (j ? (j as ErasureRequest) : null);
+  const platformAdmin = (ctx: RequestContext): string => {
+    if (ctx.tenantId || !can(ctx, 'platform.account_erasure.manage')) throw new ForbiddenError();
+    return ctx.userId;
+  };
 
   async function decide(
     ctx: RequestContext,
@@ -132,9 +145,9 @@ export function createErasureService(deps: {
     },
 
     /** GET /privacy/erasure-requests (institution admins) */
-    async adminList(
-      ctx: RequestContext,
-    ): Promise<{ items: (ErasureRequest & { memberName: string; memberEmail: string })[] }> {
+    async adminList(ctx: RequestContext): Promise<{
+      items: (ErasureRequest & { memberName: string; memberEmail: string; withAccount: boolean })[];
+    }> {
       const tenantId = approver(ctx);
       const rows: AdminRow[] = await db.withTenant(tenantId, (tx) =>
         erasureRepo.adminList(tx, 100),
@@ -144,6 +157,7 @@ export function createErasureService(deps: {
           ...toDto(r),
           memberName: r.memberName,
           memberEmail: r.memberEmail,
+          withAccount: r.withAccount,
         })),
       };
     },
@@ -153,12 +167,186 @@ export function createErasureService(deps: {
       return decide(ctx, approver(ctx), id, action);
     },
 
+    // ------------------------------------------------------------------ the global account (step 14b-1 part 4)
+    /** GET /me/account-erasure: the latest account request, and whether "erase my account" is available in this college */
+    async accountMine(ctx: RequestContext): Promise<{
+      request: AccountErasureRequest | null;
+      eligible: boolean;
+      colleges: number;
+    }> {
+      const { tenantId, userId } = member(ctx);
+      const r = await db.withoutTenant((exec) => erasureRepo.accountMine(exec, tenantId, userId));
+      return {
+        request: (r.request as AccountErasureRequest | null) ?? null,
+        eligible: r.eligible as boolean,
+        colleges: Number(r.colleges),
+      };
+    },
+
+    /**
+     * POST /me/account-erasure: a member of exactly ONE college asks for the college erasure AND the account erasure. The password is
+     * asked again BEFORE anything is written. The college's administrators approve (as for any erasure); the account follows the
+     * college erasure.
+     */
+    async requestAccountErasure(
+      ctx: RequestContext,
+      input: { password: string },
+    ): Promise<{
+      request: AccountErasureRequest;
+      collegeRequest: ErasureRequest | null;
+      alreadyInProgress: boolean;
+    }> {
+      const { tenantId, userId } = member(ctx);
+      await passwords.confirm(ctx, input.password);
+      const r = await db.withoutTenant((exec) =>
+        erasureRepo.accountRequestCombined(exec, { tenantId, userId, ip: ctx.ip, now: now() }),
+      );
+      if (r.result === 'not_a_member') throw new NotAnActiveMemberError();
+      if (r.result === 'not_eligible') throw new AccountNotEligibleError();
+      if (r.result === 'last_admin') throw new LastAdminError();
+      if (r.result === 'in_progress') {
+        const open = r.request as AccountErasureRequest & { source?: string };
+        // a plain college request is open (it has no `source`): the member decides what they want first
+        if (!open.source) throw new ErasureAlreadyOpenError();
+        return { request: open, collegeRequest: null, alreadyInProgress: true };
+      }
+      return {
+        request: r.request as AccountErasureRequest,
+        collegeRequest: asRequest(r.collegeRequest),
+        alreadyInProgress: false,
+      };
+    },
+
+    /** POST /platform/account-erasures: a platform administrator files a request for a person with no active membership */
+    async platformRequest(
+      ctx: RequestContext,
+      input: { email: string },
+    ): Promise<{ request: AccountErasureRequest }> {
+      const actor = platformAdmin(ctx);
+      const r = await db.withoutTenant((exec) =>
+        erasureRepo.platformRequest(exec, { actor, email: input.email, ip: ctx.ip, now: now() }),
+      );
+      switch (r.result) {
+        case 'ok':
+          return { request: r.request as AccountErasureRequest };
+        case 'not_found':
+          throw new NotFoundError('account_not_found', 'No account has this address');
+        case 'already_erased':
+          throw new ConflictError('account_already_erased', 'This account was already erased.');
+        case 'is_platform_admin':
+          throw new ConflictError(
+            'account_not_erasable',
+            'The account of a platform administrator is not erased here.',
+          );
+        case 'has_memberships':
+          throw new ConflictError(
+            'account_has_memberships',
+            'This person is still a member of a college. Each college erases its own member first.',
+          );
+        default:
+          throw new ConflictError(
+            'account_erasure_in_progress',
+            'There is already an open request for this account.',
+          );
+      }
+    },
+
+    /** approve | reject | cancel by a platform administrator (approve and reject: never the one who filed it) */
+    async platformDecide(
+      ctx: RequestContext,
+      id: string,
+      action: 'approve' | 'reject' | 'cancel',
+    ): Promise<{ request: AccountErasureRequest }> {
+      const actor = platformAdmin(ctx);
+      const r = await db.withoutTenant((exec) =>
+        erasureRepo.platformDecide(exec, { actor, id, action, now: now(), ip: ctx.ip }),
+      );
+      switch (r.result) {
+        case 'ok':
+          return { request: r.request as AccountErasureRequest };
+        case 'not_found':
+          throw new NotFoundError('account_erasure_not_found', 'This request does not exist');
+        case 'self_approval':
+          throw new ConflictError(
+            'self_approval_not_allowed',
+            'A different platform administrator has to decide on a request you filed.',
+          );
+        case 'expired':
+          throw new ConflictError('erasure_request_expired', 'This request has expired.');
+        case 'too_late':
+          throw new ConflictError(
+            'erasure_too_late',
+            'The grace period is over: the erasure can no longer be cancelled.',
+          );
+        case 'has_memberships':
+          throw new ConflictError(
+            'account_has_memberships',
+            'This person has become a member of a college again.',
+          );
+        default:
+          throw new ConflictError(
+            'erasure_request_not_pending',
+            'This request was already decided.',
+          );
+      }
+    },
+
+    /** GET /platform/account-erasures: the newest 100 */
+    async platformList(ctx: RequestContext) {
+      const actor = platformAdmin(ctx);
+      return (await db.withoutTenant((exec) => erasureRepo.platformList(exec, actor, 100))) as {
+        items: unknown[];
+        hasMore: boolean;
+      };
+    },
+
+    /**
+     * The account half of a scan: expire undecided platform requests, let a combined request follow its college request, execute what
+     * is due. One database call per account; every step is safe to repeat.
+     */
+    async scanAccounts(): Promise<{
+      expired: number;
+      ready: number;
+      closed: number;
+      erased: number;
+      blocked: number;
+    }> {
+      const sync = (await db.withoutTenant((exec) =>
+        erasureRepo.accountSync(exec, now(), 200),
+      )) as { expired: number; ready: number; closed: number };
+      let erased = 0;
+      let blocked = 0;
+      const due = await db.withoutTenant((exec) => erasureRepo.accountDue(exec, now(), 50));
+      for (const id of due) {
+        const prep = await db.withoutTenant((exec) => erasureRepo.accountPrepare(exec, id, now()));
+        if (prep.result !== 'ok') continue;
+        const address = prep.email as string;
+        const { kid, hash } = hasher.hash(address);
+        const r = await db.withoutTenant((exec) =>
+          erasureRepo.accountExecute(exec, { id, now: now(), email: address, hash, kid }),
+        );
+        if (r.result === 'ok') erased += 1;
+        else if (r.result === 'blocked') blocked += 1;
+      }
+      return { ...sync, erased, blocked };
+    },
+
     // ------------------------------------------------------------------ the worker
     /**
      * One scan: expire undecided requests (the member is told by the database function), execute what is due, write the ledger
      * entries that are still to write. Every step is safe to repeat.
      */
-    async scan(): Promise<{ expired: number; erased: number; blocked: number; ledger: number }> {
+    async scan(): Promise<{
+      expired: number;
+      erased: number;
+      blocked: number;
+      ledger: number;
+      accountsExpired: number;
+      accountsReady: number;
+      accountsClosed: number;
+      accountsErased: number;
+      accountsBlocked: number;
+    }> {
       const expired = await db.withoutTenant((exec) => erasureRepo.expire(exec, now(), 200));
       let erased = 0;
       let blocked = 0;
@@ -183,13 +371,29 @@ export function createErasureService(deps: {
         if (r.result === 'ok') erased += 1;
         else if (r.result === 'blocked') blocked += 1;
       }
-      return { expired, erased, blocked, ledger: await this.writeLedger() };
+      // the college half first: a combined request waits for its college erasure, which this scan may just have executed
+      const accounts = await this.scanAccounts();
+      return {
+        expired,
+        erased,
+        blocked,
+        ledger: await this.writeLedger(),
+        accountsExpired: accounts.expired,
+        accountsReady: accounts.ready,
+        accountsClosed: accounts.closed,
+        accountsErased: accounts.erased,
+        accountsBlocked: accounts.blocked,
+      };
     },
 
     /** Appends the ledger entries of executed erasures (ids only) outside the database, then records that it was done. */
     async writeLedger(): Promise<number> {
       const pending = await db.withoutTenant((exec) => erasureRepo.ledgerPending(exec, 200));
+      const pendingAccounts = await db.withoutTenant((exec) =>
+        erasureRepo.accountLedgerPending(exec, 200),
+      );
       const done: string[] = [];
+      const doneAccounts: string[] = [];
       for (const p of pending) {
         try {
           await ledger.append({
@@ -206,9 +410,25 @@ export function createErasureService(deps: {
           // the ledger is unwell: the entry stays pending and the next scan writes it (never lost, never "done" without being written)
         }
       }
+      for (const p of pendingAccounts) {
+        try {
+          await ledger.append({
+            v: 1,
+            requestId: p.requestId,
+            userId: p.userId,
+            level: 'account',
+            at: p.at,
+          });
+          doneAccounts.push(p.requestId);
+        } catch {
+          // as above: stays pending, written by the next scan
+        }
+      }
       if (done.length > 0)
         await db.withoutTenant((exec) => erasureRepo.ledgerDone(exec, done, now()));
-      return done.length;
+      if (doneAccounts.length > 0)
+        await db.withoutTenant((exec) => erasureRepo.accountLedgerDone(exec, doneAccounts, now()));
+      return done.length + doneAccounts.length;
     },
 
     /**
@@ -220,12 +440,42 @@ export function createErasureService(deps: {
       reapplied: number;
       already: number;
       nothing: number;
+      /** an account whose college erasure was not re-applied yet (run the command again) */
+      blocked: number;
     }> {
       const entries = await ledger.readAll();
       let reapplied = 0;
       let already = 0;
       let nothing = 0;
+      let blocked = 0;
       for (const e of entries) {
+        if (e.level === 'account') {
+          const prepA = await db.withoutTenant((exec) =>
+            erasureRepo.accountReapplyPrepare(exec, e.userId),
+          );
+          if (prepA.result === 'already') already += 1;
+          else if (prepA.result !== 'ok') nothing += 1;
+          else {
+            const addressA = prepA.email as string;
+            const { kid, hash } = hasher.hash(addressA);
+            const rA = await db.withoutTenant((exec) =>
+              erasureRepo.accountReapply(exec, {
+                userId: e.userId,
+                requestId: e.requestId,
+                at: e.at,
+                now: now(),
+                email: addressA,
+                hash,
+                kid,
+              }),
+            );
+            if (rA.result === 'ok') reapplied += 1;
+            else if (rA.result === 'already') already += 1;
+            else if (rA.result === 'has_membership') blocked += 1;
+            else nothing += 1;
+          }
+          continue;
+        }
         const prep = await db.withoutTenant((exec) =>
           erasureRepo.reapplyPrepare(exec, {
             tenantId: e.tenantId,
@@ -260,7 +510,7 @@ export function createErasureService(deps: {
         else if (r.result === 'already') already += 1;
         else nothing += 1;
       }
-      return { entries: entries.length, reapplied, already, nothing };
+      return { entries: entries.length, reapplied, already, nothing, blocked };
     },
   };
 }

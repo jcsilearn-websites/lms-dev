@@ -10,7 +10,7 @@ import { StorageUnavailableError } from './storage';
 // database restore does not reach and nobody can rewrite it: the GCS driver (a bucket with a retention lock) is built in the GCP step;
 // until then it answers like the other GCS stubs (503), and an erasure waits instead of being forgotten.
 
-export interface LedgerEntry {
+export interface CollegeLedgerEntry {
   v: 1;
   requestId: string;
   tenantId: string;
@@ -20,6 +20,15 @@ export interface LedgerEntry {
   /** when the erasure was executed (ISO) */
   at: string;
 }
+/** The global account (no college, no membership: the person is erased everywhere they were). */
+export interface AccountLedgerEntry {
+  v: 1;
+  requestId: string;
+  userId: string;
+  level: 'account';
+  at: string;
+}
+export type LedgerEntry = CollegeLedgerEntry | AccountLedgerEntry;
 
 export interface ErasureLedger {
   readonly driver: 'local' | 'gcs';
@@ -30,19 +39,52 @@ export interface ErasureLedger {
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const ids = (x: Record<string, unknown>, keys: string[]) =>
+  keys.every((k) => typeof x[k] === 'string' && UUID.test(x[k] as string));
 const valid = (e: unknown): e is LedgerEntry => {
-  const x = e as Partial<LedgerEntry> | null;
-  return (
-    !!x &&
-    x.v === 1 &&
-    x.level === 'college' &&
-    [x.requestId, x.tenantId, x.membershipId, x.userId].every(
-      (s) => typeof s === 'string' && UUID.test(s),
-    ) &&
-    typeof x.at === 'string' &&
-    !Number.isNaN(Date.parse(x.at))
-  );
+  const x = e as Record<string, unknown> | null;
+  if (x?.v !== 1 || typeof x.at !== 'string' || Number.isNaN(Date.parse(x.at))) return false;
+  if (x.level === 'college') return ids(x, ['requestId', 'tenantId', 'membershipId', 'userId']);
+  if (x.level === 'account') return ids(x, ['requestId', 'userId']);
+  return false;
 };
+/** ONLY the known fields of the level are written, whatever the caller passes: the ledger can never hold a name or an address */
+const project = (e: LedgerEntry): LedgerEntry =>
+  e.level === 'college'
+    ? {
+        v: 1,
+        requestId: e.requestId,
+        tenantId: e.tenantId,
+        membershipId: e.membershipId,
+        userId: e.userId,
+        level: 'college',
+        at: e.at,
+      }
+    : { v: 1, requestId: e.requestId, userId: e.userId, level: 'account', at: e.at };
+
+/**
+ * A crash in the middle of an earlier append leaves a last line without its newline. That fragment was never acknowledged (the database
+ * still has the entry pending), so it is cut off before the next entry is written: the file never holds a damaged line in the middle.
+ */
+async function dropTornTail(file: string): Promise<void> {
+  let fh: Awaited<ReturnType<typeof open>>;
+  try {
+    fh = await open(file, 'r+');
+  } catch (err) {
+    if ((err as { code?: string }).code === 'ENOENT') return;
+    throw err;
+  }
+  try {
+    const { size } = await fh.stat();
+    if (size === 0) return;
+    const bytes = await fh.readFile();
+    if (bytes[bytes.length - 1] === 0x0a) return;
+    await fh.truncate(bytes.lastIndexOf(0x0a) + 1);
+    await fh.sync();
+  } finally {
+    await fh.close();
+  }
+}
 
 export function createLocalLedger(opts: { dir: string }): ErasureLedger {
   const file = path.resolve(opts.dir, 'erasure-ledger.jsonl');
@@ -51,16 +93,8 @@ export function createLocalLedger(opts: { dir: string }): ErasureLedger {
     async append(entry) {
       if (!valid(entry)) throw new Error('invalid ledger entry');
       await mkdir(path.dirname(file), { recursive: true });
-      // ONLY the seven known fields are written, whatever the caller passes: the ledger can never hold a name or an address
-      const clean: LedgerEntry = {
-        v: 1,
-        requestId: entry.requestId,
-        tenantId: entry.tenantId,
-        membershipId: entry.membershipId,
-        userId: entry.userId,
-        level: 'college',
-        at: entry.at,
-      };
+      const clean = project(entry);
+      await dropTornTail(file);
       await appendFile(file, `${JSON.stringify(clean)}\n`, { flag: 'a' });
       // flushed to disk before the database is told the entry exists
       const fh = await open(file, 'a');
@@ -80,8 +114,13 @@ export function createLocalLedger(opts: { dir: string }): ErasureLedger {
       }
       const seen = new Set<string>();
       const out: LedgerEntry[] = [];
-      for (const line of text.split('\n')) {
+      const lines = text.split('\n');
+      // the LAST line without a newline is a torn write (the process died while appending): it was never acknowledged, so it is
+      // ignored; the entry is still pending in the database and the next scan appends it again
+      const torn = !text.endsWith('\n');
+      for (const [i, line] of lines.entries()) {
         if (!line.trim()) continue;
+        if (torn && i === lines.length - 1) continue;
         let parsed: unknown;
         try {
           parsed = JSON.parse(line);

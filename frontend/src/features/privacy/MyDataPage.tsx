@@ -7,6 +7,7 @@ import { Field } from '../../shared/ui/field';
 import { Badge, Card, PageHeader } from '../../shared/ui/layout';
 import { EmptyState, ErrorState, ListSkeleton } from '../../shared/ui/states';
 import { toast } from '../../shared/ui/toast';
+import { AccountErasureSection } from './AccountErasureSection';
 import { ErasureSection } from './ErasureSection';
 import { dataExportLink, listDataExports, privacyKeys, requestDataExport } from './privacy.api';
 
@@ -147,6 +148,7 @@ export function MyDataPage() {
         )}
       </Card>
       <ErasureSection />
+      <AccountErasureSection />
     </div>
   );
 }

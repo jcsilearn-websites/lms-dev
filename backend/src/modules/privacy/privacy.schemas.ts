@@ -1,12 +1,17 @@
 import { Type } from '@sinclair/typebox';
 import {
+  AccountErasureRequestSchema,
   COMMON_ERRORS,
   DataExportDownloadSchema,
   DataExportListSchema,
   ErasureAdminListSchema,
   ErasurePreviewSchema,
   ErasureRequestSchema,
+  MyAccountErasureSchema,
   MyErasureSchema,
+  PlatformAccountErasureBodySchema,
+  PlatformAccountErasureListSchema,
+  RequestAccountErasureResultSchema,
   RequestDataExportResultSchema,
   RequestDataExportSchema,
   RequestErasureResultSchema,
@@ -77,5 +82,48 @@ export const approveErasureRouteSchema = decideSchema(
 );
 export const rejectErasureRouteSchema = decideSchema('Reject a request');
 export const cancelErasureRouteSchema = decideSchema(
+  'Cancel a request before its grace period ends',
+);
+
+// ------------------------------------------------------------------ erasure of the global account
+export const myAccountErasureRouteSchema = {
+  tags: erasureTags,
+  summary: 'My account-erasure request and whether it is available in this college',
+  response: { 200: MyAccountErasureSchema, ...COMMON_ERRORS },
+};
+export const requestAccountErasureRouteSchema = {
+  tags: erasureTags,
+  summary:
+    'Erase my whole account: only while this is the one college I belong to. The password is asked again; the college erasure comes first (an administrator approves it), the account follows it',
+  body: RequestErasureSchema,
+  response: { 202: RequestAccountErasureResultSchema, ...COMMON_ERRORS },
+};
+const platformTags = ['platform', 'privacy'];
+export const platformAccountErasureListRouteSchema = {
+  tags: platformTags,
+  summary: 'Account-erasure requests filed by platform administrators (newest 100)',
+  response: { 200: PlatformAccountErasureListSchema, ...COMMON_ERRORS },
+};
+export const platformAccountErasureRequestRouteSchema = {
+  tags: platformTags,
+  summary:
+    'File the erasure of the account with this address (allowed only when the person has no active membership anywhere)',
+  body: PlatformAccountErasureBodySchema,
+  response: {
+    202: Type.Object({ request: AccountErasureRequestSchema }),
+    ...COMMON_ERRORS,
+  },
+};
+const platformDecideSchema = (summary: string) => ({
+  tags: platformTags,
+  summary,
+  params: IdParams,
+  response: { 200: Type.Object({ request: AccountErasureRequestSchema }), ...COMMON_ERRORS },
+});
+export const approveAccountErasureRouteSchema = platformDecideSchema(
+  'Approve (a different platform administrator than the one who filed it): 7 days of grace start',
+);
+export const rejectAccountErasureRouteSchema = platformDecideSchema('Reject a request');
+export const cancelAccountErasureRouteSchema = platformDecideSchema(
   'Cancel a request before its grace period ends',
 );

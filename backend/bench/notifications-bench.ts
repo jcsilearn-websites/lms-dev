@@ -1,5 +1,8 @@
 import { randomBytes } from 'node:crypto';
+import { cp, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { request } from 'node:http';
+import { tmpdir as osTmpdir } from 'node:os';
+import { join as joinPath } from 'node:path';
 import autocannon from 'autocannon';
 import pg from 'pg';
 import { buildApp } from '../src/app';
@@ -10,7 +13,7 @@ import { createPasswordHasher } from '../src/core/password';
 import { newId } from '../src/core/uuid';
 import { createDb } from '../src/db/client';
 import { connectionConfig } from '../src/db/connection';
-import { runMigrations } from '../src/db/migrate';
+import { MIGRATIONS_DIR, runMigrations } from '../src/db/migrate';
 import { createEmailRepository, createEmailService } from '../src/modules/email';
 
 // Step 13 benchmark on a SCRATCH database ("lms_bench_s13_<random>", created, migrated and dropped here: the dev database is
@@ -23,7 +26,7 @@ import { createEmailRepository, createEmailService } from '../src/modules/email'
 //   3. the unread-count endpoint under load (HTTP, 200 and 304) and its definer function alone;
 //   4. the daily digests (new content per course, work waiting to be graded) for the same college.
 //
-//   pnpm --filter @lms/backend run bench:notifications     BENCH_STUDENTS=10000 BENCH_OFFERINGS=200 BENCH_PER_OFFERING=60 BENCH_KEEP=1
+//   pnpm --filter @lms/backend run bench:notifications     BENCH_STUDENTS=10000 BENCH_OFFERINGS=200 BENCH_PER_OFFERING=60 BENCH_KEEP=1 [BENCH_MIGRATE_UPTO=0064]
 
 const STUDENTS = Number(process.env.BENCH_STUDENTS ?? 10_000);
 const OFFERINGS = Number(process.env.BENCH_OFFERINGS ?? 200);
@@ -70,11 +73,21 @@ async function main(): Promise<void> {
   let db: ReturnType<typeof createDb> | undefined;
   let app: ReturnType<typeof buildApp> | undefined;
   try {
+    // BENCH_MIGRATE_UPTO=0064: migrate only up to that number (an A/B of one migration, e.g. 0065 = notify_fanout's membership check)
+    let migrationsDir = MIGRATIONS_DIR;
+    const upto = process.env.BENCH_MIGRATE_UPTO;
+    if (upto) {
+      migrationsDir = await mkdtemp(joinPath(osTmpdir(), 'bench-migrations-'));
+      await cp(MIGRATIONS_DIR, migrationsDir, { recursive: true });
+      for (const f of await readdir(migrationsDir))
+        if (f.slice(0, 4) > upto) await rm(joinPath(migrationsDir, f));
+    }
     await runMigrations({
       ownerUrl,
       ssl: ownerEnv.DB_SSL,
       sslCa: ownerEnv.DB_SSL_CA,
       appPassword: decodeURIComponent(new URL(appUrl).password),
+      migrationsDir,
     });
     owner = new pg.Client(connectionConfig(ownerUrl, ownerEnv.DB_SSL, ownerEnv.DB_SSL_CA));
     await owner.connect();

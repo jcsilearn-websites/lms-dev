@@ -74,8 +74,9 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `platform.user.unlock` | yes |  |  |  |  |  | Clear a login lockout (admin host) |
 | `platform.usage.read` | yes |  |  |  |  |  | Read the monthly usage of every college (aggregates only, admin host) |
 | `platform.email.manage` | yes |  |  |  |  |  | Manage email delivery: clear any suppressed address, set a college's verified From address (admin host) |
+| `platform.account_erasure.manage` | yes |  |  |  |  |  | File, approve (a different platform administrator than the one who filed it), reject or cancel the erasure of a global account that has no active membership (admin host) |
 
-53 permissions. Notes:
+54 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
 - "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
@@ -171,6 +172,8 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/imports/:id/rows` | `import.run` |
 | GET | `/api/imports/templates/faculty.csv` | `import.run` |
 | GET | `/api/imports/templates/students.csv` | `import.run` |
+| GET | `/api/me/account-erasure` | any signed-in user |
+| POST | `/api/me/account-erasure` | any signed-in user |
 | GET | `/api/me/courses` | any signed-in user |
 | GET | `/api/me/dashboard` | any signed-in user |
 | GET | `/api/me/data-exports` | any signed-in user |
@@ -320,6 +323,11 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/offerings/:id/videos/:videoId/complete` | `course.edit` in the offering |
 | GET | `/api/offerings/:id/videos/:videoId/upload` | `course.edit` in the offering |
 | PATCH | `/api/offerings/:id/videos/:videoId/upload` | `course.edit` in the offering |
+| GET | `/api/platform/account-erasures` | `platform.account_erasure.manage` |
+| POST | `/api/platform/account-erasures` | `platform.account_erasure.manage` |
+| POST | `/api/platform/account-erasures/:id/approve` | `platform.account_erasure.manage` |
+| POST | `/api/platform/account-erasures/:id/cancel` | `platform.account_erasure.manage` |
+| POST | `/api/platform/account-erasures/:id/reject` | `platform.account_erasure.manage` |
 | GET | `/api/platform/audit` | `platform.audit.read` |
 | GET | `/api/platform/email/suppressions` | `platform.email.manage` |
 | DELETE | `/api/platform/email/suppressions/:id` | `platform.email.manage` |

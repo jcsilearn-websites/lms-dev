@@ -8,10 +8,10 @@ The platform implements the rule written here; a different rule is a change to t
 
 ## Two levels
 
-| Level               | Who asks                              | Who decides               | What it touches                                                                                                    |
-| ------------------- | ------------------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **College** (built) | the member, with their password again | another institution admin | the member's identity and personal data IN THAT COLLEGE. The global account and every other college are untouched. |
-| **Account** (next)  | the member, or a platform admin       | a platform admin          | the global account (name, address, credentials), allowed only when no active membership is left. Not built yet.    |
+| Level               | Who asks                                                                                                 | Who decides                                                           | What it touches                                                                                                                                                                                        |
+| ------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **College** (built) | the member, with their password again                                                                    | another institution admin                                             | the member's identity and personal data IN THAT COLLEGE. The global account and every other college are untouched.                                                                                     |
+| **Account** (built) | the member of exactly ONE college (combined), or a platform admin for a person with no active membership | the college's administrator (combined), or a DIFFERENT platform admin | the global account (name, address, credentials, every session) and, through it, the name shown in every college the person belonged to. Allowed only when no membership that is not `removed` is left. |
 
 ## The request
 
@@ -22,6 +22,52 @@ The platform implements the rule written here; a different rule is a change to t
 3. After the approval there are **7 days of grace**. The member or an administrator can cancel until the grace period ends.
 4. After that the worker carries it out, in one transaction, and writes an entry (ids only) into the erasure ledger.
 5. The last active institution admin of a college cannot be erased: refused when asking, when approving and when executing.
+
+## The account level
+
+An account can be erased only when the person has **no membership that is not removed** anywhere (active, pending and suspended all count): a
+college's own member is erased by that college first.
+
+- **Combined** (a member of exactly one college): "Erase my whole account" asks for the password again and files the college request of the section
+  above plus an account request that **waits for it**. The college's administrator approves (7 days of grace, cancel until then, 30 days to decide);
+  when the college erasure is done the account erasure follows at the next scan. If the college request is cancelled, rejected or expires, the account
+  request ends with it. A member of two or more colleges is told to ask each college; once they belong to none, a platform administrator takes over.
+- **Platform path** (a person who cannot sign in): one platform administrator files the request by address, a **different** platform administrator
+  approves (nobody approves what they filed), **7 days of grace** (either can cancel), an undecided request ends after **30 days**. The account of a
+  platform administrator is never erased this way.
+- The last administrator of a college is protected as before (the college rule applies to the combined request).
+
+## What an account erasure does
+
+One transaction, locks taken in a fixed order (memberships, credentials, the user row), the audit rows written by the same statement.
+
+| Data                                                 | Treatment                                                                                                                                                                                                                                                              |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Every college where the person had a membership      | the same as the college erasure for each one that was not erased yet (its own random pseudonym, so two colleges cannot be linked), through an internal request of that college                                                                                         |
+| The global account row                               | display name replaced by "Former user 3F9A21C4", address replaced by `erased-<id>@erased.invalid` (cannot receive mail; the real address is free for a NEW, unrelated account), `erased_at` set. The row itself stays: the colleges' academic records point at its id. |
+| Credentials                                          | deleted: nobody can sign in. The database refuses to create a membership, a session or a token for an erased account (also for a request that was in flight at that moment).                                                                                           |
+| Sessions, reset and invite tokens                    | every session of every college and of the admin host revoked, the address and agent they recorded wiped; every token deleted                                                                                                                                           |
+| Suppressed address                                   | the plain address is replaced by an unmatchable placeholder; **only the keyed hash stays**                                                                                                                                                                             |
+| Platform audit trail                                 | kept; the addresses are removed from the rows about the person (`ip`, `email`, `toEmail`, `address`, `recipient`) and the address they acted from is removed from the rows they made                                                                                   |
+| Colleges' audit trails, mail, imports, profile, bell | as in the college erasure, for every college                                                                                                                                                                                                                           |
+
+**It never touches a college's academic record**: enrolments, progress, attempts, submissions, grades and the frozen gradebooks are byte for byte as
+before (a test compares them); a college sees the person only under its own pseudonym.
+
+## What stays after an account erasure, and for how long
+
+| Data                                                  | Kept                                                                                                            | Why                                                                                                                                                                                                                                                 |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| The user row (pseudonym, no address, `erased_at`)     | indefinitely                                                                                                    | the colleges' academic records and audit rows reference it by id (`ON DELETE RESTRICT`: history never cascades). It holds nothing that identifies the person.                                                                                       |
+| Each college's academic record and frozen gradebooks  | as the college keeps them (**COUNSEL**: the period, and the name and register number inside a frozen gradebook) | unchanged by an account erasure: see "What is kept" above.                                                                                                                                                                                          |
+| The keyed hash of an address that bounced             | indefinitely                                                                                                    | so that the address is never mailed again if a new account is created with it. It cannot be reversed. It stays matchable only while its key (`SUPPRESSION_HASH_KEYS`) is kept: **losing the key makes it unmatchable (docs/production-config.md)**. |
+| Audit trails (college and platform)                   | as long as they are kept; never deleted                                                                         | accountability. Addresses are removed (above).                                                                                                                                                                                                      |
+| The erasure ledger entry (request, user, level, time) | indefinitely                                                                                                    | ids only; repeats the erasure after a restore of an older backup (`pnpm privacy:reapply-erasures`, college entries first, then the account).                                                                                                        |
+| Backups                                               | point-in-time recovery 7 days, logical dumps 30 days                                                            | as above; a restore is followed by the ledger.                                                                                                                                                                                                      |
+| E-mails already delivered                             | not under the platform's control                                                                                | as above.                                                                                                                                                                                                                                           |
+
+Signing up again with the same address creates a **new** account: nothing of the erased one is attached to it, and the colleges' records stay under the
+old pseudonym.
 
 ## What an erasure inside a college does
 

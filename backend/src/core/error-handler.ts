@@ -62,6 +62,16 @@ export function isPoolExhausted(err: unknown): boolean {
   return false;
 }
 
+/** The guard trigger of migration 0066 raises a check_violation with the constraint name `account_erased`. */
+function hitErasedAccount(err: unknown): boolean {
+  let cur: unknown = err;
+  for (let i = 0; i < 5 && cur; i++) {
+    if ((cur as { constraint?: unknown }).constraint === 'account_erased') return true;
+    cur = (cur as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 async function handleError(err: FastifyError, request: FastifyRequest, reply: FastifyReply) {
   if (err instanceof AppError) {
     if (err.statusCode >= 500) request.log.warn({ err }, 'request failed');
@@ -83,6 +93,16 @@ async function handleError(err: FastifyError, request: FastifyRequest, reply: Fa
     const code = CLIENT_CODES[status] ?? 'bad_request';
     // Fastify/plugin 4xx messages are generic and safe to expose.
     return reply.status(status).send(body(request.id, code, err.message));
+  }
+
+  // A request that was in flight while the person's ACCOUNT was erased (an invite, an accept, a sign-in): the database guard
+  // (migration 0066, constraint `account_erased`) refused it. A clean conflict, not a 500.
+  if (hitErasedAccount(err)) {
+    return reply
+      .status(409)
+      .send(
+        body(request.id, 'account_erased', 'This account was erased and can no longer be used.'),
+      );
   }
 
   // The database pool had no free connection for `connectionTimeoutMs`: the service is saturated (a deadline burst), not

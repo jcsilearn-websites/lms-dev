@@ -16,6 +16,8 @@ export interface ReapplyResult {
   reapplied: number;
   already: number;
   nothing: number;
+  /** an account whose college erasure was not re-applied yet: run the command again */
+  blocked: number;
 }
 
 export async function reapplyErasures(env: ApiEnv): Promise<ReapplyResult> {
@@ -45,8 +47,9 @@ async function main(): Promise<void> {
   }
   const r = await reapplyErasures(parseApiEnv());
   console.log(
-    `erasure ledger: ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}; erased again ${r.reapplied}, already erased ${r.already}, not in this database ${r.nothing}`,
+    `erasure ledger: ${r.entries} entr${r.entries === 1 ? 'y' : 'ies'}; erased again ${r.reapplied}, already erased ${r.already}, not in this database ${r.nothing}${r.blocked > 0 ? `, WAITING for a college erasure ${r.blocked} (run the command again)` : ''}`,
   );
+  if (r.blocked > 0) process.exitCode = 2;
 }
 
 const entry = process.argv[1];

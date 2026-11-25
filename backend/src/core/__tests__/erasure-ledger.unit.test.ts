@@ -2,7 +2,13 @@ import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { createGcsLedger, createLocalLedger, type LedgerEntry } from '../erasure-ledger';
+import {
+  type AccountLedgerEntry,
+  type CollegeLedgerEntry,
+  createGcsLedger,
+  createLocalLedger,
+  type LedgerEntry,
+} from '../erasure-ledger';
 import { newId } from '../uuid';
 
 // The erasure ledger: ids only, append-only, outside the database; damaged data is refused, never guessed.
@@ -15,7 +21,7 @@ afterAll(async () => {
   await rm(dir, { recursive: true, force: true });
 });
 
-const entry = (over: Partial<LedgerEntry> = {}): LedgerEntry => ({
+const entry = (over: Partial<CollegeLedgerEntry> = {}): CollegeLedgerEntry => ({
   v: 1,
   requestId: newId(),
   tenantId: newId(),
@@ -67,13 +73,56 @@ describe('the local ledger', () => {
       ...entry(),
       name: 'Ada Lovelace',
       email: 'ada@example.com',
-    } as LedgerEntry);
+    } as unknown as LedgerEntry);
     const written = await readFile(join(dir, 'c', 'erasure-ledger.jsonl'), 'utf8');
     expect(written).not.toMatch(/Ada|@/);
     await appendFile(join(dir, 'c', 'erasure-ledger.jsonl'), 'not json\n');
     await expect(ledger.readAll()).rejects.toThrow(/refusing to guess/);
     await writeFile(join(dir, 'c', 'erasure-ledger.jsonl'), `${JSON.stringify({ v: 2 })}\n`);
     await expect(ledger.readAll()).rejects.toThrow(/refusing to guess/);
+  });
+});
+
+describe('the account level and a torn write', () => {
+  const account = (): AccountLedgerEntry => ({
+    v: 1,
+    requestId: newId(),
+    userId: newId(),
+    level: 'account',
+    at: '2026-03-18T09:00:00.000Z',
+  });
+
+  it('an account entry holds the request, the user, the level and a time (no college, no membership), whatever else is passed', async () => {
+    const ledger = createLocalLedger({ dir: join(dir, 'd') });
+    const a = account();
+    await ledger.append({
+      ...a,
+      email: 'ada@example.com',
+      tenantId: newId(),
+    } as unknown as LedgerEntry);
+    const text = await readFile(join(dir, 'd', 'erasure-ledger.jsonl'), 'utf8');
+    expect(Object.keys(JSON.parse(text.trim())).sort()).toEqual([
+      'at',
+      'level',
+      'requestId',
+      'userId',
+      'v',
+    ]);
+    expect(text).not.toMatch(/@/);
+    expect(await ledger.readAll()).toEqual([a]);
+  });
+
+  it('a last line without its newline is a torn write: it is ignored, and the next append cuts it off', async () => {
+    const ledger = createLocalLedger({ dir: join(dir, 'e') });
+    const first = entry();
+    await ledger.append(first);
+    const file = join(dir, 'e', 'erasure-ledger.jsonl');
+    await appendFile(file, '{"v":1,"requestId":"0190'); // the process died in the middle of a write
+    expect(await ledger.readAll()).toEqual([first]); // not "refusing to guess": it was never acknowledged
+    const second = account();
+    await ledger.append(second);
+    expect(await ledger.readAll()).toEqual([first, second]); // the file never holds a damaged line in the middle
+    expect(await readFile(file, 'utf8')).not.toMatch(/0190/);
   });
 });
 

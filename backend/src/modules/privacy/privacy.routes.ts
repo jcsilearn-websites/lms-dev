@@ -63,6 +63,50 @@ export function createPrivacyRoutes(deps: {
       { config: { authenticated: true }, schema: s.cancelMyErasureRouteSchema },
       e.cancelMine,
     );
+    // ---- erasure of the whole account: the member of exactly one college (combined), then the platform administrators' path
+    app.get(
+      '/me/account-erasure',
+      { config: { authenticated: true }, schema: s.myAccountErasureRouteSchema },
+      e.accountMine,
+    );
+    app.post(
+      '/me/account-erasure',
+      {
+        // the password is asked again: a hard limit across instances stops guessing through this door
+        config: {
+          authenticated: true,
+          strictRateLimit: { max: exportRatePerHour, windowMs: 3_600_000 },
+        },
+        schema: s.requestAccountErasureRouteSchema,
+      },
+      e.requestAccount,
+    );
+    const platform = { permission: 'platform.account_erasure.manage' } as const;
+    app.get(
+      '/platform/account-erasures',
+      { config: platform, schema: s.platformAccountErasureListRouteSchema },
+      e.platformList,
+    );
+    app.post(
+      '/platform/account-erasures',
+      { config: platform, schema: s.platformAccountErasureRequestRouteSchema },
+      e.platformRequest,
+    );
+    app.post(
+      '/platform/account-erasures/:id/approve',
+      { config: platform, schema: s.approveAccountErasureRouteSchema },
+      e.platformDecide('approve'),
+    );
+    app.post(
+      '/platform/account-erasures/:id/reject',
+      { config: platform, schema: s.rejectAccountErasureRouteSchema },
+      e.platformDecide('reject'),
+    );
+    app.post(
+      '/platform/account-erasures/:id/cancel',
+      { config: platform, schema: s.cancelAccountErasureRouteSchema },
+      e.platformDecide('cancel'),
+    );
     const approve = { permission: 'privacy.erasure.approve' } as const;
     app.get(
       '/privacy/erasure-requests',

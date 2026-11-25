@@ -12,6 +12,7 @@ export const ACCOUNT_ROLE_PERMISSIONS: Readonly<Record<AccountRole, ReadonlySet<
     'platform.user.unlock',
     'platform.usage.read',
     'platform.email.manage',
+    'platform.account_erasure.manage',
   ]),
   // tenant host only. content.view is read-only access to every course of the tenant; editing,
   // publishing, assessments and grading need a course participation.

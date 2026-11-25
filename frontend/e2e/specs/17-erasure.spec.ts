@@ -52,11 +52,11 @@ test('a member asks to be erased, an administrator decides, the member cancels',
   await member.setViewportSize({ width: 1280, height: 720 });
 
   // the password is asked again: a wrong one is refused
-  await member.getByLabel('Password to confirm').fill('not my password at all');
+  await member.getByLabel('Password to confirm', { exact: true }).fill('not my password at all');
   await member.getByRole('checkbox', { name: /I understand what is removed/ }).check();
   await member.getByRole('button', { name: 'Ask to be erased' }).click();
   await expect(member.getByText(/current password is incorrect/i)).toBeVisible();
-  await member.getByLabel('Password to confirm').fill(PASSWORD);
+  await member.getByLabel('Password to confirm', { exact: true }).fill(PASSWORD);
   await member.getByRole('button', { name: 'Ask to be erased' }).click();
   await expect(member.getByText('Your request is open.')).toBeVisible();
   await expect(member.getByText('Waiting for an administrator')).toBeVisible();
@@ -92,7 +92,7 @@ test('a member asks to be erased, an administrator decides, the member cancels',
   await expect(member.getByRole('button', { name: 'Ask to be erased' })).toBeVisible();
 
   // asks again; this time the administrator rejects
-  await member.getByLabel('Password to confirm').fill(PASSWORD);
+  await member.getByLabel('Password to confirm', { exact: true }).fill(PASSWORD);
   await member.getByRole('checkbox', { name: /I understand what is removed/ }).check();
   await member.getByRole('button', { name: 'Ask to be erased' }).click();
   await expect(member.getByText('Your request is open.')).toBeVisible();

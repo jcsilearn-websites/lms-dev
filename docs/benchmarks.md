@@ -974,3 +974,25 @@ that still held earlier bench colleges measured 233 ms and is not a valid number
 
 Known bench defect (not changed here): the scripts' final `deleteTenantCascade` fails on `rollup_dirty_offerings_tenant_id_fkey`, so the throwaway college stays
 in the database it ran on (the test databases are truncated before every test file; a scratch database is simply dropped).
+
+## Step 14b-1 part 3: `notify_fanout` refuses a removed member (migration 0065)
+
+Migration 0065 adds one membership check to `lms.notify_fanout` (a removed member never gets a bell row or a mail). Measured with `pnpm --filter @lms/backend run
+bench:notifications` (10,000 students x 200 offerings x 60, a scratch database it creates and drops), BEFORE = migrations up to 0064 and AFTER = up to 0065
+(`BENCH_MIGRATE_UPTO=0064` / `0065`; the code is the same), on the same 2-core laptop, one run after the other. AFTER was run twice because a third run, made while
+migration 0066 was still being written, aborted at its HTTP sign-in (a bug of that uncommitted migration, since fixed) and is not used.
+
+| Statement (about 8,400 recipients)                         | BEFORE (0064) | AFTER run 1  | AFTER run 2  |
+| ---------------------------------------------------------- | ------------- | ------------ | ------------ |
+| reminder, fresh college (no statistics): WHOLE statement   | 2,331 ms      | 2,361 ms     | 2,501 ms     |
+| reminder, after ANALYZE: WHOLE statement                   | 1,845 ms      | 1,815 ms     | 1,971 ms     |
+| reminder, fresh again (plan of the analyzed state)         | 1,785 ms      | 1,846 ms     | 1,925 ms     |
+| audience selection alone, fresh (median of 3)              | 282 ms        | 276 ms       | 299 ms       |
+| idle scan (the statement every college runs at every tick) | 7.9 ms        | 7.5 ms       | 8.3 ms       |
+| daily digests, 12,000 recipients, ONE statement            | 3,757 ms      | 3,096 ms     | 3,274 ms     |
+| send throughput, 8 senders (never calls `notify_fanout`)   | 750 emails/s  | 782 emails/s | 694 emails/s |
+
+Reading: the two AFTER runs sit on both sides of BEFORE (run 1: +1 %, -2 %, +3 % on the three reminder rows and -18 % on the digests; run 2: +7 %, +7 %, +8 % and
+-13 %), and the send throughput, which the migration cannot touch, moves by -7 % / +4 % between the same runs. The migration's cost is below the run-to-run noise of this
+machine (about 10 %); the check is one primary-key probe of `tenant_memberships` per recipient inside a statement that already inserts three rows per recipient.
+No change was made. Rule (as in Step 14b above): a benchmark number is only comparable to another taken on the same quiet machine.

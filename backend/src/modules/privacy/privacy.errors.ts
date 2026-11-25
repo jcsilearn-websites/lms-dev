@@ -19,6 +19,26 @@ export class ExportLimitError extends TooManyRequestsError {
   }
 }
 
+/** The account cannot be erased now (the person is a member of more than one college, or an administrator of the platform). */
+export class AccountNotEligibleError extends ConflictError {
+  constructor() {
+    super(
+      'account_erasure_not_eligible',
+      'Your account can be erased here only while this is the one college you belong to. Ask to be erased from each college, or ask the platform team.',
+    );
+  }
+}
+
+/** A request of the person is already open in this college (cancel it first to ask for the whole account). */
+export class ErasureAlreadyOpenError extends ConflictError {
+  constructor() {
+    super(
+      'erasure_in_progress',
+      'You already have an erasure request in this college. Cancel it first if you want to erase your whole account.',
+    );
+  }
+}
+
 /** Somebody else's export, another college's, an unknown id: all the same. */
 export class ExportNotFoundError extends NotFoundError {
   constructor() {

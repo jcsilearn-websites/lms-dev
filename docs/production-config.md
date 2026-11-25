@@ -48,10 +48,34 @@ A stored hash cannot be re-keyed (the address is not kept), so an old key must s
 A leaked key lets whoever has the database also test candidate addresses against the hashes (the usual limit of a hash of a low-entropy value):
 rotate it as above, and treat `email_suppressions` as personal data in backups.
 
+### The erasure ledger bucket (GCP step) and the backup of `SUPPRESSION_HASH_KEYS`
+
+**The ledger bucket must be separate from the database backups.** A restore, a deleted backup bucket or a compromised backup role must not reach it:
+its own bucket (ideally its own project), never the bucket of the Cloud SQL exports or the logical dumps. Required settings:
+
+- **object versioning ON** (an overwritten or deleted line is still recoverable);
+- a **retention lock** (a locked retention policy on the bucket: objects cannot be deleted or overwritten before it ends, and the policy cannot be shortened;
+  the period is the one counsel agrees, at least as long as the longest backup that could be restored plus the academic records' period);
+- the application's service account is **write-only** (`roles/storage.objectCreator`: it can add objects, not delete or overwrite them); the reader of the
+  ledger is a separate identity used only by `pnpm privacy:reapply-erasures` (`roles/storage.objectViewer`);
+- an alert on any delete or retention-policy change in that bucket's audit log.
+
+The local driver (a JSON-lines file) is for development and CI only. An entry is written after the commit of its erasure; until the GCS driver exists the
+write answers 503 and the request keeps `ledger_at` NULL, so the entry is retried by every scan and is never lost.
+
+**`SUPPRESSION_HASH_KEYS` must be backed up, and what losing it means.** The keyed hash is one-way: the address is gone, so a lost key can never be
+reconstructed or recomputed. Keep every key id and secret that ever signed a row you still have (Secret Manager: keep ALL versions; plus an offline copy
+held by the owner, sealed, stored apart from the database backups). **If a key is lost:** the suppressions hashed under it become unmatchable, so an
+address of an erased person that had bounced or complained could be mailed again if a new account is created with it (suppressions of live accounts keep
+matching by their plain address). It cannot be repaired afterwards. Only remove a key from the list when `privacy_suppression_key_usage()` shows no row
+under its id (rotation, above).
+
 ### The erasure ledger and a restore
 
 The ledger (ids only: request, membership, user, college, level, time) is what makes an erasure survive a restore of an OLDER backup.
-After ANY restore into a production database, once it is migrated and before it takes traffic:
+After ANY restore into a production database, once it is migrated and before it takes traffic (the ledger holds college entries and account entries; the
+college ones come first in the file and are re-applied first, an account whose college erasure is still owed is reported as WAITING and the command exits
+with code 2: run it again):
 
 ```
 pnpm privacy:reapply-erasures --yes

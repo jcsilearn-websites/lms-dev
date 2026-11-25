@@ -358,6 +358,7 @@ describe('lms_app privileges', () => {
         'membership_display_overrides',
         'data_exports',
         'erasure_requests',
+        'account_erasure_requests',
         'offering_sections',
         'platform_audit_log',
         'programs',

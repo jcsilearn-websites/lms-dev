@@ -116,9 +116,76 @@ export const MyErasureSchema = Type.Object({ request: Nullable(ErasureRequestSch
 export const ErasureAdminItemSchema = Type.Intersect([
   ErasureRequestSchema,
   Type.Object({
+    /** the request is the first half of "erase my whole account": the account goes too when this one is executed */
+    withAccount: Type.Boolean(),
     /** the member's name as the college sees it (a pseudonym once they are erased) */
     memberName: Type.String(),
     memberEmail: Type.String(),
   }),
 ]);
 export const ErasureAdminListSchema = Type.Object({ items: Type.Array(ErasureAdminItemSchema) });
+
+// ------------------------------------------------------------------ erasure of the GLOBAL account (step 14b-1, part 4)
+// Allowed only when the person has no membership that is not removed. A member of exactly ONE college asks for both at once
+// ("combined": the college request, then the account); everyone else goes through a platform administrator.
+export const ACCOUNT_ERASURE_STATUSES = [
+  'waiting_college',
+  'pending_approval',
+  'approved',
+  'executing',
+  'done',
+  'cancelled',
+  'rejected',
+  'expired',
+] as const;
+export const AccountErasureRequestSchema = Type.Object({
+  id: Id,
+  status: Type.Union(ACCOUNT_ERASURE_STATUSES.map((s) => Type.Literal(s))),
+  source: Type.Union([
+    Type.Literal('member_combined'),
+    Type.Literal('platform'),
+    Type.Literal('ledger'),
+  ]),
+  requestedAt: DateTime,
+  expiresAt: Nullable(DateTime),
+  graceUntil: Nullable(DateTime),
+});
+export type AccountErasureRequest = Static<typeof AccountErasureRequestSchema>;
+
+export const MyAccountErasureSchema = Type.Object({
+  request: Nullable(AccountErasureRequestSchema),
+  /** this college is the person's ONLY one, so "erase my account" is available here */
+  eligible: Type.Boolean(),
+  /** how many colleges the person is a member of (not removed) */
+  colleges: Type.Number(),
+});
+export const RequestAccountErasureResultSchema = Type.Object({
+  request: AccountErasureRequestSchema,
+  collegeRequest: Nullable(ErasureRequestSchema),
+  alreadyInProgress: Type.Boolean(),
+});
+
+export const PlatformAccountErasureBodySchema = Type.Object(
+  { email: Type.String({ minLength: 3, maxLength: 320 }) },
+  { additionalProperties: false },
+);
+export const PlatformAccountErasureItemSchema = Type.Intersect([
+  AccountErasureRequestSchema,
+  Type.Object({
+    executedAt: Nullable(DateTime),
+    requestedByName: Nullable(Type.String()),
+    approvedByName: Nullable(Type.String()),
+    /** the person as stored: the pseudonym once erased */
+    personName: Type.String(),
+    /** null once erased */
+    personEmail: Nullable(Type.String()),
+    erased: Type.Boolean(),
+    /** the caller is not the one who filed it */
+    canApprove: Type.Boolean(),
+    canCancel: Type.Boolean(),
+  }),
+]);
+export const PlatformAccountErasureListSchema = Type.Object({
+  items: Type.Array(PlatformAccountErasureItemSchema),
+  hasMore: Type.Boolean(),
+});

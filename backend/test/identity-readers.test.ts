@@ -60,6 +60,23 @@ const ALLOWED: Record<string, string> = {
 const ACTOR_CHECK =
   'only re-checks that the actor is a platform administrator (reads the flag, no name or address)';
 const ALLOWED_PREFIX: Record<string, string> = {};
+const ACCOUNT_LEVEL =
+  'GLOBAL account erasure (step 14b-1 part 4): works on the account row itself, never returns a name or an address to a college';
+Object.assign(ALLOWED, {
+  guard_erased_user:
+    'trigger: locks the account row and refuses a membership, session or token for an erased account',
+  privacy_account_erase_core: `${ACCOUNT_LEVEL}; reads the account to pseudonymise it`,
+  privacy_account_execute: `${ACCOUNT_LEVEL}; checks the address the worker hashed is still the account's`,
+  privacy_account_lock: `${ACCOUNT_LEVEL}; takes the row locks in the fixed order`,
+  privacy_account_mine: `${ACCOUNT_LEVEL}; the caller's OWN eligibility (platform admin flag)`,
+  privacy_account_platform_decide: `${ACCOUNT_LEVEL}; the actor must be a platform administrator`,
+  privacy_account_platform_list: `${ACCOUNT_LEVEL}; the actor must be a platform administrator (shows the pseudonym once erased)`,
+  privacy_account_platform_request: `${ACCOUNT_LEVEL}; the actor must be a platform administrator, finds the account by address`,
+  privacy_account_prepare: `${ACCOUNT_LEVEL}; the address the worker hashes, only for a request that is due`,
+  privacy_account_reapply: `${ACCOUNT_LEVEL}; after a restore: erased again from the ledger`,
+  privacy_account_reapply_prepare: `${ACCOUNT_LEVEL}; the address the CLI hashes`,
+  privacy_account_request_combined: `${ACCOUNT_LEVEL}; the caller's own platform-admin flag`,
+});
 Object.assign(ALLOWED, {
   platform_admin_invite:
     'GLOBAL: invites or promotes a person by address (creates or finds the account); a member list is not returned',

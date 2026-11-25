@@ -142,6 +142,11 @@ export function AppShell() {
                   )}
                 </>
               )}
+              {hostKind === 'admin' && has('platform.account_erasure.manage') && (
+                <Link to={'/account-erasures' as '/'} className={navLink}>
+                  Account erasures
+                </Link>
+              )}
               <ThemeChoice />
               <button
                 type="button"

@@ -75,6 +75,8 @@ describe('tables reachable only through SECURITY DEFINER functions', () => {
       'user_credentials',
       'auth_tokens',
       'platform_audit_log',
+      // step 14b-1 part 4: the account erasure requests (global, no tenant)
+      'account_erasure_requests',
       // step 13: the outbox (it holds addresses), suppressions, provider events, the platform inbox, the scan state
       'email_outbox',
       'email_suppressions',

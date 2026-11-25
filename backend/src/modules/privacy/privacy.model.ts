@@ -1,4 +1,4 @@
-import { bigint, jsonb, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { bigint, boolean, jsonb, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { lms } from '../../db/lms-schema';
 
 // One row per "download my data" request (migration 0062). lms_app can only SELECT (its own rows); every change is a definer function.
@@ -37,4 +37,25 @@ export const erasureRequests = lms.table('erasure_requests', {
   executedAt: timestamp('executed_at', { withTimezone: true }),
   ledgerAt: timestamp('ledger_at', { withTimezone: true }),
   preview: jsonb('preview'),
+  withAccount: boolean('with_account').notNull().default(false),
+});
+
+// One row per ACCOUNT erasure request (migrations 0066 / 0067). Global (no tenant): no grant for lms_app, definer functions only.
+export const accountErasureRequests = lms.table('account_erasure_requests', {
+  id: uuid('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+  source: text('source').notNull(),
+  status: text('status').notNull(),
+  collegeRequestId: uuid('college_request_id'),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull(),
+  requestedBy: uuid('requested_by'),
+  expiresAt: timestamp('expires_at', { withTimezone: true }),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  approvedBy: uuid('approved_by'),
+  graceUntil: timestamp('grace_until', { withTimezone: true }),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  decidedBy: uuid('decided_by'),
+  reason: text('reason'),
+  executedAt: timestamp('executed_at', { withTimezone: true }),
+  ledgerAt: timestamp('ledger_at', { withTimezone: true }),
 });

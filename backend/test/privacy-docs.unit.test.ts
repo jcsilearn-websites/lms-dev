@@ -28,6 +28,21 @@ describe('docs/data-retention.md', () => {
   });
 });
 
+describe('docs/data-retention.md: the account level', () => {
+  const doc = read('docs/data-retention.md');
+
+  it('says who may ask, what it does, what stays, and that the academic record is untouched', () => {
+    expect(doc).toContain('no membership that is not removed');
+    expect(doc).toContain('Former user');
+    expect(doc).toMatch(/never touches a college's academic record/);
+    expect(doc).toMatch(/What stays after an account erasure, and for how long/);
+    expect(doc).toMatch(/a \*\*different\*\* platform administrator/);
+    expect(doc).toContain('**7 days of grace**');
+    expect(doc).toContain('**30 days**');
+    expect(doc).toMatch(/only the keyed hash stays/);
+  });
+});
+
 describe('docs/production-config.md', () => {
   const doc = read('docs/production-config.md');
 
@@ -42,6 +57,22 @@ describe('docs/production-config.md', () => {
     expect(doc).toContain('privacy_suppression_key_usage');
     expect(doc).toContain('pnpm privacy:reapply-erasures --yes');
     expect(doc).toMatch(/Secret Manager/);
+  });
+
+  it('says where the erasure ledger lives and what losing the hash keys means', () => {
+    expect(doc).toMatch(/separate from the database backups/);
+    expect(doc).toMatch(/object versioning ON/);
+    expect(doc).toMatch(/retention lock/);
+    expect(doc).toMatch(/write-only/);
+    expect(doc).toMatch(/must be backed up/);
+    expect(doc).toMatch(/If a key is lost/);
+    expect(doc).toMatch(/cannot be repaired/);
+  });
+
+  it('CLAUDE.md carries the same two warnings in its GCP list', () => {
+    const guide = read('CLAUDE.md');
+    expect(guide).toMatch(/erasure ledger bucket[^\n]*separate from the database backups/);
+    expect(guide).toMatch(/SUPPRESSION_HASH_KEYS[^\n]*backed up/);
   });
 
   it('every one of those variables is in .env.example', () => {

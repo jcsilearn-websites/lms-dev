@@ -159,14 +159,22 @@ describe('a 10,000-row file', () => {
       config: { leaseSeconds: 30 },
     });
     const seenProgress: number[] = [];
-    const watcher = setInterval(() => {
-      void adminBig.get(`/imports/${imp.id}`).then((r) => {
-        const j = r.json();
-        if (j.status === 'processing') seenProgress.push(j.counts.processed);
-      });
-    }, 1500);
+    // A tight loop on the owner connection (not a 1.5 s HTTP poll: on a fast machine the whole run is shorter than that, and CI saw
+    // exactly one sample, 1 run in ~20): the 20 batches commit one by one, so a poll every few ms sees several different counts.
+    let watching = true;
+    const watcher = (async () => {
+      while (watching) {
+        const r = await owner.query(
+          "SELECT processed_rows AS n FROM lms.import_jobs WHERE id = $1 AND status = 'processing'",
+          [imp.id],
+        );
+        if (r.rows[0]) seenProgress.push(r.rows[0].n as number);
+        await new Promise((res) => setTimeout(res, 5));
+      }
+    })();
     const done = await waitForImport(adminBig, imp.id, 300_000);
-    clearInterval(watcher);
+    watching = false;
+    await watcher;
     const processMs = Date.now() - t0;
     const elu = performance.eventLoopUtilization(elu0);
     const cpu = process.cpuUsage(cpu0);

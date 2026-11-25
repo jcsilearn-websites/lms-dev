@@ -392,6 +392,11 @@ const erasureRequestsRoute = child(
   lazyPage(() => import('../features/privacy/ErasureRequestsPage'), 'ErasureRequestsPage'),
   'privacy.erasure.approve',
 );
+const accountErasuresRoute = child(
+  '/account-erasures',
+  lazyPage(() => import('../features/privacy/AccountErasuresPage'), 'AccountErasuresPage'),
+  'platform.account_erasure.manage',
+);
 const emailSuppressionsRoute = child(
   '/settings/email',
   lazyPage(
@@ -432,6 +437,7 @@ function buildRouteTree() {
           collegeRoute,
           usageRoute,
           platformAuditRoute,
+          accountErasuresRoute,
           notificationsRoute,
         ]
       : [

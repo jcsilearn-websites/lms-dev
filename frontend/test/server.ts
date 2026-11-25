@@ -73,7 +73,12 @@ export const platformMe: MeResponse = {
   tenant: null,
   role: null,
   isPlatformAdmin: true,
-  permissions: ['platform.tenant.read', 'platform.tenant.manage', 'platform.audit.read'],
+  permissions: [
+    'platform.tenant.read',
+    'platform.tenant.manage',
+    'platform.audit.read',
+    'platform.account_erasure.manage',
+  ],
 };
 
 export const tenantInfo: TenantInfo = {
@@ -202,6 +207,10 @@ export function mockSignedIn(me: MeResponse = adminMe) {
     ),
     // learning progress (step 8): none unless a test says otherwise
     http.get(`${API}/me/progress`, () => HttpResponse.json({ offerings: [], resume: null })),
+    // "My data" (14b-1): the member's account-erasure card; not available (two colleges) unless a test says otherwise
+    http.get(`${API}/me/account-erasure`, () =>
+      HttpResponse.json({ request: null, eligible: false, colleges: 2 }),
+    ),
     // notifications (step 13): the shell's bell polls the count and the banner reads the email status
     ...notificationDefaults(),
     http.get(`${API}/offerings/:id/progress`, () =>
