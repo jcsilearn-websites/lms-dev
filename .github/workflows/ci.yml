@@ -114,6 +114,8 @@ jobs:
       # docs/permissions.md is generated from the code; fail when the committed file is stale
       - run: pnpm docs:permissions --check
       - run: pnpm typecheck
+      - name: Load-test harness unit tests (statistics, scheduling, guard, HLS, config)
+        run: pnpm loadtest:test
       - run: pnpm build
 
       # Same roles as `pnpm db:local:setup` creates on a developer machine.
@@ -202,6 +204,9 @@ jobs:
       - name: Install Chromium for Playwright
         run: pnpm --filter @lms/frontend exec playwright install --with-deps chromium
       - run: pnpm e2e
+      # The load-test harness against the same stack at a tiny scale: all six scenarios through the real API (the dist built by the line above is reused)
+      - name: Load-test harness smoke run (tiny scale, real stack)
+        run: E2E_SKIP_BUILD=1 pnpm loadtest:smoke
       - name: Keep the Playwright report and traces of a failed run
         if: failure()
         uses: actions/upload-artifact@v7

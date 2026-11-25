@@ -1,6 +1,7 @@
 packages:
   - backend
   - frontend
+  - loadtest
 allowBuilds:
   esbuild: true
 # Reviewed fix of an advisory in a transitive dev dependency (GHSA-93q8-gq69-wqmw, ReDoS in ansi-regex 5.0.0; reached only through

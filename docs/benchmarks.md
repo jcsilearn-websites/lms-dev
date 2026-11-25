@@ -996,3 +996,39 @@ Reading: the two AFTER runs sit on both sides of BEFORE (run 1: +1 %, -2 %, +3 %
 -13 %), and the send throughput, which the migration cannot touch, moves by -7 % / +4 % between the same runs. The migration's cost is below the run-to-run noise of this
 machine (about 10 %); the check is one primary-key probe of `tenant_memberships` per recipient inside a statement that already inserts three rows per recipient.
 No change was made. Rule (as in Step 14b above): a benchmark number is only comparable to another taken on the same quiet machine.
+
+## Step 14b-2 part C: the load-test harness at 1/10 scale (2026-11-25)
+
+How to read this: **these are the numbers of a harness check on a development laptop, not a capacity measurement.** The generator, the API, the worker and PostgreSQL 17 all ran on the same
+2-core machine (Intel Core i3-1005G1, 2 cores / 4 threads, 7.8 GB, Windows 10, Node v26.13.1), through the E2E stack (`pnpm loadtest:local -- --scale 0.1 --time-scale 0.1`: the database `lms_e2e`,
+relaxed rate limits, `VIDEO_PLAYBACK_TTL_SECONDS=7200`), on top of commit c8d2503 plus the uncommitted harness. `--scale` and `--time-scale` are both 0.1, so the ARRIVAL RATES are those of full scale
+(150 learners in a 30 s rush = 5/s, as 1,500 in 300 s) while the number of people at any moment is a tenth; the per-person cadences are real (autosave 30 s, heartbeat 30 s, think time 8 s, bell 60 s).
+The seeded college had 200 learners, 2 instructors, one exam of 30 questions, one assignment and a 120 s video (renditions 360 / 480 / 720). Nothing was near saturation (the machine was not the limit), so
+**the figures show the service time of each route at light load**; they say nothing yet about where the limit is. That is what the full-scale run on GCP (`docs/load-testing.md`) is for.
+Every scenario: **0 server errors, 0 transport failures, 0 refused requests (401 / 403 / 429)**; the generator kept its schedule (start lag p95 0-1 ms, event-loop delay p99 11-12 ms).
+
+| Scenario (this run) | People and window                                 | Route                                                 | Count          | p50 ms          | p95 ms            | p99 ms             |
+| ------------------- | ------------------------------------------------- | ----------------------------------------------------- | -------------- | --------------- | ----------------- | ------------------ |
+| `login-wave`        | 150 learners, 30 s, peak at 30 %                  | `POST /auth/login` (argon2id)                         | 150            | 22.4            | 35.8              | 58.1               |
+|                     |                                                   | `GET /me/dashboard`                                   | 150            | 5.4             | 13.0              | 61.7               |
+| `exam`              | 150 learners, 6 min exam, starts within 12 s      | autosave `PUT .../attempts/:id/answers` (1,818 saves) | 1,818          | 4.8             | 9.4               | 13.4               |
+|                     | submit burst inside 6 s                           | start `POST .../attempts`                             | 150            | 9.2             | 26.1              | 35.3               |
+|                     |                                                   | submit `POST .../attempts/:id/submit`                 | 150            | 7.7             | 16.1              | 85.9               |
+| `assignment`        | 150 learners, 60 s window (t squared), 2 MB PDFs  | signed upload `PUT`                                   | 150            | 10.1            | 27.7              | 50.4               |
+|                     | 32 of them after the due date (late allowed)      | upload confirm (reads and checks the bytes)           | 150            | 13.5            | 44.1              | 68.9               |
+|                     |                                                   | hand-in `POST .../submissions`                        | 150            | 7.6             | 29.5              | 34.8               |
+| `video`             | 200 viewers, ramp 30 s, 60 s each, local provider | `GET segment` (served by the API)                     | 2,104          | 2.9             | 10.3              | 29.7               |
+|                     |                                                   | playback session `POST .../playback`                  | 200            | 6.9             | 9.2               | 12.9               |
+|                     |                                                   | heartbeat `POST .../progress/heartbeat`               | 400            | 6.2             | 20.8              | 28.3               |
+| `grading`           | 2 instructors, 90 s, think time 8 s               | open a learner / save a grade                         | 22 each        | 13.1 / 16.1     | 47.8 / 35.6       | 49.4 / 39.9        |
+| `browsing`          | 100 users, 60 s, think time 8 s, bell 60 s        | outline / my courses / dashboard                      | 195 / 104 / 69 | 7.8 / 6.2 / 4.9 | 10.8 / 7.6 / 13.6 | 41.0 / 13.5 / 42.0 |
+
+Two things the first runs taught about the harness itself (both fixed before the figures above):
+
+- **A harness can look perfect and say nothing.** The first smoke run reported "0 failures of 0 requests" for five of six scenarios: the pre-signed-in clients still recorded into the preparation recorder. The smoke
+  run now asserts that every scenario recorded its key routes (`loadtest/scripts/smoke.mjs`).
+- **A refused request is not a served one.** In the first full run 1,337 of 2,137 segment requests answered 403: the E2E stack's playback tokens live 20 s and the simulated viewer never asked for a new session the way the
+  real player does. The verdict called it fine because a 403 is not a 5xx. The viewer now renews its session before the token expires (and once more when a segment is refused; with the 20 s lifetime a 60 s watch renewed 300
+  sessions with 0 refusals), and 401 / 403 / 429 count against the run (`requests refused` in the verdicts). The figures above use the production lifetime of 7,200 s, so no renewal happened in the recorded run.
+
+Not run here: the mixed runs (`--with-browsing`), the full-scale shapes (1,500 learners, 2,000 viewers), anything with more than one generator machine, and any CDN or managed video provider.

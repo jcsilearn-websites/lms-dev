@@ -59,6 +59,9 @@ let cluster: ScratchCluster;
 let sourceOwnerUrl: string;
 let sourceAppUrl: string;
 let appPassword: string;
+// The NEW cluster's lms_app password in section 6: a new deployment has a password of its own (and the schema of db:migrate wants 24+
+// characters, which CI's throwaway 23-character one is not)
+const finishPassword = randomBytes(24).toString('base64url');
 let backupDir: string;
 let manifest: Manifest;
 let before: Facts;
@@ -101,7 +104,7 @@ const restoreEnv = (database: string, extra: Record<string, string> = {}) => ({
   ...extra,
 });
 const appEnv = () => ({
-  LMS_APP_PASSWORD: appPassword,
+  LMS_APP_PASSWORD: finishPassword,
   ERASURE_LEDGER_DIR: ledgerDir,
   SUPPRESSION_HASH_KEYS: KEYS,
 });
@@ -180,7 +183,7 @@ async function facts(c: Pick<pg.Pool, 'query'>): Promise<Facts> {
     functions: await q(
       `SELECT p.oid::regprocedure::text AS sig, p.prosecdef, p.provolatile, p.proconfig,
               has_function_privilege('lms_app', p.oid, 'EXECUTE') AS app, has_function_privilege('public', p.oid, 'EXECUTE') AS pub
-         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'lms' ORDER BY 1`,
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'lms' ORDER BY p.oid::regprocedure::text COLLATE "C"`,
     ),
     triggers: await q(
       `SELECT c.relname, t.tgname, t.tgenabled FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -200,7 +203,9 @@ async function facts(c: Pick<pg.Pool, 'query'>): Promise<Facts> {
         )
       ).rows[0].n,
     ),
-    migrations: await q('SELECT filename, checksum FROM lms.schema_migrations ORDER BY filename'),
+    migrations: await q(
+      'SELECT filename, checksum FROM lms.schema_migrations ORDER BY filename COLLATE "C"',
+    ),
   };
 }
 
@@ -793,7 +798,7 @@ describe('6. restore + finish: roles repaired, migrated, and the ERASURE LEDGER 
   });
 
   it('the application role signs in with the password of the environment and row-level security works in the restored database', async () => {
-    const c = await appClient(db);
+    const c = await appClient(db, finishPassword);
     try {
       expect(
         (await c.query("SELECT current_setting('timezone') AS tz, current_setting('jit') AS jit"))
@@ -836,11 +841,15 @@ describe('6. restore + finish: roles repaired, migrated, and the ERASURE LEDGER 
   });
 
   it('the repair set the password and its fingerprint (the migration runner now has nothing to do), and running the ledger again changes nothing more', async () => {
-    const m = await runMigrations({ ownerUrl: cluster.ownerUrl(db), ssl: 'off', appPassword });
+    const m = await runMigrations({
+      ownerUrl: cluster.ownerUrl(db),
+      ssl: 'off',
+      appPassword: finishPassword,
+    });
     expect(m.applied).toEqual([]);
     expect(m.passwordChanged).toBe(false);
     const env = testEnv({
-      DATABASE_APP_URL: cluster.urlFor('lms_app', appPassword, db),
+      DATABASE_APP_URL: cluster.urlFor('lms_app', finishPassword, db),
       DB_SSL: 'off',
       ERASURE_LEDGER_DIR: ledgerDir,
       SUPPRESSION_HASH_KEYS: KEYS,
@@ -857,6 +866,7 @@ describe('7. hygiene', () => {
       cluster.superPassword,
       WRONG_CLUSTER_PASSWORD,
       appPassword,
+      finishPassword,
       passwordFromUrl(sourceOwnerUrl),
     ];
     const written = [
@@ -868,6 +878,13 @@ describe('7. hygiene', () => {
     expect(everything.length).toBeGreaterThan(1000);
     for (const s of secrets) {
       if (s.length < 4) continue;
+      // A short or common password (CI's superuser password is "postgres", also a user and a database name) cannot be searched as a bare
+      // word: it is looked for where a password would be, in a URL (":pw@") or in PGPASSWORD. A long random one is searched anywhere.
+      if (s.length < 12) {
+        expect(everything.includes(`:${s}@`), 'a password appeared in a URL').toBe(false);
+        expect(everything.includes(`PGPASSWORD=${s}`)).toBe(false);
+        continue;
+      }
       expect(everything.includes(s), 'a password appeared in the output of the scripts').toBe(
         false,
       );

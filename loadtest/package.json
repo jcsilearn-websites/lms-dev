@@ -1,0 +1,16 @@
+{
+  "name": "@lms/loadtest",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Load-test harness: six scenarios through the real API (plain Node + undici), a seeding script for a throwaway college, unit-tested statistics and scheduling helpers",
+  "scripts": {
+    "test": "node --test test/",
+    "seed": "node src/seed.mjs",
+    "run": "node src/run.mjs",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "dependencies": {
+    "undici": "8.12.3"
+  }
+}

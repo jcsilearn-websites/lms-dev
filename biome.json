@@ -66,7 +66,8 @@
         "**/src/worker.ts",
         "**/src/cli/**",
         "**/backend/test/e2e-prepare.ts",
-        "**/scripts/**"
+        "**/scripts/**",
+        "**/loadtest/src/**"
       ],
       "linter": {
         "rules": {

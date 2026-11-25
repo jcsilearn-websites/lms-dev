@@ -189,6 +189,10 @@ export function run(cmd, args, { env = {}, cwd, input, secrets = [], shell = fal
     child.on('close', (code) =>
       resolve({ code, stdout: redact(stdout, secrets), stderr: redact(stderr, secrets) }),
     );
+    // a tool that exits before it reads its input (pg_dump --version) closes the pipe: that EPIPE is not an error of ours
+    child.stdin.on('error', (err) => {
+      if (err.code !== 'EPIPE') reject(err);
+    });
     child.stdin.end(input ?? '');
   });
 }
@@ -276,11 +280,12 @@ export async function collectState(client) {
     );
   }
   const migrationRows = (
-    await client.query('SELECT filename, checksum FROM lms.schema_migrations ORDER BY filename')
-  ).rows;
+    await client.query('SELECT filename, checksum FROM lms.schema_migrations')
+  ).rows.sort((x, y) => (x.filename < y.filename ? -1 : x.filename > y.filename ? 1 : 0));
   const digests = {};
   for (const [name, sql] of Object.entries(DIGEST_QUERIES)) {
-    const lines = (await client.query(sql)).rows.map((r) => Object.values(r)[0]);
+    // sorted HERE, by code unit: the SQL order of a text column follows the database's collation (en_US on CI's source, C on a scratch cluster)
+    const lines = (await client.query(sql)).rows.map((r) => Object.values(r)[0]).sort();
     digests[name] = { count: lines.length, sha256: sha256Text(lines.join('\n')) };
   }
   return {

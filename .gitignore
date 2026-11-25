@@ -39,3 +39,7 @@ backend/.video-bench/
 # logical database backups (personal data): never committed
 backups/
 .backup-drill/
+
+# load-test harness: the seed state (holds the password of the throwaway accounts) and the result files
+loadtest/.state/
+loadtest/results/

@@ -11,7 +11,7 @@ blind grading, late penalties, bulk ZIP, and the offering copy of assessments an
 categories, exact calculation, approval and immutable snapshots, exports; backend + frontend) and 12 (dashboards, rollups, at-risk learners,
 usage metering; backend + frontend) and 13 (notifications and real email: outbox, SMTP + SendGrid, bounce webhooks, suppression, unsubscribe,
 in-app bell, preferences, reminders and digests; backend + frontend) and 14a (production hardening: shared rate limiting, signing-key rotation, strict CSP,
-cross-tenant fuzz, observability, resilience; backend + E2E) are built; **14b is built part by part: data protection (14b-1, parts 1-4) and backups with the restore drill (14b-2 part B) are built; load tests, the service worker + error boundary and the production-config doc are NOT:
+cross-tenant fuzz, observability, resilience; backend + E2E) are built; **14b is built part by part: data protection (14b-1, parts 1-4) backups with the restore drill (14b-2 part B), the load-test harness (part C) and the production-config doc (part E) are built; the service worker + error boundary (part D) is NOT:
 read `docs/step-14b-notes.md`**. Do not build features beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -67,6 +67,7 @@ backend/
                         email (outbox delivery, suppressions, provider webhooks), notifications (in-app, preferences, settings, unsubscribe, reminder / digest scan),
                         ratelimit (the shared PostgreSQL limiter store + purge), ops (GET /metrics, POST /csp-report, the operations gauges)
   migrations/       numbered SQL files
+loadtest/            load-test harness (plain Node + undici): seed, six scenarios, runner, guard, stats / schedule helpers, smoke + local-run scripts, node --test unit tests
 scripts/backup/     db:backup, db:restore, db:verify-restore, db:verify-roles (plain Node .mjs: lib, roles specification); scripts/audit.mjs
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
@@ -754,6 +755,26 @@ primary path on GCP, the logical backup the second, independent one). Legal side
   queued behind every sign-in in flight, the hazard the account level had fixed; `test/privacy.erasure.test.ts`, "against a SIGN-IN in flight", failed before and passes now).
 - **Not built / open**: the scheduled backup job and the bucket (GCP step); the size measurement of the RTO; the clone-keeps-roles question on Cloud SQL; objects (files, video) have their own versioning.
 
+## Load-test harness and the production-config doc (step 14b-2, parts C and E)
+
+Full reasoning, the six scenarios, the full-scale GCP procedure: **`docs/load-testing.md`**. Numbers of the reduced local run: `docs/benchmarks.md` ("Step 14b-2 part C"). No application code changed.
+- **Plain Node + undici in `loadtest/`** (workspace package `@lms/loadtest`, the only direct dependency is `undici`, pinned exactly; `pg` and `@node-rs/argon2` are resolved from the backend). k6 was checked and is
+  not installed (no `winget` / `choco`); the reasons for staying in Node are in the doc (shared helpers, one language, unit-testable, the product's own flows). `pnpm loadtest:test` (node --test: statistics,
+  arrival curves, the guard, the HLS parser, the scale flags), `pnpm loadtest:smoke` (all six scenarios at a tiny scale on the E2E stack; CI runs it in the `e2e` job after Playwright),
+  `pnpm loadtest:local -- --scale 0.1 --time-scale 0.1`, `pnpm loadtest:seed`, `pnpm loadtest:run`.
+- **The guard** (`src/guard.mjs`): seed and runner refuse `NODE_ENV=production` and any host not on the allowlist (this machine + `LOADTEST_ALLOWED_HOSTS`; a production host is never put there); the seed also
+  refuses a slug not starting `bench-lt-` and an existing one. No switch turns it off.
+- **The seed** puts people and structure in SQL (ONE argon2 hash with the app's parameters for every account) and everything a person would do through the real API as a real instructor (module, 40 questions, an
+  exam, an assignment, an ffmpeg video). State file `loadtest/.state/<slug>.json` is git-ignored (it holds the password). It does not clean up (dev: `db:dev:clean`; staging: recreate the database).
+- **Honest numbers**: an OPEN model (arrivals at their planned time), each task's start lag and the event-loop delay are recorded, and a saturated GENERATOR fails its verdict (`GENERATOR SATURATED`: the run is not valid).
+  `--scale` = people, `--time-scale` = windows, `--cadence-scale` = per-person cadences (autosave 30 s, heartbeat 30 s, think 8 s, bell 60 s). A reduced run that keeps full scale's arrival rates gives `--scale`
+  and `--time-scale` the same value and leaves cadences at 1. **Pre-signed-in clients record into the preparation recorder until `measure(clients, recorder)` switches them**: forgetting it left five of six result
+  tables EMPTY with "0 failures of 0 requests" (found by reading the first smoke run); the smoke run now asserts that every scenario recorded its key routes.
+- **`docs/production-config.md`** lists EVERY variable of `apiEnvSchema`, `workerEnvSchema`, `migrateEnvSchema` and `ownerEnvSchema` (used by, required, default, how to produce it, what production refuses).
+  `src/config/__tests__/production-config-doc.unit.test.ts` fails when a variable has no row (or the wrong process), a row names a removed variable, a default differs from the schema, or a promised production refusal
+  is not what `assertSslPolicy` / `assertAuthPolicy` / `assertStoragePolicy` / `assertVideoPolicy` / `assertPrivacyPolicy` do. **A new env variable: add it to its schema AND to a table of that page.**
+  README has a documentation index.
+
 ## Deadline fairness under load (step 10b)
 
 Full reasoning: `docs/adr/0018-assignments.md` ("Deadline fairness under load"). Numbers: `docs/benchmarks.md` (Step 10b).
@@ -1042,6 +1063,7 @@ pnpm db:local:setup     once: roles anon/authenticated + the dev database on loc
 pnpm db:migrate          pnpm db:seed     (dev DB, owner connection)
 pnpm admin:create --email x@y.z   first platform admin (hidden password prompt or ADMIN_PASSWORD)
 pnpm db:dev:clean --yes --project-ref <ref>   dev DB only: remove bench tenants + auth noise (guarded)
+pnpm loadtest:test | loadtest:smoke | loadtest:local -- --scale 0.1 --time-scale 0.1 | loadtest:seed | loadtest:run   load-test harness (docs/load-testing.md)
 pnpm db:backup --out <dir> | db:restore --backup <dir> [--finish] | db:verify-restore | db:verify-roles [--fix] | db:restore-drill   backups (docs/backup-and-restore.md)
 pnpm start               built API (sets UV_THREADPOOL_SIZE=8)    | pnpm dev:worker
 pnpm bench               autocannon on /health/live and /health/ready (docs/benchmarks.md)
