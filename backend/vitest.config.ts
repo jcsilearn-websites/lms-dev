@@ -32,6 +32,9 @@ export const SERIAL_FILES = [
   'test/video.shutdown.test.ts',
   // kills real worker processes and waits for a 3 s lease to expire
   'test/resilience.worker.test.ts',
+  // the restore drill: initdb + a second PostgreSQL cluster of its own, pg_dump / pg_restore of the whole test database, child processes
+  // (the backup scripts, db:migrate, the erasure ledger); it reads the worker database as a whole, so nothing may write to it meanwhile
+  'test/backup.restore-drill.test.ts',
 ];
 
 export default defineConfig({

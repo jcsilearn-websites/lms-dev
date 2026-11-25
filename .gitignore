@@ -35,3 +35,7 @@ backend/.video-work-test/
 frontend/.e2e-tmp/
 .video-bench/
 backend/.video-bench/
+
+# logical database backups (personal data): never committed
+backups/
+.backup-drill/

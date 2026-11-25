@@ -283,8 +283,28 @@ async function recordFingerprint(s: Seed): Promise<Record<string, string>> {
   return out;
 }
 
+/**
+ * Other people's mail that is still queued: the erasure must not touch it. It may be SENT in between (a test delivers the queue), so it is
+ * pinned by id and compared by what it says (address, template, parameters), and it must never end up skipped or dead.
+ */
+async function othersQueuedMail(
+  s: Seed,
+): Promise<{ id: string; to_email: string; template: string; params: string }[]> {
+  return (
+    await owner.query(
+      "SELECT id, to_email, template, params::text AS params FROM lms.email_outbox WHERE status = 'queued' AND user_id IS DISTINCT FROM $1 ORDER BY id",
+      [s.m.userId],
+    )
+  ).rows;
+}
+
 /** every row of the global tables and of both colleges that is NOT about the person (their data is the only thing an erasure may change) */
-async function othersFingerprint(s: Seed, cutoff: string): Promise<Record<string, string>> {
+async function othersFingerprint(
+  s: Seed,
+  cutoff: string,
+  /** other people's mail that was still QUEUED at the baseline: it may legitimately be sent meanwhile (see othersQueuedMail) */
+  queuedAtBaseline: string[] = [],
+): Promise<Record<string, string>> {
   const uid = s.m.userId;
   const q = async (name: string, sql: string, p: unknown[] = [uid]) => {
     out[name] = (await owner.query(sql, p)).rows[0].h;
@@ -308,7 +328,8 @@ async function othersFingerprint(s: Seed, cutoff: string): Promise<Record<string
   );
   await q(
     'outbox',
-    "SELECT md5(coalesce(string_agg(x::text, '|' ORDER BY id), '')) AS h FROM lms.email_outbox x WHERE user_id IS DISTINCT FROM $1 AND status <> 'queued'",
+    "SELECT md5(coalesce(string_agg(x::text, '|' ORDER BY id), '')) AS h FROM lms.email_outbox x WHERE user_id IS DISTINCT FROM $1 AND status <> 'queued' AND id <> ALL ($2::uuid[])",
+    [uid, queuedAtBaseline],
   );
   await q(
     'suppressions',
@@ -518,6 +539,7 @@ describe('the account erasure satisfies its checklist, touches no academic recor
   let bystander: Person;
   let recordBefore: Record<string, string>;
   let othersBefore: Record<string, string>;
+  let queuedMailBefore: Awaited<ReturnType<typeof othersQueuedMail>>;
   let bystanderBefore: string;
   let membersBefore: string;
   let adminSessionBefore: number;
@@ -585,7 +607,12 @@ describe('the account erasure satisfies its checklist, touches no academic recor
       expect(Object.keys(stored), place).toContain(place);
     await t.app.modules.background.drain();
     cutoff = (await rowsOf('SELECT now()::text AS c'))[0].c;
-    othersBefore = await othersFingerprint(s, cutoff);
+    queuedMailBefore = await othersQueuedMail(s);
+    othersBefore = await othersFingerprint(
+      s,
+      cutoff,
+      queuedMailBefore.map((m) => m.id),
+    );
     bystanderBefore = await bystanderState();
     membersBefore = JSON.stringify(
       (ok(await adminB.get('/members?limit=100')).items as Json[]).find(
@@ -622,7 +649,23 @@ describe('the account erasure satisfies its checklist, touches no academic recor
 
   it('OTHER people are unchanged: the global tables without the person, a bystander of both colleges (rows, list entry, session)', async () => {
     await t.app.modules.background.drain();
-    expect(await othersFingerprint(s, cutoff)).toEqual(othersBefore);
+    expect(
+      await othersFingerprint(
+        s,
+        cutoff,
+        queuedMailBefore.map((m) => m.id),
+      ),
+    ).toEqual(othersBefore);
+    // other people's queued mail: still queued or sent, never skipped or dead, and saying exactly what it said
+    const queuedAfter = (
+      await owner.query(
+        'SELECT id, status, to_email, template, params::text AS params FROM lms.email_outbox WHERE id = ANY ($1::uuid[]) ORDER BY id',
+        [queuedMailBefore.map((m) => m.id)],
+      )
+    ).rows;
+    expect(queuedAfter).toHaveLength(queuedMailBefore.length);
+    for (const row of queuedAfter) expect(['queued', 'sent']).toContain(row.status);
+    expect(queuedAfter.map(({ status: _status, ...rest }) => rest)).toEqual(queuedMailBefore);
     expect(await bystanderState()).toBe(bystanderBefore);
     expect(
       JSON.stringify(

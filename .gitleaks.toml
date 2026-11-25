@@ -49,4 +49,6 @@ regexes = [
   '''(?:test|e2e)-only-signing-secret-0123456789abcdef''',
   '''unit-test-secret-0123456789abcdef-0123''',
   '''another-secret-0123456789abcdef-0123456''',
+  # A made-up, URL-encoded password on a made-up host: the unit test of the backup scripts checks that a URL is parsed and decoded (step 14b-2)
+  '''postgresql://postgres:p%40ss%2Fword@db\.example:6543/lms_prod''',
 ]

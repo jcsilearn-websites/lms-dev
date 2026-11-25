@@ -83,3 +83,14 @@ pnpm privacy:reapply-erasures --yes
 
 It is idempotent. The restore drill (step 14b, backups) includes it. The Cloud SQL backup window (point-in-time recovery 7 days, logical dumps
 30 days, see `docs/data-retention.md`) is what the erasure screens tell the member about backups.
+
+## Logical backups and the restore (step 14b, part B)
+
+Full procedure, targets and the drill: `docs/backup-and-restore.md`. What the GCP step has to provide:
+
+- a scheduled job that runs `pnpm db:backup --out <mounted bucket path>` nightly with the **owner** connection (a separate service account; never the application's), in an image that has
+  the **PostgreSQL 17 client tools** (`pg_dump`, `pg_dumpall`, `pg_restore`), and writes to a bucket **of its own**: not the erasure ledger's, encrypted, access-controlled, with a lifecycle rule
+  that deletes objects at **30 days** (the window the erasure screens state). The `--keep-days` pruning of the script is for a plain disk;
+- Cloud SQL point-in-time recovery on (7 days of log, 7 automated backups), the exact commands are in `docs/backup-and-restore.md`;
+- after ANY restore or clone: `pnpm db:verify-roles --fix`, `pnpm db:migrate`, `pnpm privacy:reapply-erasures --yes`, and only then traffic. `LMS_APP_PASSWORD` must equal the password inside
+  `DATABASE_APP_URL` (the role's password comes from the environment, never from a backup: dumps are written without role password hashes).

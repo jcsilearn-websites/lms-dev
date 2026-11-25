@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -416,6 +417,46 @@ describe('races (deterministic holder sessions)', () => {
       },
     };
   }
+
+  it('against a SIGN-IN in flight: the execution does not wait for the session insert (lock mode on the membership), and the session that lands is dead', async () => {
+    // A sign-in inserts its session row: the foreign key to the membership takes FOR KEY SHARE and holds it until the commit. The execution
+    // must lock the membership with a mode that does NOT conflict with it (FOR NO KEY UPDATE; FOR UPDATE queued behind the sign-in and
+    // would deadlock the moment the sign-in needed anything the execution holds, as the account-level one did).
+    const { m, id } = await approved('Race Login College', true);
+    const h = await owner.connect();
+    try {
+      await h.query('BEGIN');
+      await h.query('SELECT 1 FROM lms.user_credentials WHERE user_id = $1 FOR UPDATE', [m.userId]);
+      const token = randomBytes(32);
+      await h.query(
+        "INSERT INTO lms.sessions (id, token_hash, user_id, tenant_id, idle_expires_at, absolute_expires_at) VALUES ($1, $2, $3, $4, now() + interval '1 day', now() + interval '1 day')",
+        [newId(), token, m.userId, A.tenantId],
+      );
+      // the execution finishes while the sign-in's transaction is still open
+      const out = await Promise.race([
+        svc().scan(),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error('the execution waited for the sign-in (lock mode)')),
+            8_000,
+          ),
+        ),
+      ]);
+      expect(out.erased).toBeGreaterThanOrEqual(1);
+      expect((await row(id)).status).toBe('done');
+      await h.query('COMMIT');
+      // the session that landed after the revocation cannot be used: the membership is removed
+      const hit = await owner.query('SELECT 1 FROM lms.auth_lookup_session($1, $2, 300, 604800)', [
+        token,
+        A.tenantId,
+      ]);
+      expect(hit.rowCount).toBe(0);
+      expect(await activeMember(m)).toBe('removed');
+    } finally {
+      await h.query('ROLLBACK').catch(() => undefined);
+      h.release();
+    }
+  });
 
   it('approve against cancel: whoever queued first wins, nothing is half done and nothing is a 500', async () => {
     // cancel first: the approval then finds a cancelled request

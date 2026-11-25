@@ -11,7 +11,7 @@ blind grading, late penalties, bulk ZIP, and the offering copy of assessments an
 categories, exact calculation, approval and immutable snapshots, exports; backend + frontend) and 12 (dashboards, rollups, at-risk learners,
 usage metering; backend + frontend) and 13 (notifications and real email: outbox, SMTP + SendGrid, bounce webhooks, suppression, unsubscribe,
 in-app bell, preferences, reminders and digests; backend + frontend) and 14a (production hardening: shared rate limiting, signing-key rotation, strict CSP,
-cross-tenant fuzz, observability, resilience; backend + E2E) are built; **14b (data protection, backups, load tests, service worker + error boundary) is NOT built:
+cross-tenant fuzz, observability, resilience; backend + E2E) are built; **14b is built part by part: data protection (14b-1, parts 1-4) and backups with the restore drill (14b-2 part B) are built; load tests, the service worker + error boundary and the production-config doc are NOT:
 read `docs/step-14b-notes.md`**. Do not build features beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -67,6 +67,7 @@ backend/
                         email (outbox delivery, suppressions, provider webhooks), notifications (in-app, preferences, settings, unsubscribe, reminder / digest scan),
                         ratelimit (the shared PostgreSQL limiter store + purge), ops (GET /metrics, POST /csp-report, the operations gauges)
   migrations/       numbered SQL files
+scripts/backup/     db:backup, db:restore, db:verify-restore, db:verify-roles (plain Node .mjs: lib, roles specification); scripts/audit.mjs
   test/             global setup, DB reset, guards, shared helpers, cross-cutting DB tests
   bench/            autocannon benchmark
 frontend/src/
@@ -644,7 +645,7 @@ module), `docs/asvs.md` (ASVS 4.0.3 Level 2, with the gaps), `docs/key-rotation.
 - **Migrations of step 14a**: 0054 (the rate-limit table and function, `lms.ops_metrics()`), 0055 (`lms.job_defer`). NOT applied to the dev database by the agent: `pnpm db:migrate`.
   Round trips: every budget above is unchanged; `GET /metrics` costs at most 1 statement per 5 s; the limiter's own statements are 0 on a hot route and 1 per key on a strict one.
 
-## Data protection (step 14b-1, in progress: parts 1, 2, 3 and 4 built; backups, load tests and the service worker are NOT built)
+## Data protection (step 14b-1: parts 1, 2, 3 and 4 built; backups are part B below; load tests and the service worker are NOT built)
 
 Plan approved by the owner (12 decisions, 7 amendments); the rest of 14b is built part by part with a review stop after each.
 - **How a member is shown inside a college is decided in ONE place: the view `lms.member_identity`** (migration 0060, `security_invoker`, a plain inlinable join of
@@ -726,6 +727,32 @@ Plan approved by the owner (12 decisions, 7 amendments); the rest of 14b is buil
   - [x] Every state change and its audit row are one transaction (failure injection), races use the held-lock pattern, every time decision takes `p_now` and is tested at the boundary, the 30-day expiry notifies in the bell and by e-mail.
 - Measured (A/B on two scratch databases, with and without 0061; docs/benchmarks.md has no entry yet): the gradebook grid chunk of 500 learners +9 % (fresh) / noise
   (analyzed), approve +12 % fresh / equal analyzed, one learner's explanation +2-4 ms; all equal at 1,200 learners.
+
+## Backups and the restore drill (step 14b-2, part B)
+
+Full reasoning, targets and procedures: **`docs/backup-and-restore.md`** (RPO / RTO targets are PROPOSED, not measured at size; Cloud SQL point-in-time recovery is the
+primary path on GCP, the logical backup the second, independent one). Legal side: `docs/legal-questions.md` (backup windows: PITR 7 days, dumps 30).
+- **Scripts** (`scripts/backup/*.mjs`, plain Node, no build; `pg` is resolved from the backend package): `pnpm db:backup --out <dir>` (`pg_dump -Fc` from an EXPORTED SNAPSHOT shared with the
+  manifest's exact row counts, `--no-unlogged-table-data`, `pg_dumpall --globals-only --no-role-passwords`, `manifest.json` with SHA-256 and a digest per kind of catalog object, `SHA256SUMS`;
+  written as `.partial` and renamed; `--keep-days 30` prunes only folders of its own naming that have a manifest), `pnpm db:restore --backup <dir>` (verifies checksums BEFORE touching the target;
+  `RESTORE_DATABASE_URL` only, never `DATABASE_URL`; an existing copy needs `--replace --confirm <name>`; `pg_restore --single-transaction --no-owner`; clears the password fingerprint; compares the
+  restored database with the manifest; `--globals`, `--finish` = verify-roles --fix, `db:migrate`, `privacy:reapply-erasures`), `pnpm db:verify-restore`, `pnpm db:verify-roles [--fix]`.
+  PostgreSQL 17 tools only (`PG_BIN_DIR`, then PATH; another major is refused: the CI runner image has a 16 client first on PATH). A password is never a process argument and never printed.
+- **Roles are the cluster's, not the dump's.** A dump alone loses `lms_app`'s password and its `ALTER ROLE ... SET` defaults (timezone UTC, jit off, two 30 s timeouts: migrations 0001 / 0058). **The
+  password-fingerprint trap**: `lms.role_password_state` IS in the dump, so a restored database tells `db:migrate` "password unchanged" about a role of another cluster and the app cannot sign in.
+  `scripts/backup/roles.mjs` is the SPECIFICATION of the roles (kept equal to the migrations by `test/backup-scripts.unit.test.ts`); **a migration that changes the attributes or defaults of `lms_app`
+  must change it in the same commit**. The catalog and pg_dumpall spell settings canonically (`TimeZone`): compare case-insensitively. `--globals` applies only `ALTER ROLE <our three roles>` lines.
+- **The drill** (`test/backup.restore-drill.test.ts`, serial, `pnpm db:restore-drill`, ~45 s): `test/support/scratch-cluster.ts` makes a throwaway second cluster (initdb, scram password
+  authentication, its own port; pg_ctl is started with NO pipes or its exit never comes on Windows). The test fails LOUDLY without the PG 17 tools. The story: backup, THEN erase a person, damaged
+  backups refused, the dump alone into a hand-made cluster (the negative controls), a proper restore checked by the test's own queries (counts, row-level security enabled AND forced, policies,
+  triggers, functions with `search_path`, grants, migrations, foreign keys validated AND no orphan rows, unlogged table empty), `db:verify-restore` with teeth, refusal of a restore over a copy,
+  `--finish` with the ledger re-applied, hygiene (no password anywhere). **A new table needs nothing; a new KIND of catalog object that a restore could lose needs a digest in `lib.mjs` `DIGEST_QUERIES`.**
+  The two bookkeeping tables (`schema_migrations`, `role_password_state`) have no row-level security and the second is emptied by a restore on purpose (`BOOKKEEPING_TABLES`, `CLEARED_BY_RESTORE`).
+- **CI**: `.github/scripts/install-postgres-tools.sh` (PGDG key checked against its fingerprint, `create_main_cluster = false` BEFORE the install so no cluster starts on the service container's port,
+  `PG_BIN_DIR` exported) runs in the `verify` and `flakiness` jobs before `pnpm test`.
+- **Migration 0068**: the college-level erasure execution locks the membership `FOR NO KEY UPDATE`, not `FOR UPDATE` (a sign-in's session insert holds `FOR KEY SHARE` on it until its commit: the execution
+  queued behind every sign-in in flight, the hazard the account level had fixed; `test/privacy.erasure.test.ts`, "against a SIGN-IN in flight", failed before and passes now).
+- **Not built / open**: the scheduled backup job and the bucket (GCP step); the size measurement of the RTO; the clone-keeps-roles question on Cloud SQL; objects (files, video) have their own versioning.
 
 ## Deadline fairness under load (step 10b)
 
@@ -827,6 +854,18 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
   (`PASSWORD_HASH_CONCURRENCY=2`, bounded queue -> 503 `busy`) and the start scripts set `UV_THREADPOOL_SIZE=8` via
   `cross-env` (it must be set before the process starts). **The future Cloud Run Dockerfile must set
   `ENV UV_THREADPOOL_SIZE=8`** (or run the start script).
+
+## Launch checklist (before the first production college goes live)
+
+Collected from the sections above so nothing is lost; each line points at where the reason is. Tick them in the launch PR.
+- [ ] **At least two platform admins exist** (`pnpm admin:create`). Account erasure by a platform admin needs a DIFFERENT platform admin to approve (step 14b-1 part 4), so with one the
+  request can never be approved. The E2E suite uses `root@` and `root2@e2e.test` for the same reason.
+- [ ] Malware scanning of uploaded files is built (assignment files first); see TODO.
+- [ ] `SUPPRESSION_HASH_KEYS` and `SIGNING_KEYS` are in Secret Manager, every version kept, with a sealed offline copy apart from the database backups; the erasure-ledger bucket is separate
+  from the backups, versioned and retention-locked (`docs/production-config.md`).
+- [ ] A restore drill has been run against the production-shaped setup and the erasure ledger re-applied after it (`docs/backup-and-restore.md`).
+- [ ] Counsel has answered `docs/legal-questions.md` (privacy notice, consent, under-18 learners, data fiduciary); a college with learners under 18 does not go live before that.
+- [ ] `DB_SSL=verify-full` + `DB_SSL_CA`, `TRUST_PROXY=true`, the SPA's CSP sent by the gateway, `SIGNING_LEGACY_TOKENS` decided (90 days after the key-id format ships).
 
 ## CI runner
 
@@ -1003,6 +1042,7 @@ pnpm db:local:setup     once: roles anon/authenticated + the dev database on loc
 pnpm db:migrate          pnpm db:seed     (dev DB, owner connection)
 pnpm admin:create --email x@y.z   first platform admin (hidden password prompt or ADMIN_PASSWORD)
 pnpm db:dev:clean --yes --project-ref <ref>   dev DB only: remove bench tenants + auth noise (guarded)
+pnpm db:backup --out <dir> | db:restore --backup <dir> [--finish] | db:verify-restore | db:verify-roles [--fix] | db:restore-drill   backups (docs/backup-and-restore.md)
 pnpm start               built API (sets UV_THREADPOOL_SIZE=8)    | pnpm dev:worker
 pnpm bench               autocannon on /health/live and /health/ready (docs/benchmarks.md)
 pnpm docs:permissions    regenerate docs/permissions.md (--check = fail if stale; CI runs it)
@@ -1164,7 +1204,7 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
   - **Rules for new code**: (1) never write an audit row after the change in a separate call; (2) a definer function that reads, decides, then writes must lock what it decided on (`FOR UPDATE` / advisory lock) or put the condition INTO the write (`UPDATE ... WHERE status = ...`,
     `INSERT ... ON CONFLICT`); (3) a read-merge-write of JSON settings takes the advisory lock first, in its own statement (the read must be a new snapshot).
 - **Migrations 0058 and 0059** are applied to the dev database by the agent in step 14a follow-ups; 0059 replaces `auth_accept_invite`, `auth_login_complete`, `platform_admin_invite`, `assignment_upload_begin` (same signatures: grants stay) and adds three `auth_*` functions (listed in `test/auth.functions.test.ts`).
-- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0068 (0060 / 0061 are step 14b-1 part 1, 0062 part 2, 0063-0065 part 3, 0066 / 0067 part 4; NOT applied to the dev database by the agent: `pnpm db:migrate`). MFA (TOTP) is planned as step 14c.** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0069 (0060 / 0061 are step 14b-1 part 1, 0062 part 2, 0063-0065 part 3, 0066 / 0067 part 4, 0068 the lock mode of the college erasure; the owner applied 0060-0067; 0068 is NOT applied to the dev database by the agent: `pnpm db:migrate`). MFA (TOTP) is planned as step 14c.** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
   payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend

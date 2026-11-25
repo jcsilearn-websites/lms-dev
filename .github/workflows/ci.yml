@@ -90,6 +90,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install ffmpeg (pinned, checksum verified; development and CI only, never in a production image)
         run: bash .github/scripts/install-ffmpeg.sh
+      - name: Install PostgreSQL 17 client tools and initdb (the restore drill restores into a throwaway second cluster)
+        timeout-minutes: 5
+        run: bash .github/scripts/install-postgres-tools.sh
 
       # The XLSX export of the gradebook is opened by an independent reader: LibreOffice converts it headless and the test
       # checks that numbers are numbers and that text which looks like a formula is still text. It fails in CI when missing.
@@ -290,6 +293,9 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Install ffmpeg (pinned, checksum verified; development and CI only, never in a production image)
         run: bash .github/scripts/install-ffmpeg.sh
+      - name: Install PostgreSQL 17 client tools and initdb (the restore drill restores into a throwaway second cluster)
+        timeout-minutes: 5
+        run: bash .github/scripts/install-postgres-tools.sh
       - name: Install LibreOffice Calc (headless; used only by the XLSX export test)
         timeout-minutes: 5
         run: |
