@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./contracts": "./src/contracts/index.ts",
-    "./csp": "./src/contracts/csp.ts"
+    "./csp": "./src/contracts/csp.ts",
+    "./scrub": "./src/contracts/scrub.ts"
   },
   "scripts": {
     "dev": "cross-env UV_THREADPOOL_SIZE=8 tsx watch src/server.ts",

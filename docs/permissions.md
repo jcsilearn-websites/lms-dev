@@ -117,6 +117,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | PATCH | `/api/batches/:id` | `academic.manage` |
 | POST | `/api/batches/:id/archive` | `academic.manage` |
 | POST | `/api/batches/:id/unarchive` | `academic.manage` |
+| POST | `/api/client-errors` | public |
 | GET | `/api/courses` | `course.read` |
 | POST | `/api/courses` | `course.create` |
 | POST | `/api/courses/:courseId/files` | `question.manage` in any offering of the course |

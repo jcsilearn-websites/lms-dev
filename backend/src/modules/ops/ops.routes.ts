@@ -1,6 +1,6 @@
 import type { FastifyPluginAsyncTypebox } from '@fastify/type-provider-typebox';
 import type { OpsController } from './ops.controller';
-import { cspReportRouteSchema, metricsRouteSchema } from './ops.schemas';
+import { clientErrorRouteSchema, cspReportRouteSchema, metricsRouteSchema } from './ops.schemas';
 
 // GET /metrics, at the ROOT (a scrape target, not an application route). Public in the permission sense (no session, no host rules)
 // and protected by a bearer token; strictly rate limited per address so the token cannot be guessed.
@@ -52,5 +52,25 @@ export function createCspReportRoutes(deps: {
         deps.opsController.cspReport,
       );
     });
+  };
+}
+
+// POST /api/client-errors: where the SPA's error boundary and window handlers post a crash report. Public (the browser may not be signed in: the sign-in
+// page itself can crash) but a NORMAL route for CSRF (the SPA sends Origin and X-Requested-With: the exemption list stays at three). It reads at most
+// 4 KB, accepts only a closed JSON shape, is limited to 30 reports per address per minute across every API instance, touches no table, and logs one
+// scrubbed line.
+export function createClientErrorRoutes(deps: {
+  opsController: OpsController;
+}): FastifyPluginAsyncTypebox {
+  return async (app) => {
+    app.post(
+      '/client-errors',
+      {
+        config: { public: true, strictRateLimit: { max: 30, windowMs: 60_000 } },
+        bodyLimit: 4096,
+        schema: clientErrorRouteSchema,
+      },
+      deps.opsController.clientError,
+    );
   };
 }

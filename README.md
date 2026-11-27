@@ -166,6 +166,13 @@ the Vite proxy do locally (route `/api/*` to the API, the rest to the SPA):
   `backend/src/contracts/csp.ts` (the one shared policy: no `unsafe-inline`, no `unsafe-eval`, violations reported to `/api/csp-report`;
   ADR 0023). The API cannot send it: it never serves the HTML. Video needs `media-src 'self' blob:` in that CSP (hls.js plays through a MediaSource),
   and the pages that play video (`/offerings/*/items/*`, `/offerings/*/build`) must send `Referrer-Policy: no-referrer`.
+- **The service worker (step 14b-2 part D, ADR 0025).** The gateway must send `Cache-Control: no-cache, no-store, must-revalidate` for exactly two paths, `/sw.js` and
+  `/sw-control.json` (a stale worker script hides a release; a stale control file hides the kill switch), and `no-cache` for `index.html` as above; `/sw.js` is served
+  from the root with a JavaScript content type (its scope is `/`), the CSP has `worker-src 'self' blob:`. **Do not serve `/sw.js` from a CDN edge cache and do not give
+  it a hashed name.** The kill switch is a file: publish `{"unregister": true, "deleteCaches": true}` as `/sw-control.json` and every installed worker removes itself and
+  its caches at the next page load (an exam in progress is never interrupted; it waits). To ship WITHOUT a worker, build with `VITE_SERVICE_WORKER=off`: the application
+  never registers one and the build emits a retiring `/sw.js` that removes workers installed earlier. A deploy check should fetch `/sw.js` and `/sw-control.json` and compare
+  their `Cache-Control` with the two values above.
 - Wildcard certificate and wildcard DNS for `*.<APP_BASE_DOMAIN>` (tenants) plus `admin.<APP_BASE_DOMAIN>`.
 - **File storage (course files)**: production uses `STORAGE_DRIVER=gcs` (a bucket per environment, uniform bucket-level
   access, no public objects; the app hands out V4 signed URLs). The `local` driver is refused when `NODE_ENV=production`.

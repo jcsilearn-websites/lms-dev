@@ -36,7 +36,7 @@ import { createHealthRoutes } from './modules/health';
 import { createImportsRoutes } from './modules/imports';
 import { createMembershipsRoutes } from './modules/memberships';
 import { createNotificationsRoutes } from './modules/notifications';
-import { createCspReportRoutes, createMetricsRoutes } from './modules/ops';
+import { createClientErrorRoutes, createCspReportRoutes, createMetricsRoutes } from './modules/ops';
 import { createPrivacyRoutes } from './modules/privacy';
 import { createProfilesRoutes } from './modules/profiles';
 import { createProgressRoutes } from './modules/progress';
@@ -233,6 +233,7 @@ export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
         }),
       );
       void api.register(createCspReportRoutes({ opsController: modules.ops.controller }));
+      void api.register(createClientErrorRoutes({ opsController: modules.ops.controller }));
     },
     { prefix: API_PREFIX },
   );

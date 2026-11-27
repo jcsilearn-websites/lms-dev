@@ -9,6 +9,7 @@ import { Button } from '../../../shared/ui/button';
 import { Dialog } from '../../../shared/ui/dialog';
 import { ErrorState, ListSkeleton } from '../../../shared/ui/states';
 import { cn } from '../../../shared/utils/cn';
+import { acquireExamLock } from '../../../sw/examLock';
 import {
   assessmentKeys,
   attemptImage,
@@ -72,6 +73,10 @@ export function ExamPage() {
     retry: 1,
   });
   const over = attempt.data && attempt.data.attempt.status !== 'in_progress';
+  // while the attempt is in progress this tab holds the EXAM LOCK: a new version of the app never takes over now (sw/register.ts, and the worker asks
+  // every tab before it activates)
+  const inProgress = attempt.data?.attempt.status === 'in_progress';
+  useEffect(() => (inProgress ? acquireExamLock() : undefined), [inProgress]);
   useEffect(() => {
     if (over)
       void navigate({ to: `/offerings/${id}/attempts/${attemptId}/result` as '/', replace: true });

@@ -501,6 +501,8 @@ const NOT_IN_MATRIX: Record<string, string> = {
   'GET /health/ready': 'public',
   'GET /metrics': 'public + bearer token (test/observability.test.ts)',
   'POST /csp-report': 'public, rate limited, writes nothing (test/csp.test.ts)',
+  'POST /client-errors':
+    'public, rate limited, 4 KB, scrubbed, no database access (test/client-errors.test.ts)',
 };
 
 let owner: pg.Pool;

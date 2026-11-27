@@ -16,6 +16,7 @@ import { getConfig, getGrid, gradebookKeys } from '../features/gradebook/gradebo
 import { listMembers, memberKeys } from '../features/members/members.api';
 import { safeRedirect } from '../shared/utils/redirect';
 import { AppShell } from './AppShell';
+import { RouteCrash } from './ErrorBoundary';
 import { hostKind } from './host';
 import { RootLayout } from './RootLayout';
 
@@ -492,6 +493,7 @@ export function createAppRouter(queryClient: QueryClient, history?: RouterHistor
     defaultPreload: 'intent',
     defaultPreloadStaleTime: 0,
     scrollRestoration: true,
+    defaultErrorComponent: RouteCrash,
   });
 }
 

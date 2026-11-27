@@ -8,7 +8,7 @@ const isWindows = process.platform === 'win32';
 let code = 1;
 const startedAt = Date.now();
 try {
-  code = await withStack(({ webPort, mailFile, password }) => {
+  code = await withStack(({ webPort, apiPort, mailFile, password }) => {
     console.log('> running Playwright');
     const result = spawnSync(
       isWindows ? 'npx.cmd' : 'npx',
@@ -20,6 +20,7 @@ try {
         env: {
           ...process.env,
           E2E_WEB_PORT: String(webPort),
+          E2E_API_PORT: String(apiPort),
           E2E_MAIL_FILE: mailFile,
           E2E_PASSWORD: password,
           // when the stack was started: the worker's first notification scan consumes the daily digest of THAT local date (spec 14)

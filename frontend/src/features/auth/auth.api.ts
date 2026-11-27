@@ -1,5 +1,6 @@
 import type { Ack, LoginRequest, MeResponse, SessionList } from '@lms/backend/contracts';
 import { ApiError, api } from '../../shared/api/client';
+import { clearServiceWorkerCaches } from '../../sw/clearCaches';
 
 export const meKey = ['me'] as const;
 
@@ -52,7 +53,12 @@ export const login = (body: LoginRequest) =>
   api<MeResponse>('/auth/login', { method: 'POST', body, anonymousOk: true });
 export const logout = async () => {
   forgetMe();
-  return api<Ack>('/auth/logout', { method: 'POST' });
+  try {
+    return await api<Ack>('/auth/logout', { method: 'POST' });
+  } finally {
+    // signing out empties every cache, whether or not the server could be reached
+    await clearServiceWorkerCaches();
+  }
 };
 export const forgotPassword = (email: string) =>
   api<Ack>('/auth/password/forgot', { method: 'POST', body: { email }, anonymousOk: true });

@@ -283,3 +283,14 @@ Full procedure, targets and the drill: `docs/backup-and-restore.md`. What the GC
 - Cloud SQL point-in-time recovery on (7 days of log, 7 automated backups), the exact commands are in `docs/backup-and-restore.md`;
 - after ANY restore or clone: `pnpm db:verify-roles --fix`, `pnpm db:migrate`, `pnpm privacy:reapply-erasures --yes`, and only then traffic. `LMS_APP_PASSWORD` must equal the password inside
   `DATABASE_APP_URL` (the role's password comes from the environment, never from a backup: dumps are written without role password hashes).
+
+## Build-time variables of the SPA (not read by the API or the worker)
+
+| Variable              | Required | Default              | What it does                                                                                                                                                                                                                                |
+| --------------------- | -------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VITE_SERVICE_WORKER` | no       | on                   | `off` builds WITHOUT a service worker: the application never registers one and the build emits a retiring `/sw.js` that removes workers installed earlier. The way to ship if a worker ever misbehaves (`docs/adr/0025-service-worker.md`). |
+| `BUILD_ID`            | no       | build time (base 36) | The id of a release: cache names of the service worker and the `build` field of crash reports carry it. Set it to the commit id in CI so that two builds of one commit are the same release.                                                |
+| `VITE_API_BASE_URL`   | no       | `/api`               | Where the SPA calls the API. Leave it: the gateway routes `/api/*` on the same origin.                                                                                                                                                      |
+
+The gateway must also serve `/sw.js` and `/sw-control.json` with `Cache-Control: no-cache, no-store, must-revalidate` (README "Production routing"). The **kill switch** is the file
+`/sw-control.json`: publish `{"unregister": true, "deleteCaches": true}` and every installed worker removes itself and its caches at the next page load.

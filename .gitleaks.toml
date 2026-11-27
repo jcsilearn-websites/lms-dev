@@ -35,6 +35,16 @@ paths = ['''^backend/test/log-hygiene\.test\.ts$''']
 regexTarget = "secret"
 regexes = ['''^(?:Wr0ng-Passw0rd-SENTINEL|N3w-Passw0rd-SENTINEL-x|Inv1te-Passw0rd-SENTINEL)$''']
 
+# A made-up JWT-SHAPED string in the unit test of the error-report scrubber (step 14b-2 part D): the test feeds it to scrub.ts and expects "[token]" back.
+# It signs nothing and belongs to no system. Both conditions must hold (AND): this file AND exactly this value.
+[[allowlists]]
+description = "Fake JWT-shaped sentinel of the scrub unit test"
+condition = "AND"
+targetRules = ["jwt"]
+paths = ['''^backend/test/scrub\.unit\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^eyJhbGciOiJIUzI1NiJ9\.eyJzdWIiOiIxMjM0NTY3ODkwIn0\.sig_nature$''']
+
 [[allowlists]]
 description = "Known dead / throwaway values"
 regexTarget = "match"

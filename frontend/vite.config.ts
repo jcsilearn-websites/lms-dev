@@ -1,6 +1,7 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
+import { serviceWorkerPlugin } from './vite-plugin-sw';
 
 // The SPA and the API share ONE origin per college: <slug>.localhost:<port> for a tenant and
 // admin.localhost:<port> for the platform area. Every API route lives under /api (the SPA owns the
@@ -14,6 +15,10 @@ import { defineConfig } from 'vitest/config';
 //    rewritten Host means 404 (unknown college) or 403 csrf_rejected.
 //  - the target is 127.0.0.1, not localhost. Node resolves "localhost" to IPv6 (::1) first, while the
 //    API listens on IPv4, which fails with ECONNREFUSED.
+// ONE id per build: the service worker's cache names and the error reports carry it. VITE_SERVICE_WORKER=off builds WITHOUT a worker (and emits the retiring
+// one, which removes any installed worker): the way to ship if a worker ever misbehaves (docs/adr/0025-service-worker.md).
+const buildId = process.env.BUILD_ID ?? Date.now().toString(36);
+const retireWorker = process.env.VITE_SERVICE_WORKER === 'off';
 const apiTarget = process.env.VITE_DEV_API_TARGET ?? 'http://127.0.0.1:3000';
 
 const proxy = {
@@ -27,7 +32,8 @@ const proxy = {
 const allowedHosts = ['.localhost'];
 
 export default defineConfig({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), serviceWorkerPlugin({ buildId, retire: retireWorker })],
+  define: { __APP_BUILD__: JSON.stringify(buildId) },
   server: { host: '127.0.0.1', port: 5173, strictPort: true, allowedHosts, proxy },
   preview: { host: '127.0.0.1', port: 5173, strictPort: true, allowedHosts, proxy },
   // the manifest lets scripts/check-bundle-size.mjs follow the real import graph of each page

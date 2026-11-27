@@ -1,4 +1,5 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { scrubReport } from '../../contracts/scrub';
 import { NotFoundError, UnauthorizedError } from '../../core/errors';
 import { metricsAuthorized } from '../../core/metrics-auth';
 import { counter, currentTelemetry } from '../../core/telemetry';
@@ -59,6 +60,27 @@ export function createOpsController(deps: { metricsToken: string | undefined }) 
           'csp violation',
         );
       }
+      void reply.code(204);
+      return null;
+    },
+
+    /**
+     * A browser's error report. NO database access (this controller has none). The body is scrubbed AGAIN here (e-mail addresses, ids, tokens, hosts and
+     * queries of URLs, long numbers: contracts/scrub.ts) before one log line is written; the report is counted by kind and never stored.
+     */
+    clientError: async (request: FastifyRequest, reply: FastifyReply): Promise<null> => {
+      const body = request.body as {
+        kind: 'render' | 'unhandled' | 'rejection' | 'chunk';
+        message: string;
+        stack?: string;
+        route?: string;
+        build?: string;
+      };
+      const report = scrubReport(body);
+      counter('lms_client_errors_total', 'Browser error reports received').add(1, {
+        kind: report.kind,
+      });
+      request.log.warn({ clientError: report }, 'client error');
       void reply.code(204);
       return null;
     },

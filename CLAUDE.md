@@ -11,7 +11,7 @@ blind grading, late penalties, bulk ZIP, and the offering copy of assessments an
 categories, exact calculation, approval and immutable snapshots, exports; backend + frontend) and 12 (dashboards, rollups, at-risk learners,
 usage metering; backend + frontend) and 13 (notifications and real email: outbox, SMTP + SendGrid, bounce webhooks, suppression, unsubscribe,
 in-app bell, preferences, reminders and digests; backend + frontend) and 14a (production hardening: shared rate limiting, signing-key rotation, strict CSP,
-cross-tenant fuzz, observability, resilience; backend + E2E) are built; **14b is built part by part: data protection (14b-1, parts 1-4) backups with the restore drill (14b-2 part B), the load-test harness (part C) and the production-config doc (part E) are built; the service worker + error boundary (part D) is NOT:
+cross-tenant fuzz, observability, resilience; backend + E2E) are built; **14b is built part by part: data protection (14b-1, parts 1-4) backups with the restore drill (14b-2 part B), the load-test harness (part C), the service worker + error boundary (part D) and the production-config doc (part E) are built; 14b is complete:
 read `docs/step-14b-notes.md`**. Do not build features beyond the current step without being asked.
 
 ## Architecture (decided — do not change without asking the owner)
@@ -774,6 +774,26 @@ Full reasoning, the six scenarios, the full-scale GCP procedure: **`docs/load-te
   `src/config/__tests__/production-config-doc.unit.test.ts` fails when a variable has no row (or the wrong process), a row names a removed variable, a default differs from the schema, or a promised production refusal
   is not what `assertSslPolicy` / `assertAuthPolicy` / `assertStoragePolicy` / `assertVideoPolicy` / `assertPrivacyPolicy` do. **A new env variable: add it to its schema AND to a table of that page.**
   README has a documentation index.
+
+## Service worker, kill switch and error boundary (step 14b-2, part D)
+
+Full reasoning and what it costs: **`docs/adr/0025-service-worker.md`**. Source: `frontend/sw/sw.js` (a classic-script TEMPLATE with one placeholder, filled by `frontend/vite-plugin-sw.ts` and emitted
+as `/sw.js`, no hash in its name), `frontend/sw/sw-retire.js`, page side in `frontend/src/sw/` (`register.ts`, `examLock.ts`, `clearCaches.ts`), `frontend/public/sw-control.json`.
+- **Rules (each is tested, and each test was shown to fail against a mutated worker)**: the shell (every navigation) is NETWORK-FIRST, the cache is read only when the fetch itself throws; `/api/*`, other origins,
+  non-GET and the worker's own two files are never touched and `safePut` refuses to store them (every worker test fails if anything of `/api` was put in a cache; E2E checks a signed-in browser); a new worker
+  never calls `skipWaiting` at install and never `clients.claim()`: the page asks (`SKIP_WAITING`) only when no exam runs in the tab (`acquireExamLock()` in `ExamPage`), and the worker asks EVERY page
+  (`EXAM_BUSY?`) and stays waiting if one says yes; sign-out and a 401 delete every cache of the origin; cache names carry the build id (`BUILD_ID` env, else a timestamp).
+- **Kill switch**: `/sw-control.json` `{"unregister": true, "deleteCaches": true}`, served `no-cache, no-store, must-revalidate` like `/sw.js` (`serve.mjs` NEVER_CACHED; the production gateway must send the same,
+  README "Production routing"). The worker reads it at activation and on EVERY navigation (never throttled: "the next load obeys" is the promise); the page reads it before registering. An order waits for a running exam.
+  **`VITE_SERVICE_WORKER=off` at BUILD time** = the app never registers and the build emits the retiring worker, which removes installed ones (a deleted sw.js would NOT: a 404 keeps the old worker).
+- **Registration** = `load`, then 12 s (`REGISTER_DELAY_MS`), then `requestIdleCallback`; assets are precached through the HTTP cache (hashed names), the shell with `cache: 'reload'`. Why: the first version cost
+  Lighthouse 2-5 points on mobile (A/B, same machine); with the delay a 7-run A/B on the Assignment page is 91 vs 91. The login page's initial JS is 124.2 KB of the 125 KB budget: **the entry chunk has almost no room left**.
+- **Error boundary and reports**: `app/ErrorBoundary.tsx` (global + the router's default error component), `shared/errors/clientErrors.ts` (5 a minute, 20 a page, each error once, never an `ApiError`), `POST /api/client-errors`
+  (module `ops`): public, a NORMAL CSRF route (the exemption list stays at three), closed shape, 4 KB, strict limit 30 / minute / address, NO database access of its own, one log line, `lms_client_errors_total{kind}`.
+  Scrubbing is ONE function, `backend/src/contracts/scrub.ts` (SPA import `@lms/backend/scrub`, a subpath export), applied by the browser before sending and by the API before logging.
+- **E2E `19-service-worker.spec.ts`** runs a real Chromium: part 2 swaps a second `serve.mjs` (`--dist <dir>`, port 4180, `E2E_API_PORT`) between two copies of the build = a deploy. Never `page.route` for worker traffic
+  (it does not see it: use `context.on('request')` and `request.serviceWorker()`), never assert on `window` after a reload without a marker. Unit tests: `test/service-worker.test.ts` (runs the shipped text against the fake scope
+  of `test/sw-env.ts`), `sw-register.test.ts`, `client-errors.test.tsx`; backend `scrub.unit.test.ts`, `client-errors.test.ts`.
 
 ## Deadline fairness under load (step 10b)
 

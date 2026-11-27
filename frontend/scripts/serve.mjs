@@ -14,7 +14,7 @@
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { Agent, createServer, request as httpRequest } from 'node:http';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, relative } from 'node:path';
 import { brotliCompressSync, constants, gzipSync } from 'node:zlib';
 import { spaSecurityHeaders } from '@lms/backend/csp';
 
@@ -24,7 +24,14 @@ const arg = (name, fallback) => {
 };
 const PORT = Number(arg('port', '4173'));
 const API = new URL(arg('api', 'http://127.0.0.1:3100'));
-const DIST = join(import.meta.dirname, '..', 'dist');
+// --dist <dir>: serve another build (the service-worker E2E specs deploy a second build by starting a second server on the same port)
+const DIST = arg('dist', join(import.meta.dirname, '..', 'dist'));
+// The worker script and its control file are NEVER cached by anything between the origin and the browser: a stale sw.js hides a release, and a stale
+// sw-control.json hides the kill switch. The production gateway must send the same header for these two paths (README "Production routing").
+const NEVER_CACHED = new Set(['/sw.js', '/sw-control.json']);
+/** The URL path of a file under DIST. */
+const urlPathOf = (file) => `/${relative(DIST, file).replaceAll('\\', '/')}`;
+const NEVER_CACHED_HEADER = 'no-cache, no-store, must-revalidate';
 
 const TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -53,7 +60,8 @@ const PLAYS_VIDEO = /^\/offerings\/[^/]+\/(items\/[^/]+|build)\/?$/;
 const cache = new Map(); // path -> { raw, gzip, br }
 function load(path) {
   let entry = cache.get(path);
-  if (!entry) {
+  const fresh = NEVER_CACHED.has(urlPathOf(path));
+  if (!entry || fresh) {
     const raw = readFileSync(path);
     const ext = extname(path);
     entry = COMPRESSIBLE.has(ext)
@@ -68,7 +76,7 @@ function load(path) {
           }),
         }
       : { raw };
-    cache.set(path, entry);
+    if (!fresh) cache.set(path, entry);
   }
   return entry;
 }
@@ -84,7 +92,11 @@ function serveFile(req, res, file) {
       ? { 'referrer-policy': 'no-referrer' }
       : {}),
     'content-type': TYPES[ext] ?? 'application/octet-stream',
-    'cache-control': isAsset ? 'public, max-age=31536000, immutable' : 'no-cache',
+    'cache-control': NEVER_CACHED.has(urlPathOf(file))
+      ? NEVER_CACHED_HEADER
+      : isAsset
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache',
     vary: 'accept-encoding',
   };
   let body = entry.raw;

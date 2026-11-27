@@ -107,6 +107,9 @@ const appEnv = () => ({
   LMS_APP_PASSWORD: finishPassword,
   ERASURE_LEDGER_DIR: ledgerDir,
   SUPPRESSION_HASH_KEYS: KEYS,
+  // The drill must not lean on a developer's .env: CI has none, and the application refuses to start without a signing secret (the derivation root of the
+  // unsubscribe, deadline and playback keys). A made-up one, like the tests' own.
+  STORAGE_SIGNING_SECRET: 'test-only-signing-secret-0123456789abcdef',
 });
 const rolesEnv = (database: string) => ({
   DATABASE_URL: cluster.ownerUrl(database),
