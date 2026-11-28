@@ -2,6 +2,7 @@ import type { MeResponse } from '@lms/backend/contracts';
 import { useState } from 'react';
 import { ApiError } from '../../shared/api/client';
 import { CodeForm } from '../../shared/mfa/CodeForm';
+import { BusyNotice } from '../../shared/ui/busy-notice';
 import { Button } from '../../shared/ui/button';
 import { verifySecondFactor } from './mfa.api';
 
@@ -21,6 +22,7 @@ export function MfaChallengeStep({
   onRestart: () => void;
 }) {
   const [ended, setEnded] = useState(false);
+  const [waiting, setWaiting] = useState(false);
 
   if (step === 'enrol_email') {
     return (
@@ -57,7 +59,7 @@ export function MfaChallengeStep({
       <CodeForm
         submitLabel="Sign in"
         onSubmit={async (factor) => {
-          await onSignedIn(await verifySecondFactor(factor));
+          await onSignedIn(await verifySecondFactor(factor, (busy) => setWaiting(!!busy)));
         }}
         onError={(err) => {
           if (err instanceof ApiError && err.code === 'mfa_challenge_invalid') {
@@ -67,6 +69,7 @@ export function MfaChallengeStep({
           return false;
         }}
       />
+      {waiting && <BusyNotice />}
       <p className="text-center text-sm">
         <button type="button" className="min-h-11 text-primary underline" onClick={onRestart}>
           Back to sign in

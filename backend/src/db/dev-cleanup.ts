@@ -52,7 +52,20 @@ export async function deleteTenantCascade(client: pg.Client, tenantId: string): 
       await client.query(`ALTER TABLE lms.${table} ENABLE TRIGGER ${trigger}`);
   }
   // children before parents: nothing that history depends on is cascade-deleted (ON DELETE RESTRICT)
+  // an account erasure points at the college request that made it
+  await client.query(
+    `DELETE FROM lms.account_erasure_requests WHERE user_id IN
+       (SELECT user_id FROM lms.tenant_memberships WHERE tenant_id = $1)`,
+    [tenantId],
+  );
   for (const table of [
+    'notifications',
+    'notification_preferences',
+    'notify_content_marks',
+    'notify_runs',
+    'notify_scan_state',
+    'email_outbox',
+    'auth_mfa_challenges',
     'assignment_feedback_files',
     'assignment_grades',
     'assignment_uploads',
@@ -130,6 +143,15 @@ export async function deleteTenantCascade(client: pg.Client, tenantId: string): 
          AND NOT EXISTS (SELECT 1 FROM lms.tenant_memberships m WHERE m.user_id = u.id)`,
       [ids],
     );
+  }
+  // deleting content, participants and memberships above made the change triggers mark the college again: clear those marks last
+  for (const table of [
+    'rollup_dirty_participants',
+    'rollup_dirty_offerings',
+    'course_sync_pending',
+    'jobs',
+  ]) {
+    await client.query(`DELETE FROM lms.${table} WHERE tenant_id = $1`, [tenantId]);
   }
   await client.query('DELETE FROM lms.tenants WHERE id = $1', [tenantId]);
 }

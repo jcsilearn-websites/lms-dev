@@ -24,7 +24,7 @@ import {
   unsubscribeKey,
 } from './core/mail';
 import { createMfaCrypto, parseMfaKeys } from './core/mfa-crypto';
-import { createPasswordHasher } from './core/password';
+import { createPasswordHasher, type PasswordHasher } from './core/password';
 import {
   createGcsStorage,
   createLocalStorage,
@@ -248,6 +248,8 @@ export interface ModulesConfig {
   mfa: { enforced: boolean; keys: SigningKeyEntry[] };
   /** the clock of the second factor's time decisions (tests pass explicit instants) */
   now?: () => Date;
+  /** tests: a password hasher whose argon2 calls can be held open */
+  passwordHasher?: PasswordHasher;
   authRateLimits: AuthRateLimitConfig;
   privacy: {
     exportRatePerHour: number;
@@ -662,7 +664,8 @@ function emailProviderFromEnv(
  */
 export function createModules(db: Database, config: ModulesConfig) {
   const background = createBackgroundTasks(config.onBackgroundError);
-  const hasher = createPasswordHasher({ concurrency: config.passwordHashConcurrency });
+  const hasher =
+    config.passwordHasher ?? createPasswordHasher({ concurrency: config.passwordHashConcurrency });
 
   const healthService = traced(
     'health',
@@ -1215,6 +1218,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     },
     auth: {
       service: authService,
+      hashingFull: () => hasher.full(),
       controller: createAuthController({
         authService,
         mfaService,

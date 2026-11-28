@@ -1,5 +1,5 @@
 import { hash, verify } from '@node-rs/argon2';
-import { ServiceUnavailableError } from './errors';
+import { ServiceBusyError } from './errors';
 
 /**
  * argon2id with the OWASP-recommended minimum (m=19 MiB, t=2, p=1). Parameters live in the PHC
@@ -21,6 +21,8 @@ export interface PasswordHasher {
   /** Verifies against a throwaway hash so unknown accounts cost the same as known ones. */
   verifyDummy(password: string): Promise<false>;
   needsRehash(passwordHash: string): boolean;
+  /** Every hashing slot is taken and the wait queue is full: the next hash would be refused. */
+  full(): boolean;
 }
 
 export function needsRehash(passwordHash: string, params = ARGON2_PARAMS): boolean {
@@ -40,16 +42,19 @@ export function needsRehash(passwordHash: string, params = ARGON2_PARAMS): boole
 export function createPasswordHasher(opts: {
   concurrency: number;
   maxQueue?: number;
+  /** tests: argon2 calls that can be held open */
+  argon2?: { hash: typeof hash; verify: typeof verify };
 }): PasswordHasher {
   const maxQueue = opts.maxQueue ?? 50;
+  const argon2 = opts.argon2 ?? { hash, verify };
   let running = 0;
   const waiting: Array<() => void> = [];
 
+  const full = () => running >= opts.concurrency && waiting.length >= maxQueue;
+
   async function limited<T>(fn: () => Promise<T>): Promise<T> {
     if (running >= opts.concurrency) {
-      if (waiting.length >= maxQueue) {
-        throw new ServiceUnavailableError('busy', 'The server is busy, please retry shortly');
-      }
+      if (full()) throw new ServiceBusyError();
       await new Promise<void>((resolve) => waiting.push(resolve));
     }
     running++;
@@ -63,23 +68,24 @@ export function createPasswordHasher(opts: {
 
   let dummy: Promise<string> | undefined;
   const dummyHash = () => {
-    dummy ??= hash(normalize('dummy-password-for-timing'), ARGON2_PARAMS);
+    dummy ??= argon2.hash(normalize('dummy-password-for-timing'), ARGON2_PARAMS);
     return dummy;
   };
 
   return {
-    hash: (password) => limited(() => hash(normalize(password), ARGON2_PARAMS)),
+    hash: (password) => limited(() => argon2.hash(normalize(password), ARGON2_PARAMS)),
     verify: (passwordHash, password, skipIf) =>
       limited(() =>
         skipIf?.()
           ? Promise.resolve(false)
-          : verify(passwordHash, normalize(password)).catch(() => false),
+          : argon2.verify(passwordHash, normalize(password)).catch(() => false),
       ),
     async verifyDummy(password) {
       const h = await dummyHash();
-      await limited(() => verify(h, normalize(password)).catch(() => false));
+      await limited(() => argon2.verify(h, normalize(password)).catch(() => false));
       return false;
     },
     needsRehash: (passwordHash) => needsRehash(passwordHash),
+    full,
   };
 }

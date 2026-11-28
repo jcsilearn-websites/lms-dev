@@ -4,6 +4,7 @@ import { Link, useNavigate, useSearch } from '@tanstack/react-router';
 import { lazy, Suspense, useState } from 'react';
 import { describeError } from '../../shared/api/errors';
 import { useSimpleForm } from '../../shared/forms/useSimpleForm';
+import { BusyNotice } from '../../shared/ui/busy-notice';
 import { Button } from '../../shared/ui/button';
 import { Field } from '../../shared/ui/field';
 import { safeRedirect } from '../../shared/utils/redirect';
@@ -22,6 +23,7 @@ export function LoginPage() {
   const search = useSearch({ strict: false }) as { redirect?: unknown };
   const [formError, setFormError] = useState<string | null>(null);
   const [second, setSecond] = useState<'totp' | 'enrol_email' | null>(null);
+  const [waiting, setWaiting] = useState(false);
 
   const signedIn = async (me: MeResponse) => {
     qc.setQueryData(meKey, me);
@@ -34,7 +36,7 @@ export function LoginPage() {
     onSubmit: async (values) => {
       setFormError(null);
       try {
-        const result = await login(values);
+        const result = await login(values, (busy) => setWaiting(!!busy));
         if ('step' in result) setSecond(result.step);
         else await signedIn(result);
       } catch (err) {
@@ -81,6 +83,7 @@ export function LoginPage() {
             {formError}
           </p>
         )}
+        {waiting && <BusyNotice />}
         <Button type="submit" className="w-full" loading={form.submitting}>
           Sign in
         </Button>

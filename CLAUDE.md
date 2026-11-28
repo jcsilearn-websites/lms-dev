@@ -928,9 +928,20 @@ spec 20 uses a SECOND API instance (ports 3101 / 4175, `withStack(..., { mfa: tr
   route needs more than the default limit.
 - **`TRUST_PROXY=true` needs `TRUST_PROXY_HOPS`** in production: without a hop count a client chooses its own address.
 - The strict limiter waits 1 s for its store, then counts per instance. 429s are counted in `lms_http_rate_limited_total{route}`.
-- **Sign-in limits** (`core/auth-rate-limit.ts`, `sign-in-limits.test.ts`): per address 300 attempts and 60 FAILURES a minute (once reached, every sign-in from that address waits), per e-mail 5; the other
+- **Sign-in limits** (`core/auth-rate-limit.ts`, `sign-in-limits.test.ts`): per address 300 attempts and 150 FAILURES a minute (once reached, every sign-in from that address waits), per e-mail 5; the other
   credential routes (codes, reset request, invite acceptance) keep `RATE_LIMIT_AUTH_PER_IP` = 10. A test that relaxes sign-in limits relaxes all three.
+- **A full password-hash queue** is `ServiceBusyError` (503 `busy` + `Retry-After`), refused BEFORE the sign-in limits count it (`limit.admitHashing`); the login page and the code step retry 3 times with
+  jitter (`shared/api/signInRetry.ts`). Tests: `test/sign-in-busy.test.ts`, `frontend/test/sign-in-busy.test.tsx`.
 - Open P0 / P1: verify the hop count on GCP; full-scale load test.
+
+## Client demo (`pnpm demo:seed | demo:reset | demo:video`)
+
+`backend/src/demo/` (guard, in-process runtime, data, seed, removal, lecture upload) + `src/cli/demo.ts`; script and checklist in **`docs/demo-walkthrough.md`**. Needs PostgreSQL and ffmpeg, no running app.
+- **Guard** (`demo/guard.ts`, the load-test rules): never production / Cloud Run, database hosts on this machine or `DEMO_ALLOWED_HOSTS`, slug `demo-*`.
+- The owner connection inserts only the college and accounts, then AGES dates; everything else goes through the real routes and job handlers. Jobs of other colleges are deferred, never run.
+- Two-step sign-in is never switched off: the admin is enrolled through the product flow; secret and recovery codes are saved in `.demo/` (git-ignored).
+- `demo:reset` uses `deleteTenantCascade`: **a new tenant-owned table goes into `db/dev-cleanup.ts`** (`test/demo.seed.test.ts`, serial, fails when a row of the college survives in any table with `tenant_id`).
+- A UI label or flow named in the walkthrough that changes needs the walkthrough changed.
 
 ## Launch checklist (before the first production college goes live)
 
@@ -1120,6 +1131,7 @@ pnpm typecheck           pnpm test        (backend: unit + db in parallel, then 
 pnpm db:local:setup     once: roles anon/authenticated + the dev database on local PostgreSQL (refuses non-localhost)
 pnpm db:migrate          pnpm db:seed     (dev DB, owner connection)
 pnpm admin:create --email x@y.z   first platform admin (hidden password prompt or ADMIN_PASSWORD)
+pnpm demo:seed | demo:reset | demo:video <file> --course CS201 --item "<title>"   the client demo college (docs/demo-walkthrough.md)
 pnpm db:dev:clean --yes --project-ref <ref>   dev DB only: remove bench tenants + auth noise (guarded)
 pnpm loadtest:test | loadtest:smoke | loadtest:local -- --scale 0.1 --time-scale 0.1 | loadtest:seed | loadtest:run   load-test harness (docs/load-testing.md)
 pnpm db:backup --out <dir> | db:restore --backup <dir> [--finish] | db:verify-restore | db:verify-roles [--fix] | db:restore-drill   backups (docs/backup-and-restore.md)

@@ -19,6 +19,8 @@ const ALLOWED: Record<string, string> = {
   'backend/src/modules/imports/imports.repository.ts':
     'matches the staged addresses against existing accounts and creates accounts; it never shows a name (an import never touches a removed member)',
   'backend/src/db/seed.ts': 'development seed data (refuses production)',
+  'backend/src/demo/seed.ts':
+    'creates the invented accounts of the demo college with the owner connection (refuses production and unlisted hosts)',
   'backend/src/cli/create-platform-admin.ts': 'bootstrap of the first platform administrator',
   'backend/src/db/dev-cleanup.ts': 'development database hygiene (refuses production)',
 };

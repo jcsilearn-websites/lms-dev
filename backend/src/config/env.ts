@@ -143,7 +143,7 @@ const authFields = {
   LOCKOUT_MAX_SECONDS: Type.Integer({ minimum: 1, default: 900 }),
   // sign-in per address: a college behind one address (a lab of 200) must get in; guessing is held by the failure limit
   RATE_LIMIT_LOGIN_PER_IP: Type.Integer({ minimum: 1, default: 300 }),
-  RATE_LIMIT_LOGIN_FAILURES_PER_IP: Type.Integer({ minimum: 1, default: 60 }),
+  RATE_LIMIT_LOGIN_FAILURES_PER_IP: Type.Integer({ minimum: 1, default: 150 }),
   // the other credential routes (two-step codes, reset request, invite acceptance), per address and route
   RATE_LIMIT_AUTH_PER_IP: Type.Integer({ minimum: 1, default: 10 }),
   RATE_LIMIT_LOGIN_PER_EMAIL: Type.Integer({ minimum: 1, default: 5 }),

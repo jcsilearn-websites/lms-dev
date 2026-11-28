@@ -101,23 +101,30 @@ All forms disable their button while a request runs (the SPA), which covers a do
 
 Every route and its tier: **appendix** (generated from `backend/test/rate-limit-tiers.txt`, which a test keeps true).
 
-| Class                                                                                      | Limit today                                                             | Verdict                                                                                     |
-| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| password sign-in                                                                           | per address 300 attempts and 60 failures a minute, per e-mail 5, shared | a lab of 200 gets in; guessing is held by the failure, e-mail and account limits (fixed)    |
-| MFA codes, forgot, invite accept                                                           | per address and route 10/min, per e-mail 5 on forgot, shared            | right for codes; **a class accepting invitations or asking for resets together is limited** |
-| password reset, public unsubscribe, CSP, client errors, webhook, metrics, privacy requests | strict, shared                                                          | appropriate                                                                                 |
-| exam autosave, heartbeat, video chunks and segments, bell, signed storage links            | own numbers, per session                                                | appropriate                                                                                 |
-| everything else (reads and writes)                                                         | 300/min per session (`RATE_LIMIT_MAX`)                                  | fine for ordinary calls; **generous for expensive ones**                                    |
-| health probes                                                                              | none                                                                    | right                                                                                       |
-| `GET /tenant/info` (public)                                                                | default, per address                                                    | acceptable (one read); see caching                                                          |
+| Class                                                                                      | Limit today                                                              | Verdict                                                                                     |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| password sign-in                                                                           | per address 300 attempts and 150 failures a minute, per e-mail 5, shared | a lab of 200 gets in; guessing is held by the failure, e-mail and account limits (fixed)    |
+| MFA codes, forgot, invite accept                                                           | per address and route 10/min, per e-mail 5 on forgot, shared             | right for codes; **a class accepting invitations or asking for resets together is limited** |
+| password reset, public unsubscribe, CSP, client errors, webhook, metrics, privacy requests | strict, shared                                                           | appropriate                                                                                 |
+| exam autosave, heartbeat, video chunks and segments, bell, signed storage links            | own numbers, per session                                                 | appropriate                                                                                 |
+| everything else (reads and writes)                                                         | 300/min per session (`RATE_LIMIT_MAX`)                                   | fine for ordinary calls; **generous for expensive ones**                                    |
+| health probes                                                                              | none                                                                     | right                                                                                       |
+| `GET /tenant/info` (public)                                                                | default, per address                                                     | acceptable (one read); see caching                                                          |
 - **Keys:** a signed-in request counts against its session (never the address), so a computer lab does not share one budget; anonymous requests
   against the address; forged cookies against the address in a second limiter; auth routes also against a hash of the e-mail. No per-user or
   per-college key exists.
 - **Behind a proxy:** fixed as F1. Without `TRUST_PROXY` every request counts against the load balancer.
-- **Shared NAT (fixed after the review for sign-in):** attempts 300 and failures 60 per address and minute (`sign-in-limits.test.ts`: 200
-  learners, one in five mistyping, no 429). Trade-off: 60 wrong passwords from one address make every sign-in from it wait up to a minute,
-  so somebody inside a college can briefly stop its sign-ins. Invite acceptance and reset requests keep 10 a minute per address (P2).
-  A burst of more than about 50 sign-ins AT THE SAME INSTANT per instance still meets the password-hashing queue (503 `busy`, not 429).
+- **Shared NAT (fixed after the review for sign-in):** attempts 300 and failures 150 per address and minute (`sign-in-limits.test.ts`: 200
+  learners, one in five mistyping, no 429). Invite acceptance and reset requests keep 10 a minute per address (P2).
+- **The trade-off of ANY per-address failure limit:** one insider behind the same address (a student in the lab) can type that many wrong
+  passwords and make every sign-in from the address wait **for up to one minute**, and can do it again in the next window. A higher number
+  only makes this cost the insider more requests and gives a password sprayer more guesses (150 instead of 60 a minute per address); no number
+  removes it. What holds instead: the per-e-mail limit (5 a minute), the account lockout (doubling to 15 minutes), two-step sign-in for
+  administrators, and the audit trail (every failure is recorded with the account and the address, so the insider can be traced). Sessions
+  that are already signed in are not affected. Configurable: `RATE_LIMIT_LOGIN_FAILURES_PER_IP`.
+- **Password-hashing queue:** more than about 50 sign-ins waiting AT THE SAME INSTANT per instance get 503 `busy` with `Retry-After` (not
+  429). The sign-in page and the two-step code step retry three times over about 10 seconds with random jitter and say that many people are
+  signing in. A refusal made before the limits are counted costs no attempt; one that meets a full queue after being counted does.
   Browsers holding a dead session cookie (idle over 7 days) count in the forged-cookie limit (150 a minute per address) before they
   reach the sign-in form: shared lab machines could meet it (P2).
 - **429 body and header:** one shape, `Retry-After` on every one (F3 was the exception).

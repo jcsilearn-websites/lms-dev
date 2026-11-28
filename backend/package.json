@@ -39,7 +39,10 @@
     "mfa:rekey": "tsx src/cli/mfa-rekey.ts",
     "mfa:reset": "tsx src/cli/mfa-reset.ts",
     "privacy:reapply-erasures": "tsx src/cli/privacy-reapply-erasures.ts",
-    "db:dev:clean": "tsx src/cli/dev-clean.ts"
+    "db:dev:clean": "tsx src/cli/dev-clean.ts",
+    "demo:seed": "cross-env UV_THREADPOOL_SIZE=8 tsx src/cli/demo.ts seed",
+    "demo:reset": "cross-env UV_THREADPOOL_SIZE=8 tsx src/cli/demo.ts reset",
+    "demo:video": "cross-env UV_THREADPOOL_SIZE=8 tsx src/cli/demo.ts video"
   },
   "dependencies": {
     "@fastify/cookie": "^11.1.5",

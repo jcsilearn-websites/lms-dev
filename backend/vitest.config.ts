@@ -29,6 +29,8 @@ export const SERIAL_FILES = [
   'test/imports.scale.test.ts',
   // real ffmpeg transcodes: every encoder thread the machine has, and multi-second wall-clock work
   'test/video.test.ts',
+  // pnpm demo:seed / demo:reset end to end: real transcodes, dozens of sign-ins, and it switches history triggers off to remove
+  'test/demo.seed.test.ts',
   'test/video.shutdown.test.ts',
   // kills real worker processes and waits for a 3 s lease to expire
   'test/resilience.worker.test.ts',

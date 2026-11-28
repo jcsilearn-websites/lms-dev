@@ -56,6 +56,7 @@ function setup() {
     hash: vi.fn(),
     verifyDummy: vi.fn(async () => false as const),
     needsRehash: vi.fn(() => false),
+    full: () => false,
     verify: (_hash, password, skipIf) => {
       const run = tail.then(async () => {
         if (skipIf?.()) return false;

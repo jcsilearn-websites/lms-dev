@@ -16,6 +16,7 @@ import { registerHttpTelemetry } from './core/http-telemetry';
 import { createKeyRing } from './core/keyring';
 import type { EmailProvider } from './core/mail';
 import { registerOpenApi } from './core/openapi';
+import type { PasswordHasher } from './core/password';
 import { createBatchedLimiter, createStrictLimiter, type RateLimitStore } from './core/rate-limit';
 import { genReqId, registerRequestId } from './core/request-id';
 import { createBadSessionLimiter, registerSecurity } from './core/security';
@@ -56,6 +57,8 @@ export interface AppDeps {
   emailProvider?: EmailProvider;
   /** Overrides the clock of the second factor's time decisions (tests). */
   now?: () => Date;
+  /** Overrides the password hasher (tests of a full hashing queue). */
+  passwordHasher?: PasswordHasher;
 }
 
 /**
@@ -75,7 +78,7 @@ function trustedProxies(env: Pick<ApiEnv, 'TRUST_PROXY' | 'TRUST_PROXY_HOPS'>) {
 /** Prefix of every application route (health probes are also served at the root). */
 export const API_PREFIX = '/api';
 
-export function buildApp({ env, db, logger, emailProvider, now }: AppDeps) {
+export function buildApp({ env, db, logger, emailProvider, now, passwordHasher }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     logController: new LogController({ requestIdLogLabel: 'request_id' }),
@@ -91,6 +94,7 @@ export function buildApp({ env, db, logger, emailProvider, now }: AppDeps) {
   const modules = createModules(db, {
     ...modulesConfigFromEnv(env, logger, emailProvider),
     ...(now ? { now } : {}),
+    ...(passwordHasher ? { passwordHasher } : {}),
   });
 
   // Order matters: error handling, cross-cutting plugins (rate limit, CSRF), tenant + session
@@ -249,6 +253,7 @@ export function buildApp({ env, db, logger, emailProvider, now }: AppDeps) {
           authController: modules.auth.controller,
           rateLimits: modules.config.authRateLimits,
           strict,
+          hashingFull: modules.auth.hashingFull,
         }),
       );
       void api.register(createCspReportRoutes({ opsController: modules.ops.controller }));

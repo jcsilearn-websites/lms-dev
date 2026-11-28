@@ -87,7 +87,8 @@ beforeAll(async () => {
   const q1 = await quiz(e, 'Quiz One', [true, false]);
   await releaseQuiz(e, q1.id);
   await quiz(e, 'Quiz Manual', [true, false], { resultsVisibility: 'manual' }); // never released: its scores are not Lena's to see yet
-  await assignment(owner, e, 'Essay Released', [91.25, 55.5], { release: true, dueInPast: true });
+  // decimal sentinels are above 59 on purpose: a timestamp such as 16:57:55.539 must not look like a score
+  await assignment(owner, e, 'Essay Released', [91.25, 88.5], { release: true, dueInPast: true });
   const hidden = await assignment(owner, e, 'Essay Unreleased', [73.5, 66.5], { dueInPast: true });
   const ic = e.instructor.client;
   const lenaPid = (
@@ -426,7 +427,7 @@ describe('the archive (sentinel test over the unzipped bytes)', () => {
       ["another learner's name", 'zqomar'],
       ["another learner's address", omar.email.toLowerCase()],
       ["another learner's register number", omarRegister.toLowerCase()],
-      ["another learner's score", '55.5'],
+      ["another learner's score", '88.5'],
       ["an instructor's name", 'zqprof'],
       ['an unreleased assignment score', '73.5'],
       ['an accommodation reason', 'zqreason-acc'],
@@ -457,7 +458,7 @@ describe('the archive (sentinel test over the unzipped bytes)', () => {
       .join(' ')
       .toLowerCase();
     expect(theirs).toContain('zqomar');
-    expect(theirs).toContain('55.5');
+    expect(theirs).toContain('88.5');
     expect(theirs).not.toContain('zqlena');
     expect(theirs).not.toContain('91.25');
   });

@@ -8,7 +8,8 @@ import type {
   MfaResetResult,
   MfaStatus,
 } from '@lms/backend/contracts';
-import { api } from '../../shared/api/client';
+import { api, type BusyRetry } from '../../shared/api/client';
+import { signInRetry } from '../../shared/api/signInRetry';
 import type { SecondFactor } from '../../shared/mfa/CodeForm';
 
 // Two-step sign-in (step 14c). The public calls answer 401 for a wrong code or an ended attempt: that is an ordinary answer
@@ -19,8 +20,13 @@ export const mfaKeys = {
   resets: ['platform', 'mfa-resets'] as const,
 };
 
-export const verifySecondFactor = (factor: SecondFactor) =>
-  api<MeResponse>('/auth/mfa/verify', { method: 'POST', body: factor, anonymousOk: true });
+export const verifySecondFactor = (factor: SecondFactor, onBusy?: BusyRetry['onBusy']) =>
+  api<MeResponse>('/auth/mfa/verify', {
+    method: 'POST',
+    body: factor,
+    anonymousOk: true,
+    retryBusy: signInRetry(onBusy),
+  });
 export const startEnrolment = (token: string, password: string) =>
   api<MfaEnrolStartResponse>('/auth/mfa/enrol/start', {
     method: 'POST',

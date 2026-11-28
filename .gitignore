@@ -43,3 +43,6 @@ backups/
 # load-test harness: the seed state (holds the password of the throwaway accounts) and the result files
 loadtest/.state/
 loadtest/results/
+
+# sign-in details and secrets of the throwaway demo college (pnpm demo:seed)
+.demo/

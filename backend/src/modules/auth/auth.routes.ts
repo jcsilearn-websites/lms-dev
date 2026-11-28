@@ -36,17 +36,19 @@ export function createAuthRoutes(deps: {
   rateLimits: AuthRateLimitConfig;
   /** the shared store's strict tier: the per-IP / per-email buckets are then shared by every API instance */
   strict?: StrictLimiter;
+  /** the password-hashing queue is full: sign-in answers 503 `busy` before counting the attempt */
+  hashingFull?: () => boolean;
 }): FastifyPluginAsyncTypebox {
-  const { authController, rateLimits, strict } = deps;
+  const { authController, rateLimits, strict, hashingFull } = deps;
   return async (app) => {
     // stricter per-IP and per-email limits on the credential-sensitive endpoints
-    const limit = createAuthRateLimits(rateLimits, strict);
+    const limit = createAuthRateLimits(rateLimits, strict, hashingFull);
 
     app.post(
       '/auth/login',
       {
         config: { public: true },
-        onRequest: [limit.signInPerIp],
+        onRequest: [limit.admitHashing, limit.signInPerIp],
         preHandler: [requireKnownHost, limit.perEmail],
         onError: [limit.signInFailed],
         schema: loginRouteSchema,

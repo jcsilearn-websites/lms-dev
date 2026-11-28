@@ -44,6 +44,16 @@ export class ServiceUnavailableError extends AppError {
   }
 }
 
+/** Saturation, not a fault: the answer is 503 `busy` with a `Retry-After`, and the client may send the request again. */
+export class ServiceBusyError extends ServiceUnavailableError {
+  constructor(
+    message = 'The server is busy, please retry shortly',
+    readonly retryAfterSeconds = 2,
+  ) {
+    super('busy', message);
+  }
+}
+
 export class UnauthorizedError extends AppError {
   constructor(code = 'unauthenticated', message = 'Authentication required') {
     super(401, code, message);

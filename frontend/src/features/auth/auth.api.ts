@@ -5,7 +5,8 @@ import type {
   MeResponse,
   SessionList,
 } from '@lms/backend/contracts';
-import { ApiError, api } from '../../shared/api/client';
+import { ApiError, api, type BusyRetry } from '../../shared/api/client';
+import { signInRetry } from '../../shared/api/signInRetry';
 import { clearServiceWorkerCaches } from '../../sw/clearCaches';
 
 export const meKey = ['me'] as const;
@@ -56,8 +57,13 @@ export const fetchMe = async (signal?: AbortSignal) => {
 };
 
 /** 200 = signed in. 202 `{ step }` = the password was right but there is no session yet (two-step sign-in). */
-export const login = (body: LoginRequest) =>
-  api<MeResponse | LoginChallenge>('/auth/login', { method: 'POST', body, anonymousOk: true });
+export const login = (body: LoginRequest, onBusy?: BusyRetry['onBusy']) =>
+  api<MeResponse | LoginChallenge>('/auth/login', {
+    method: 'POST',
+    body,
+    anonymousOk: true,
+    retryBusy: signInRetry(onBusy),
+  });
 export const logout = async () => {
   forgetMe();
   try {

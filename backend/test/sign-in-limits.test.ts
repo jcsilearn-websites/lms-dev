@@ -8,7 +8,7 @@ import { type AuthFixture, createAuthFixture, TEST_PASSWORD, testOwnerPool } fro
 // SIGN-IN LIMITS (docs/system-design-review.md, follow-up P1): a college behind ONE address (a lab, a campus NAT) must be able to
 // sign in, while guessing stays limited. Three limits, all on POST /auth/login:
 //   attempts per address   generous (a lab of 200 within a minute)
-//   failures per address   much stricter (password spraying from one address)
+//   failures per address   stricter, 150 (password spraying from one address)
 //   attempts per e-mail    strict, unchanged
 // The limits under test are the SHIPPED DEFAULTS: the overrides the test harness sets for other suites are removed here.
 
@@ -109,15 +109,18 @@ describe('guessing', () => {
     expect(codes.slice(5)).toEqual([429, 429, 429, 429, 429, 429]);
   });
 
-  it('wrong guesses at MANY e-mails from one address stop at 60; then even a right password waits', async () => {
+  it('wrong guesses at MANY e-mails from one address stop at 150; then even a right password waits', async () => {
     const t = app();
     const codes = await inWaves(
-      60,
+      149,
       10,
       async (n) => (await signIn(t, learner(n), WRONG)).statusCode,
     );
-    expect(codes.filter((c) => c === 401)).toHaveLength(60);
-    const refused = await signIn(t, learner(100), TEST_PASSWORD);
+    expect(codes.filter((c) => c === 401)).toHaveLength(149);
+    // one below the limit: a right password still gets in
+    expect((await signIn(t, learner(180), TEST_PASSWORD)).statusCode).toBe(200);
+    expect((await signIn(t, learner(149), WRONG)).statusCode).toBe(401);
+    const refused = await signIn(t, learner(181), TEST_PASSWORD);
     expect(refused.statusCode).toBe(429);
     expect(refused.json().error.code).toBe('rate_limited');
     expect(Number(refused.headers['retry-after'])).toBeGreaterThan(0);
@@ -147,14 +150,14 @@ describe('guessing', () => {
     const t = app({ TRUST_PROXY: 'true', TRUST_PROXY_HOPS: '1' });
     const from = (n: number, real = '203.0.113.7') => `198.51.100.${n % 250}, ${real}`;
     const codes = await inWaves(
-      60,
+      150,
       10,
       async (n) => (await signIn(t, learner(n), WRONG, from(n))).statusCode,
     );
-    expect(codes.filter((c) => c === 401)).toHaveLength(60);
-    expect((await signIn(t, learner(100), TEST_PASSWORD, from(99))).statusCode).toBe(429);
+    expect(codes.filter((c) => c === 401)).toHaveLength(150);
+    expect((await signIn(t, learner(160), TEST_PASSWORD, from(99))).statusCode).toBe(429);
     // another real address is not affected
-    expect((await signIn(t, learner(100), TEST_PASSWORD, from(99, '203.0.113.8'))).statusCode).toBe(
+    expect((await signIn(t, learner(160), TEST_PASSWORD, from(99, '203.0.113.8'))).statusCode).toBe(
       200,
     );
   });

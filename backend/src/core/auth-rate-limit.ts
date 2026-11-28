@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { AppError } from './errors';
+import { AppError, ServiceBusyError } from './errors';
 import { createStrictLimiter, type StrictLimiter } from './rate-limit';
 
 export interface AuthRateLimitConfig {
@@ -73,7 +73,12 @@ const emailOf = (request: FastifyRequest): string => {
  * With a `strict` limiter the buckets are SHARED by every API instance (step 14a): the email is hashed before it becomes a
  * key, so the shared table never holds an address. Without one (unit tests, a single instance) they are in memory.
  */
-export function createAuthRateLimits(cfg: AuthRateLimitConfig, strict?: StrictLimiter) {
+export function createAuthRateLimits(
+  cfg: AuthRateLimitConfig,
+  strict?: StrictLimiter,
+  /** is the password-hashing queue full right now? */
+  hashingFull: () => boolean = () => false,
+) {
   const ipLimiter = createWindowLimiter({ max: cfg.perIp, windowMs: cfg.windowMs });
   const emailLimiter = createWindowLimiter({ max: cfg.perEmail, windowMs: cfg.windowMs });
   const route = (r: FastifyRequest) => r.routeOptions.url ?? r.url;
@@ -101,6 +106,14 @@ export function createAuthRateLimits(cfg: AuthRateLimitConfig, strict?: StrictLi
   const secondsLeft = (until: number) => Math.ceil((until - Date.now()) / 1000);
 
   return {
+    /**
+     * Goes BEFORE the sign-in limits: a sign-in that could not be hashed anyway is refused without being counted, so the
+     * automatic retries of a busy moment do not spend the person's (or their lab's) attempts. A request that passes here and
+     * finds the queue full later gets the same 503 and has been counted.
+     */
+    admitHashing: async () => {
+      if (hashingFull()) throw new ServiceBusyError();
+    },
     signInPerIp: async (request: FastifyRequest, reply: FastifyReply) => {
       const until = spent.get(request.ip);
       if (until !== undefined) {

@@ -51,6 +51,7 @@ function setup(
     verify: vi.fn().mockResolvedValue(opts.verify ?? true),
     verifyDummy: vi.fn().mockResolvedValue(false),
     needsRehash: vi.fn().mockReturnValue(false),
+    full: () => false,
   };
   const authRepo = {
     loginBegin: vi.fn().mockResolvedValue(begin()),

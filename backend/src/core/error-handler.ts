@@ -1,7 +1,7 @@
 import type { FastifyError, FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import type { ErrorResponse } from '../contracts';
 import { issueReceipt } from './deadline';
-import { AppError } from './errors';
+import { AppError, ServiceBusyError } from './errors';
 import { isStorageInfrastructureError } from './storage';
 import { StorageUnavailableError } from './storage/storage';
 
@@ -75,6 +75,9 @@ function hitErasedAccount(err: unknown): boolean {
 async function handleError(err: FastifyError, request: FastifyRequest, reply: FastifyReply) {
   if (err instanceof AppError) {
     if (err.statusCode >= 500) request.log.warn({ err }, 'request failed');
+    if (err instanceof ServiceBusyError) {
+      void reply.header('retry-after', String(err.retryAfterSeconds));
+    }
     return reply.status(err.statusCode).send(body(request.id, err.code, err.message, err.details));
   }
 

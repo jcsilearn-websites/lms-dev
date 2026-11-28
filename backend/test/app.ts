@@ -3,6 +3,7 @@ import { buildApp } from '../src/app';
 import { type ApiEnv, apiEnvSchema, parseEnv } from '../src/config/env';
 import { createLogger } from '../src/config/logger';
 import { createCapturingProvider } from '../src/core/mail';
+import type { PasswordHasher } from '../src/core/password';
 import { createDb, type Database } from '../src/db/client';
 import { getTestDatabases, testAppDbOptions } from './support';
 
@@ -101,6 +102,8 @@ export function makeApp(
     logLevel?: string;
     /** the clock of the second factor (step 14c) */
     now?: () => Date;
+    /** a hasher whose argon2 calls the test can hold open */
+    passwordHasher?: PasswordHasher;
   } = {},
 ): TestApp {
   const env = testEnv({ ...(opts.logLevel ? { LOG_LEVEL: opts.logLevel } : {}), ...opts.env });
@@ -114,6 +117,7 @@ export function makeApp(
     logger: createLogger(env, stream),
     emailProvider: mailer,
     ...(opts.now ? { now: opts.now } : {}),
+    ...(opts.passwordHasher ? { passwordHasher: opts.passwordHasher } : {}),
   });
   return {
     app,
