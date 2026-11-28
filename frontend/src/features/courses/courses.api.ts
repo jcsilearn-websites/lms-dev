@@ -162,7 +162,7 @@ export const deleteItem = (id: string, itemId: string) =>
 export const copyContent = (
   id: string,
   sourceOfferingId: string,
-  options: { shiftDays?: number; clearDates?: boolean } = {},
+  options: { requestKey: string; shiftDays?: number; clearDates?: boolean },
 ) =>
   api<CopyContentResponse>(`/offerings/${id}/copy`, {
     method: 'POST',

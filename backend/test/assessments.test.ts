@@ -1,6 +1,8 @@
 // biome-ignore-all lint/style/noNonNullAssertion: test fixtures: the arrays hold what the setup just created
+
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { newId } from '../src/core/uuid';
 import { makeApp, type TestApp } from './app';
 import {
   addAssessment,
@@ -1134,6 +1136,7 @@ describe('assessment items in the course content', () => {
     ok(
       await e.instructor.client.post(`/offerings/${sister.id}/copy`, {
         sourceOfferingId: e.offeringId,
+        requestKey: newId(),
       }),
     );
     const outline = ok(await e.instructor.client.get(`/offerings/${sister.id}/outline`));

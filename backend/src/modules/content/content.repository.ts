@@ -75,6 +75,37 @@ const itemJson = (staff: SQL, withBody: boolean, from: SQL = sql`lms.content_ite
     LEFT JOIN lms.video_assets vd ON vd.tenant_id = i.tenant_id AND vd.id = i.video_asset_id
     CROSS JOIN LATERAL (${lockOf(staff)}) l`;
 
+/** The recorded answer of one copy request (lms.offering_copy_requests). */
+export interface CopyRecord {
+  actorUserId: string;
+  targetId: string;
+  sourceId: string;
+  shiftDays: number | null;
+  clearDates: boolean;
+  mode: 'done' | 'queued';
+  modules: number;
+  items: number;
+  assessments: number;
+  assignments: number;
+}
+
+function asCopyRecord(value: unknown): CopyRecord | null {
+  if (!value) return null;
+  const v = value as Record<string, unknown>;
+  return {
+    actorUserId: v.actor_user_id as string,
+    targetId: v.target_offering_id as string,
+    sourceId: v.source_offering_id as string,
+    shiftDays: v.shift_days as number | null,
+    clearDates: v.clear_dates as boolean,
+    mode: v.mode as 'done' | 'queued',
+    modules: v.modules as number,
+    items: v.items as number,
+    assessments: v.assessments as number,
+    assignments: v.assignments as number,
+  };
+}
+
 export function createContentRepository() {
   return {
     /** The whole outline in ONE statement: modules with their items (no bodies), shaped for the caller. */
@@ -516,9 +547,13 @@ export function createContentRepository() {
         /** days to move the dates of assessments and assignments; null = the difference of the term start dates */
         shiftDays?: number | null;
         clearDates?: boolean;
+        /** the client's idempotency key (a request); the worker's job has none: it runs once per queued copy */
+        requestKey?: string;
       },
       gates?: { target: AccessSpec; source: AccessSpec; inlineLimit: number },
     ): Promise<{
+      /** the answer already recorded for this request key: nothing was written now */
+      prior: CopyRecord | null;
       targetAcc: AccessRow | null;
       sourceAcc: AccessRow | null;
       busy: boolean;
@@ -537,15 +572,17 @@ export function createContentRepository() {
                   ELSE ((${sql.raw(col)} AT TIME ZONE (SELECT tz FROM sh)) + make_interval(days => (SELECT d FROM sh)))
                        AT TIME ZONE (SELECT tz FROM sh) END)`;
       const inlineOk = gates ? sql`(SELECT n FROM cnt) <= ${gates.inlineLimit}` : sql`TRUE`;
+      const key = v.requestKey ?? null;
       const allowed = gates
         ? sql`EXISTS (SELECT 1 FROM acc WHERE ${may}) AND EXISTS (SELECT 1 FROM src WHERE src.visible AND src.allowed)
-              AND NOT (SELECT busy FROM tgt)`
+              AND NOT (SELECT busy FROM tgt) AND NOT EXISTS (SELECT 1 FROM prior)`
         : sql`coalesce((SELECT busy FROM tgt), false)`;
       const accs = gates
         ? sql`${accessCte({ ...gates.target, lock: true })}, ${accessCte({ ...gates.source, name: 'src' })},`
         : sql``;
       const res = await tx.execute(sql`
         WITH ${accs}
+        prior AS (SELECT * FROM lms.offering_copy_requests WHERE tenant_id = ${t} AND request_key = ${key}::uuid),
         tgt AS (SELECT (copy_status = 'running') AS busy FROM lms.course_offerings
                  WHERE tenant_id = ${t} AND id = ${v.targetId}::uuid),
         cnt AS (SELECT count(*)::int AS n FROM lms.content_items
@@ -643,8 +680,21 @@ export function createContentRepository() {
                                     'actorUserId', ${v.actorUserId}::text, 'shiftDays', (SELECT d FROM sh),
                                     'clearDates', (SELECT clear FROM sh)), 3
             FROM queued
-          RETURNING id)
-        SELECT ${gates ? sql`(SELECT to_jsonb(acc) FROM acc)` : sql`NULL::jsonb`} AS target_acc,
+          RETURNING id),
+        -- the answer, recorded with the work in this one statement. A simultaneous request with the same key fails the primary
+        -- key here (or the positions of the modules) and its whole statement is undone.
+        claim AS (
+          INSERT INTO lms.offering_copy_requests
+            (tenant_id, request_key, target_offering_id, source_offering_id, actor_user_id, shift_days, clear_dates, mode,
+             modules, items, assessments, assignments)
+          SELECT ${t}, ${key}::uuid, ${target}, ${v.sourceId}::uuid, ${v.actorUserId}::uuid, ${v.shiftDays ?? null}::int,
+                 ${v.clearDates === true}::boolean,
+                 CASE WHEN EXISTS (SELECT 1 FROM queued) THEN 'queued' ELSE 'done' END,
+                 (SELECT count(*) FROM nm), (SELECT count(*) FROM ni), (SELECT count(*) FROM na), (SELECT count(*) FROM nas)
+            FROM go WHERE go.ok AND ${key}::uuid IS NOT NULL
+          RETURNING 1)
+        SELECT (SELECT to_jsonb(prior) FROM prior) AS prior,
+               ${gates ? sql`(SELECT to_jsonb(acc) FROM acc)` : sql`NULL::jsonb`} AS target_acc,
                ${gates ? sql`(SELECT to_jsonb(src) FROM src)` : sql`NULL::jsonb`} AS source_acc,
                coalesce((SELECT busy FROM tgt), false) AS busy,
                CASE WHEN EXISTS (SELECT 1 FROM queued) THEN 'queued'
@@ -654,6 +704,7 @@ export function createContentRepository() {
                (SELECT count(*) FROM ns)::int + (SELECT count(*) FROM nat)::int AS extras`);
       const r = res.rows[0];
       return {
+        prior: asCopyRecord(r?.prior),
         targetAcc: asAcc(r?.target_acc),
         sourceAcc: asAcc(r?.source_acc),
         busy: r?.busy === true,

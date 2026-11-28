@@ -466,6 +466,8 @@ Full reasoning: `docs/adr/0018-assignments.md`. Numbers: `docs/benchmarks.md` (S
   name. Archives are validated by `unzip -t` and Python's `zipfile` (CI requires both; locally they are skipped when missing).
 - **Programs and scripts are refused** at the upload of an assignment file (`BLOCKED_EXTENSIONS` on top of the allowlist). **Assignment files
   are the highest-risk path for malware: scanning is NOT built** (see TODO).
+- **The copy is idempotent** (migration 0073): the body's `requestKey` (required, one per intended copy) is unique per college; the copy statement records its own answer in `offering_copy_requests`, a repeat is answered
+  from it, a reuse for another request or person is 409 `request_key_reused`, a simultaneous twin fails a unique key (nothing written) and is retried once. A new way to start a copy sends a key.
 - **Copy** (`POST /offerings/:id/copy`, preview `GET /offerings/:id/copy-preview?sourceOfferingId=`): assessments (settings; the questions within
   the SAME course) and assignments (settings, instructions, attachments as shared files; the rubric within the same course) come along with their
   dates moved by `shiftDays` (default: the difference of the two terms' start dates; adjustable) or cleared (`clearDates`, "after close" visibility
@@ -898,7 +900,7 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
 
 ## Two-factor sign-in (step 14c: built, parts 0-3)
 
-Full design, decisions and numbers: **`docs/adr/0026-mfa.md`**; procedures: `docs/mfa-runbook.md`. Migrations 0069-0072; **the next migration is 0073** (the agent does not apply them to the dev
+Full design, decisions and numbers: **`docs/adr/0026-mfa.md`**; procedures: `docs/mfa-runbook.md`. Migrations 0069-0072 (0073 is the offering copy; **the next migration is 0074**) (the agent does not apply them to the dev
 database: `pnpm db:migrate`). **`MFA_ENFORCEMENT` is `required` by default and production refuses `off`.** Tests that sign an administrator in with a password alone switch it off in ONE place
 (`testEnv` in `test/app.ts`; the E2E stack in `frontend/scripts/stack.mjs`; the benches); two-factor tests switch it back on with `makeApp({ env: { MFA_ENFORCEMENT: 'required' } })`, and E2E
 spec 20 uses a SECOND API instance (ports 3101 / 4175, `withStack(..., { mfa: true })`, its own platform admins `mfa-root1..3@e2e.test`).
@@ -926,7 +928,9 @@ spec 20 uses a SECOND API instance (ports 3101 / 4175, `withStack(..., { mfa: tr
   route needs more than the default limit.
 - **`TRUST_PROXY=true` needs `TRUST_PROXY_HOPS`** in production: without a hop count a client chooses its own address.
 - The strict limiter waits 1 s for its store, then counts per instance. 429s are counted in `lms_http_rate_limited_total{route}`.
-- Open P0 / P1: verify the hop count on GCP; the per-address sign-in limit (10/min) locks out a lab behind one address; full-scale load test.
+- **Sign-in limits** (`core/auth-rate-limit.ts`, `sign-in-limits.test.ts`): per address 300 attempts and 60 FAILURES a minute (once reached, every sign-in from that address waits), per e-mail 5; the other
+  credential routes (codes, reset request, invite acceptance) keep `RATE_LIMIT_AUTH_PER_IP` = 10. A test that relaxes sign-in limits relaxes all three.
+- Open P0 / P1: verify the hop count on GCP; full-scale load test.
 
 ## Launch checklist (before the first production college goes live)
 
@@ -1284,7 +1288,7 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
   - **Rules for new code**: (1) never write an audit row after the change in a separate call; (2) a definer function that reads, decides, then writes must lock what it decided on (`FOR UPDATE` / advisory lock) or put the condition INTO the write (`UPDATE ... WHERE status = ...`,
     `INSERT ... ON CONFLICT`); (3) a read-merge-write of JSON settings takes the advisory lock first, in its own statement (the read must be a new snapshot).
 - **Migrations 0058 and 0059** are applied to the dev database by the agent in step 14a follow-ups; 0059 replaces `auth_accept_invite`, `auth_login_complete`, `platform_admin_invite`, `assignment_upload_begin` (same signatures: grants stay) and adds three `auth_*` functions (listed in `test/auth.functions.test.ts`).
-- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0073 (0060 / 0061 are step 14b-1 part 1, 0062 part 2, 0063-0065 part 3, 0066 / 0067 part 4, 0068 the lock mode of the college erasure, 0069-0072 step 14c; the agent applies none of the newer ones to the dev database: `pnpm db:migrate`).** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0074 (0073 offering-copy requests, 0060 / 0061 are step 14b-1 part 1, 0062 part 2, 0063-0065 part 3, 0066 / 0067 part 4, 0068 the lock mode of the college erasure, 0069-0072 step 14c; the agent applies none of the newer ones to the dev database: `pnpm db:migrate`).** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
   payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend

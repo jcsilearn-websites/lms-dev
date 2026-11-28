@@ -336,7 +336,10 @@ describe('the copy', () => {
   it('brings the settings with the dates moved by the offset of the terms, the questions, the rubric and the attachments', async () => {
     const s = await setup();
     const r = ok(
-      await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, { sourceOfferingId: s.src.id }),
+      await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, {
+        sourceOfferingId: s.src.id,
+        requestKey: newId(),
+      }),
     );
     expect(r).toMatchObject({ status: 'done', assessments: 1, assignments: 1 });
     const [exam] = await copied(s.dst.id, 'assessment');
@@ -415,7 +418,12 @@ describe('the copy', () => {
     expect(before.extensions).toBe(1);
     expect(before.accommodations).toBe(1);
     expect(before.learners).toBeGreaterThan(0);
-    ok(await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, { sourceOfferingId: s.src.id }));
+    ok(
+      await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, {
+        sourceOfferingId: s.src.id,
+        requestKey: newId(),
+      }),
+    );
     expect(await studentRows(s.dst.id)).toEqual({
       attempts: 0,
       accommodations: 0,
@@ -435,6 +443,7 @@ describe('the copy', () => {
     ok(
       await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, {
         sourceOfferingId: s.src.id,
+        requestKey: newId(),
         shiftDays: -3,
       }),
     );
@@ -448,6 +457,7 @@ describe('the copy', () => {
     ok(
       await s2.teacher.client.post(`/offerings/${s2.dst.id}/copy`, {
         sourceOfferingId: s2.src.id,
+        requestKey: newId(),
         clearDates: true,
       }),
     );
@@ -504,6 +514,7 @@ describe('the copy', () => {
       ok(
         await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, {
           sourceOfferingId: s.src.id,
+          requestKey: newId(),
           shiftDays: 14,
         }),
       );
@@ -519,6 +530,7 @@ describe('the copy', () => {
       ok(
         await s2.teacher.client.post(`/offerings/${s2.dst.id}/copy`, {
           sourceOfferingId: s2.src.id,
+          requestKey: newId(),
           shiftDays: 7,
         }),
       );
@@ -537,6 +549,7 @@ describe('the copy', () => {
     ok(
       await k.teacher.client.post(`/offerings/${k.dst.id}/copy`, {
         sourceOfferingId: k.src.id,
+        requestKey: newId(),
         shiftDays: 14,
       }),
     );
@@ -555,7 +568,12 @@ describe('the copy', () => {
         participation: 'instructor',
       }),
     );
-    ok(await s.teacher.client.post(`/offerings/${other.id}/copy`, { sourceOfferingId: s.src.id }));
+    ok(
+      await s.teacher.client.post(`/offerings/${other.id}/copy`, {
+        sourceOfferingId: s.src.id,
+        requestKey: newId(),
+      }),
+    );
     const [exam] = await copied(other.id, 'assessment');
     const [essay] = await copied(other.id, 'assignment');
     expect(
@@ -596,7 +614,12 @@ describe('the copy', () => {
 
   it('a copied assignment works: published and opened, a learner of the new offering hands in against the shifted dates', async () => {
     const s = await setup();
-    ok(await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, { sourceOfferingId: s.src.id }));
+    ok(
+      await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, {
+        sourceOfferingId: s.src.id,
+        requestKey: newId(),
+      }),
+    );
     const [essay] = await copied(s.dst.id, 'assignment');
     const g = (await owner.query('SELECT 1 FROM lms.assignments WHERE item_id = $1', [essay.id]))
       .rowCount;
@@ -633,6 +656,7 @@ describe('the copy', () => {
     );
     const r = await s.teacher.client.post(`/offerings/${s.dst.id}/copy`, {
       sourceOfferingId: s.src.id,
+      requestKey: newId(),
       shiftDays: 10,
     });
     expect(r.statusCode, r.body).toBe(202);

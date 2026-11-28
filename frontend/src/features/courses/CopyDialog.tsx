@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { describeError } from '../../shared/api/errors';
 import { Button } from '../../shared/ui/button';
 import { Dialog } from '../../shared/ui/dialog';
@@ -34,12 +34,19 @@ export function CopyDialog({ offeringId, onClose }: { offeringId: string; onClos
     iso === null || clear
       ? '—'
       : stamp(new Date(new Date(iso).getTime() + (Number(days) || 0) * 86_400_000).toISOString());
+  // ONE key per intended copy: a double click or a retry after a lost answer sends the same one, so the server copies once.
+  // Choosing something else is a different request and gets a new key.
+  const intent = useRef({ of: '', key: '' });
   const copy = useMutation({
-    mutationFn: () =>
-      copyContent(offeringId, source, {
+    mutationFn: () => {
+      const of = `${source}|${shift ?? ''}|${clear}`;
+      if (intent.current.of !== of) intent.current = { of, key: crypto.randomUUID() };
+      return copyContent(offeringId, source, {
+        requestKey: intent.current.key,
         ...(shift !== null ? { shiftDays: Number(shift) || 0 } : {}),
         ...(clear ? { clearDates: true } : {}),
-      }),
+      });
+    },
     onSuccess: (r) => {
       if (r.status === 'queued') {
         toast.success('This is a large course: it is being copied in the background.');

@@ -176,6 +176,11 @@ export const CopyContentRequestSchema = Type.Object({
   shiftDays: Type.Optional(Type.Integer({ minimum: -3650, maximum: 3650 })),
   /** copy the settings but no dates at all (they are set again by hand) */
   clearDates: Type.Optional(Type.Boolean()),
+  /**
+   * Idempotency: a UUID the client makes once per intended copy. The same key sent again (a double click, a retry after a
+   * lost answer) copies nothing more and answers what the first call did; a key reused for a different request is `409`.
+   */
+  requestKey: Id,
 });
 export type CopyContentRequest = Static<typeof CopyContentRequestSchema>;
 

@@ -76,6 +76,8 @@ export async function withStack(fn, { extraMembers = 0, mfa = false } = {}) {
     // one machine, one IP, many sign-ins: the in-memory limits would otherwise get in the way
     RATE_LIMIT_MAX: '100000',
     RATE_LIMIT_LOGIN_PER_IP: '1000',
+    RATE_LIMIT_LOGIN_FAILURES_PER_IP: '1000',
+    RATE_LIMIT_AUTH_PER_IP: '1000',
     RATE_LIMIT_LOGIN_PER_EMAIL: '1000',
     // the default is `required`: the specs, Lighthouse, the screenshots and the load-test smoke sign administrators in with a
     // password alone. A SECOND API instance with `required` serves the two-factor spec (20-mfa.spec.ts).

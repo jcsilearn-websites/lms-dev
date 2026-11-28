@@ -1,5 +1,6 @@
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { newId } from '../src/core/uuid';
 import { makeApp, type TestApp } from './app';
 import { TestClient } from './client';
 import { doc, newCourse, newOffering, ok, PDF, person, structure } from './courses-helpers';
@@ -261,7 +262,10 @@ describe('round-trip budgets: courses, offerings, content and files (step 6)', (
 
   it('copy (inline): 4; upload request: 4; the storage PUT: 1; confirm: 7 (documented exception)', async () => {
     await run('POST /offerings/:id/copy', () =>
-      instructor.post(`/offerings/${secondOfferingId}/copy`, { sourceOfferingId: offeringId }),
+      instructor.post(`/offerings/${secondOfferingId}/copy`, {
+        sourceOfferingId: offeringId,
+        requestKey: newId(),
+      }),
     );
     let fileId = '';
     let uploadUrl = '';

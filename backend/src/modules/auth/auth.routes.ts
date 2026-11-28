@@ -46,8 +46,9 @@ export function createAuthRoutes(deps: {
       '/auth/login',
       {
         config: { public: true },
-        onRequest: [limit.perIp],
+        onRequest: [limit.signInPerIp],
         preHandler: [requireKnownHost, limit.perEmail],
+        onError: [limit.signInFailed],
         schema: loginRouteSchema,
       },
       authController.login,

@@ -846,6 +846,7 @@ describe('items with progress are archived, not deleted', () => {
     ok(
       await c.instructor.client.post(`/offerings/${target.id}/copy`, {
         sourceOfferingId: c.offeringId,
+        requestKey: newId(),
       }),
     );
     const copied = ok(

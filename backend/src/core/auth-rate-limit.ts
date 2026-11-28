@@ -1,10 +1,15 @@
 import { createHash } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from './errors';
-import type { StrictLimiter } from './rate-limit';
+import { createStrictLimiter, type StrictLimiter } from './rate-limit';
 
 export interface AuthRateLimitConfig {
+  /** per address and route on the credential routes OTHER than sign-in (codes, reset request, invite acceptance) */
   perIp: number;
+  /** sign-in attempts per address: generous, a college behind one address (a lab) signs in at once */
+  signInPerIp: number;
+  /** FAILED sign-ins per address: much stricter (password spraying); once reached, every sign-in from there waits */
+  signInFailuresPerIp: number;
   perEmail: number;
   windowMs: number;
 }
@@ -88,7 +93,35 @@ export function createAuthRateLimits(cfg: AuthRateLimitConfig, strict?: StrictLi
   const emailKey = (request: FastifyRequest) =>
     createHash('sha256').update(emailOf(request)).digest('hex').slice(0, 32);
 
+  // ---- sign-in: attempts and failures per address. Failures are counted when they happen (before the 401 goes out), and the
+  // address is remembered as spent by the instance that saw the count reach the limit: a successful sign-in costs no extra
+  // look-up. Another instance learns it with the next failure it counts itself, so N instances let at most N - 1 more through.
+  const counters = strict ?? createStrictLimiter({ shared: null });
+  const spent = new Map<string, number>(); // address -> the time its window ends
+  const secondsLeft = (until: number) => Math.ceil((until - Date.now()) / 1000);
+
   return {
+    signInPerIp: async (request: FastifyRequest, reply: FastifyReply) => {
+      const until = spent.get(request.ip);
+      if (until !== undefined) {
+        if (until > Date.now()) enforce(secondsLeft(until), reply);
+        else spent.delete(request.ip);
+      }
+      const hit = await counters.hit(`auth-ip|${route(request)}|${request.ip}`, cfg.windowMs);
+      enforce(hit.count > cfg.signInPerIp ? Math.max(1, Math.ceil(hit.ttlMs / 1000)) : 0, reply);
+    },
+    /** An `onError` hook of the sign-in route: only a refused credential counts (never a 429, a 503 or a bad request). */
+    signInFailed: async (request: FastifyRequest, _reply: FastifyReply, error: unknown) => {
+      if ((error as { code?: unknown }).code !== 'invalid_credentials') return;
+      const hit = await counters.hit(`auth-fail|${route(request)}|${request.ip}`, cfg.windowMs);
+      if (hit.count < cfg.signInFailuresPerIp) return;
+      if (spent.size >= 10_000) {
+        for (const [ip, until] of spent) if (until <= Date.now()) spent.delete(ip);
+        const oldest = spent.keys().next().value;
+        if (spent.size >= 10_000 && oldest !== undefined) spent.delete(oldest);
+      }
+      spent.set(request.ip, Date.now() + hit.ttlMs);
+    },
     perIp: async (request: FastifyRequest, reply: FastifyReply) =>
       enforce(
         strict

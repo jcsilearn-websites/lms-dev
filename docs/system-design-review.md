@@ -54,27 +54,26 @@ the real deployment**. Too small, and every user shares the load balancer's addr
 
 All forms disable their button while a request runs (the SPA), which covers a double click but not a retry after a lost response.
 
-| Endpoint(s)                                                                                   | How a repeat is safe                                                                                       |
-| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| exam start / autosave / submit                                                                | one in-progress attempt (partial unique index) resumes; revisions per answer; submit is idempotent         |
-| assignment hand-in                                                                            | `request_key` unique per learner: one version                                                              |
-| progress heartbeat / viewed / complete                                                        | `seq` per player; upserts                                                                                  |
-| gradebook submit / return / approve / unlock; marks; overrides                                | state checked under a row lock; `expected` stale-cell check; unique active override                        |
-| assessment release; mark-import and question-import confirm; erasure and reset decisions      | status checked under a row lock (`409` the second time)                                                    |
-| data export, college erasure, account erasure, MFA reset                                      | one open request per person (partial unique index)                                                         |
-| college, course, offering, academic entities, grade scale, participant, section link, caption | unique constraint (`409`, or upsert)                                                                       |
-| invite                                                                                        | one membership per (college, person); an active one is `409`, a pending one is re-invited (another e-mail) |
-| accept invite, password reset, MFA enrol / verify / step-up                                   | single-use token or challenge; a TOTP time step is accepted once                                           |
-| publish / suspend / archive / reactivate, notification read, unsubscribe                      | state change to a fixed value                                                                              |
-| file upload request, video create, import upload, mark-import / question-import stage         | a repeat makes another pending or staged row, which a purge removes                                        |
-| assessment regrade                                                                            | a repeat records another run; applying the same key twice changes no score                                 |
-| new recovery codes / replace authenticator                                                    | a repeat voids the earlier codes or setup (the person sees only the latest)                                |
-| **module create, content item create**                                                        | **nothing: a retry makes a second one**                                                                    |
-| **offering copy** (`POST /offerings/:id/copy`)                                                | **nothing: a retry appends everything again** (only a still-running queued copy answers `409`)             |
-| **question create, rubric create**                                                            | **nothing: a retry makes a duplicate**                                                                     |
-- **Risk:** medium for the copy (a whole course duplicated by one retried request, to be removed by hand), low for the others.
-- **Recommendation:** an idempotency key for the copy first (a `request_key` unique per target offering, as `assignment_submit` does); then
-  client-chosen ids for module / item / question / rubric creation. Not done here: it changes contracts and the SPA.
+| Endpoint(s)                                                                                   | How a repeat is safe                                                                                              |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| exam start / autosave / submit                                                                | one in-progress attempt (partial unique index) resumes; revisions per answer; submit is idempotent                |
+| assignment hand-in                                                                            | `request_key` unique per learner: one version                                                                     |
+| progress heartbeat / viewed / complete                                                        | `seq` per player; upserts                                                                                         |
+| gradebook submit / return / approve / unlock; marks; overrides                                | state checked under a row lock; `expected` stale-cell check; unique active override                               |
+| assessment release; mark-import and question-import confirm; erasure and reset decisions      | status checked under a row lock (`409` the second time)                                                           |
+| data export, college erasure, account erasure, MFA reset                                      | one open request per person (partial unique index)                                                                |
+| college, course, offering, academic entities, grade scale, participant, section link, caption | unique constraint (`409`, or upsert)                                                                              |
+| invite                                                                                        | one membership per (college, person); an active one is `409`, a pending one is re-invited (another e-mail)        |
+| accept invite, password reset, MFA enrol / verify / step-up                                   | single-use token or challenge; a TOTP time step is accepted once                                                  |
+| publish / suspend / archive / reactivate, notification read, unsubscribe                      | state change to a fixed value                                                                                     |
+| file upload request, video create, import upload, mark-import / question-import stage         | a repeat makes another pending or staged row, which a purge removes                                               |
+| assessment regrade                                                                            | a repeat records another run; applying the same key twice changes no score                                        |
+| new recovery codes / replace authenticator                                                    | a repeat voids the earlier codes or setup (the person sees only the latest)                                       |
+| **module create, content item create**                                                        | **nothing: a retry makes a second one**                                                                           |
+| offering copy (`POST /offerings/:id/copy`; fixed after the review)                            | required `requestKey`, unique per college (migration 0073): a repeat is answered from the first, a reuse is `409` |
+| **question create, rubric create**                                                            | **nothing: a retry makes a duplicate**                                                                            |
+- **Risk:** low: a duplicate module, item, question or rubric can be deleted. (The offering copy, which duplicated a whole course, is fixed.)
+- **Recommendation:** client-chosen ids for module, item, question and rubric creation (P3). Not done: it changes contracts and the SPA.
 
 ### Transaction boundaries
 
@@ -102,21 +101,25 @@ All forms disable their button while a request runs (the SPA), which covers a do
 
 Every route and its tier: **appendix** (generated from `backend/test/rate-limit-tiers.txt`, which a test keeps true).
 
-| Class                                                                                      | Limit today                                            | Verdict                                                                      |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| sign-in, MFA codes, forgot, invite accept                                                  | per address and route 10/min, per e-mail 5/min, shared | right against guessing; **too low for a college behind one address** (below) |
-| password reset, public unsubscribe, CSP, client errors, webhook, metrics, privacy requests | strict, shared                                         | appropriate                                                                  |
-| exam autosave, heartbeat, video chunks and segments, bell, signed storage links            | own numbers, per session                               | appropriate                                                                  |
-| everything else (reads and writes)                                                         | 300/min per session (`RATE_LIMIT_MAX`)                 | fine for ordinary calls; **generous for expensive ones**                     |
-| health probes                                                                              | none                                                   | right                                                                        |
-| `GET /tenant/info` (public)                                                                | default, per address                                   | acceptable (one read); see caching                                           |
+| Class                                                                                      | Limit today                                                             | Verdict                                                                                     |
+| ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| password sign-in                                                                           | per address 300 attempts and 60 failures a minute, per e-mail 5, shared | a lab of 200 gets in; guessing is held by the failure, e-mail and account limits (fixed)    |
+| MFA codes, forgot, invite accept                                                           | per address and route 10/min, per e-mail 5 on forgot, shared            | right for codes; **a class accepting invitations or asking for resets together is limited** |
+| password reset, public unsubscribe, CSP, client errors, webhook, metrics, privacy requests | strict, shared                                                          | appropriate                                                                                 |
+| exam autosave, heartbeat, video chunks and segments, bell, signed storage links            | own numbers, per session                                                | appropriate                                                                                 |
+| everything else (reads and writes)                                                         | 300/min per session (`RATE_LIMIT_MAX`)                                  | fine for ordinary calls; **generous for expensive ones**                                    |
+| health probes                                                                              | none                                                                    | right                                                                                       |
+| `GET /tenant/info` (public)                                                                | default, per address                                                    | acceptable (one read); see caching                                                          |
 - **Keys:** a signed-in request counts against its session (never the address), so a computer lab does not share one budget; anonymous requests
   against the address; forged cookies against the address in a second limiter; auth routes also against a hash of the e-mail. No per-user or
   per-college key exists.
 - **Behind a proxy:** fixed as F1. Without `TRUST_PROXY` every request counts against the load balancer.
-- **Shared NAT (gap, not fixed: a policy decision):** `RATE_LIMIT_LOGIN_PER_IP` = 10 a minute per route. **A lab of 60 students signing in at the
-  start of an exam is limited after the tenth.** Accounts are protected independently (per-e-mail limit, account lockout, MFA counters), so raising
-  the per-address number (for example to 120) costs little. **Priority P1, before the first exam.**
+- **Shared NAT (fixed after the review for sign-in):** attempts 300 and failures 60 per address and minute (`sign-in-limits.test.ts`: 200
+  learners, one in five mistyping, no 429). Trade-off: 60 wrong passwords from one address make every sign-in from it wait up to a minute,
+  so somebody inside a college can briefly stop its sign-ins. Invite acceptance and reset requests keep 10 a minute per address (P2).
+  A burst of more than about 50 sign-ins AT THE SAME INSTANT per instance still meets the password-hashing queue (503 `busy`, not 429).
+  Browsers holding a dead session cookie (idle over 7 days) count in the forged-cookie limit (150 a minute per address) before they
+  reach the sign-in form: shared lab machines could meet it (P2).
 - **429 body and header:** one shape, `Retry-After` on every one (F3 was the exception).
 - **The PostgreSQL limiter:** local tier decides in memory and syncs in batches; the strict tier is one autocommit statement (measured p50 1 ms,
   p99 6-7 ms, ADR 0022). The table is `UNLOGGED` (empty after a failover, intended). Slow or down: **degrades to per-instance counting** (F2 adds
@@ -208,7 +211,7 @@ notifications) are single statements with query-budget tests; no N+1 was found; 
 | import rows, question / mark imports, data export archives, upload drafts, unreferenced files and video | purged                                        | yes           |
 | `audit_log`, `platform_audit_log`                                                                       | **never** (append-only)                       | list indexes  |
 | `attempt_events`, `member_activity_days`, `video_watch_days`                                            | **never**                                     | n/a           |
-| `notify_runs`, MFA reset requests, erasure requests, export records                                     | never; a few rows per college per day or less | n/a           |
+| `notify_runs`, MFA reset requests, erasure requests, export records, copy requests                      | never; a few rows per college per day or less | n/a           |
 | gradebook history, submissions, attempts, progress                                                      | never, on purpose (academic record)           | n/a           |
 - **Gap:** the three "never" rows in the middle grow with use and hold behaviour data about people. **Risk:** storage, and a data-protection
   question rather than a performance one. **Recommendation:** decide retention with counsel (`docs/legal-questions.md`): audit log (years),
@@ -219,13 +222,13 @@ notifications) are single statements with query-budget tests; no N+1 was found; 
 The only numbers are from a 2-core laptop running the load generator, API, worker and database together (`docs/benchmarks.md`, steps 9, 10 and
 14b-2 C). They show service times and some limits; **none of them is a capacity measurement of the target environment.**
 
-| #   | What breaks first                               | Evidence                                                                                                                                                                                                               | Change on GCP                                                                                                                                     |
-| --- | ----------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Sign-in of a lab behind one address             | the configured limit: 10 a minute per address (the load-test procedure has to raise it to run at all)                                                                                                                  | raise `RATE_LIMIT_LOGIN_PER_IP`; verify `TRUST_PROXY_HOPS`                                                                                        |
-| 2   | Video segments through the API (local provider) | 2,000 viewers × a segment every 6 s ≈ 330 requests/s plus several Gbit/s; the harness at 200 viewers sent 2,104 segment requests through the API                                                                       | a CDN and the managed video provider (required anyway: the local provider is refused in production)                                               |
-| 3   | Exam start burst                                | 35 to 150 starts/s across runs; 1,500 started in 10 to 43 s, p99 up to 2 s (step 9)                                                                                                                                    | Cloud SQL vCPU first; pre-numbered question candidates if starts still lead                                                                       |
-| 4   | Database connections and CPU at a deadline      | 1,500 hand-ins squeezed into 60 s: 503 `busy` retried 1,613 times, whole flow p99 70 s (step 10)                                                                                                                       | more API instances with the pool sized to `max_connections`; a pooler (all session settings are transaction-local); receipts already keep it fair |
-| 5   | Password hashing in a login wave                | argon2 runs 2 at a time per instance with a queue of 50 (503 `busy` beyond); one verification took ~13 ms on the laptop, and the harness saw sign-in p50 22 ms at 5/s. A ceiling for a burst has **not been measured** | measure it in the staging run; scale instances ahead of the exam (minimum instances), 2 vCPU or more per instance                                 |
+| #   | What breaks first                                                         | Evidence                                                                                                                                                                                                               | Change on GCP                                                                                                                                     |
+| --- | ------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | A very large simultaneous sign-in (was: the per-address limit, now fixed) | the argon2 queue: 2 at a time per instance, 50 waiting, 503 `busy` beyond                                                                                                                                              | instances ahead of the exam; verify `TRUST_PROXY_HOPS`                                                                                            |
+| 2   | Video segments through the API (local provider)                           | 2,000 viewers × a segment every 6 s ≈ 330 requests/s plus several Gbit/s; the harness at 200 viewers sent 2,104 segment requests through the API                                                                       | a CDN and the managed video provider (required anyway: the local provider is refused in production)                                               |
+| 3   | Exam start burst                                                          | 35 to 150 starts/s across runs; 1,500 started in 10 to 43 s, p99 up to 2 s (step 9)                                                                                                                                    | Cloud SQL vCPU first; pre-numbered question candidates if starts still lead                                                                       |
+| 4   | Database connections and CPU at a deadline                                | 1,500 hand-ins squeezed into 60 s: 503 `busy` retried 1,613 times, whole flow p99 70 s (step 10)                                                                                                                       | more API instances with the pool sized to `max_connections`; a pooler (all session settings are transaction-local); receipts already keep it fair |
+| 5   | Password hashing in a login wave                                          | argon2 runs 2 at a time per instance with a queue of 50 (503 `busy` beyond); one verification took ~13 ms on the laptop, and the harness saw sign-in p50 22 ms at 5/s. A ceiling for a burst has **not been measured** | measure it in the staging run; scale instances ahead of the exam (minimum instances), 2 vCPU or more per instance                                 |
 
 Not a bottleneck at these numbers: autosaves (50/s needed, ~590/s reached before saturation on the laptop), heartbeats (67/s needed for 2,000
 viewers, 436/s reached over HTTP). Heavy but not exam-time: whole-class gradebook (1.1 s for 1,200 learners), a full analytics refresh (~77 s).
@@ -238,27 +241,26 @@ Next step: the full-scale run of `docs/load-testing.md` on staging; then confirm
 
 ## Follow-ups, by priority
 
-| Priority | Item                                                                                        | Effort   | Risk if ignored                               |
-| -------- | ------------------------------------------------------------------------------------------- | -------- | --------------------------------------------- |
-| P0       | Verify `TRUST_PROXY_HOPS` on the real deployment (fix F1 is in; the number is not verified) | 0.5 day  | limits bypassed, or everyone limited together |
-| P1       | Raise the per-address sign-in limit for colleges behind one address                         | 0.5 day  | an exam where most of a lab cannot sign in    |
-| P1       | Full-scale load test on GCP staging; confirm pool, instances, SLOs                          | 3-5 days | capacity unknown                              |
-| P1       | CDN and managed video provider (already planned)                                            | GCP step | video cannot go to production                 |
-| P1       | Malware scanning of uploads (already on the launch list)                                    | 3-5 days | a hostile file reaches an instructor          |
-| P2       | Idempotency key for offering copy                                                           | 1 day    | a duplicated course                           |
-| P2       | Lower limits and a concurrency cap for exports and ZIP                                      | 1 day    | one user can occupy an instance               |
-| P2       | Per-college fairness ceiling                                                                | 2-3 days | one college slows the others                  |
-| P2       | `lock_timeout` for ordinary requests                                                        | 1-2 days | lock waits exhaust the pool                   |
-| P2       | Retention for audit log, integrity events, activity and watch days (with counsel)           | 1-2 days | unbounded personal data                       |
-| P3       | Idempotent module / item / question / rubric creation                                       | 2 days   | occasional duplicates                         |
-| P3       | Cursor for the two erasure lists                                                            | 0.5 day  | old requests unreachable                      |
-| P3       | Trace context in and into jobs; alert on the 429 counter                                    | 1 day    | slower diagnosis                              |
-| P3       | One `TooManyRequestsError`; rename the SPA's old 429 key; cache `tenant/info`               | 0.5 day  | cosmetic / minor load                         |
+| Priority | Item                                                                                                  | Effort   | Risk if ignored                               |
+| -------- | ----------------------------------------------------------------------------------------------------- | -------- | --------------------------------------------- |
+| P0       | Verify `TRUST_PROXY_HOPS` on the real deployment (fix F1 is in; the number is not verified)           | 0.5 day  | limits bypassed, or everyone limited together |
+| P2       | Lab edge cases: dead cookies on shared machines; invite acceptance and reset limits; SPA retry on 503 | 1 day    | some of a class waits a minute                |
+| P1       | Full-scale load test on GCP staging; confirm pool, instances, SLOs                                    | 3-5 days | capacity unknown                              |
+| P1       | CDN and managed video provider (already planned)                                                      | GCP step | video cannot go to production                 |
+| P1       | Malware scanning of uploads (already on the launch list)                                              | 3-5 days | a hostile file reaches an instructor          |
+| P2       | Lower limits and a concurrency cap for exports and ZIP                                                | 1 day    | one user can occupy an instance               |
+| P2       | Per-college fairness ceiling                                                                          | 2-3 days | one college slows the others                  |
+| P2       | `lock_timeout` for ordinary requests                                                                  | 1-2 days | lock waits exhaust the pool                   |
+| P2       | Retention for audit log, integrity events, activity and watch days (with counsel)                     | 1-2 days | unbounded personal data                       |
+| P3       | Idempotent module / item / question / rubric creation                                                 | 2 days   | occasional duplicates                         |
+| P3       | Cursor for the two erasure lists                                                                      | 0.5 day  | old requests unreachable                      |
+| P3       | Trace context in and into jobs; alert on the 429 counter                                              | 1 day    | slower diagnosis                              |
+| P3       | One `TooManyRequestsError`; rename the SPA's old 429 key; cache `tenant/info`                         | 0.5 day  | cosmetic / minor load                         |
 
 ## Appendix: every route and its rate-limit tier
 
 `default` = `RATE_LIMIT_MAX` per window (300 a minute) per session, per address when not signed in. The auth tier's numbers are
-`RATE_LIMIT_LOGIN_PER_IP` / `_EMAIL`; privacy requests use `DATA_EXPORT_RATE_PER_HOUR`.
+`RATE_LIMIT_AUTH_PER_IP` / `RATE_LIMIT_LOGIN_PER_EMAIL`; sign-in uses `RATE_LIMIT_LOGIN_PER_IP` and `_FAILURES_PER_IP`; privacy requests use `DATA_EXPORT_RATE_PER_HOUR`.
 
 ```
 DELETE /api/academic-years/:id  ->  default

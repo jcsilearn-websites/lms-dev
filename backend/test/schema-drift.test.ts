@@ -52,7 +52,11 @@ import {
   userMfa,
   userMfaRecoveryCodes,
 } from '../src/modules/auth/auth.model';
-import { contentItems, contentModules } from '../src/modules/content/content.model';
+import {
+  contentItems,
+  contentModules,
+  offeringCopyRequests,
+} from '../src/modules/content/content.model';
 import {
   courseOfferings,
   courseParticipants,
@@ -173,6 +177,7 @@ const schema = {
   participantStatus,
   files,
   contentModules,
+  offeringCopyRequests,
   contentItems,
   videoAssets,
   videoCaptions,

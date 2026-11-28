@@ -1,5 +1,6 @@
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { newId } from '../src/core/uuid';
 import { COPY_INLINE_LIMIT } from '../src/modules/content';
 import { makeApp, type TestApp } from './app';
 import type { TestClient } from './client';
@@ -82,7 +83,10 @@ describe('content copy as a job', () => {
   it('a source over the inline limit is queued, marked running, and copied by the job', async () => {
     const { src, dst, teacher } = await twoOfferings();
     await fill(src.id, COPY_INLINE_LIMIT + 20);
-    const r = await teacher.client.post(`/offerings/${dst.id}/copy`, { sourceOfferingId: src.id });
+    const r = await teacher.client.post(`/offerings/${dst.id}/copy`, {
+      sourceOfferingId: src.id,
+      requestKey: newId(),
+    });
     expect(r.statusCode, r.body).toBe(202);
     expect(r.json()).toMatchObject({ status: 'queued', modules: 0, items: 0 });
     expect(ok(await teacher.client.get(`/offerings/${dst.id}`)).copyStatus).toBe('running');
@@ -96,6 +100,7 @@ describe('content copy as a job', () => {
     expect(ok(await teacher.client.get(`/offerings/${dst.id}/outline`)).modules).toHaveLength(0);
     const again = await teacher.client.post(`/offerings/${dst.id}/copy`, {
       sourceOfferingId: src.id,
+      requestKey: newId(),
     });
     expect(again.statusCode).toBe(409);
     expect(errorCode(again)).toBe('copy_in_progress');
@@ -143,7 +148,10 @@ describe('content copy as a job', () => {
   it('a source at the limit is still copied while the request waits', async () => {
     const { src, dst, teacher } = await twoOfferings();
     await fill(src.id, COPY_INLINE_LIMIT);
-    const r = await teacher.client.post(`/offerings/${dst.id}/copy`, { sourceOfferingId: src.id });
+    const r = await teacher.client.post(`/offerings/${dst.id}/copy`, {
+      sourceOfferingId: src.id,
+      requestKey: newId(),
+    });
     expect(r.statusCode, r.body).toBe(200);
     expect(r.json()).toMatchObject({ status: 'done', items: COPY_INLINE_LIMIT });
   });

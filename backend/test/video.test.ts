@@ -12,6 +12,7 @@ import path from 'node:path';
 import { Readable } from 'node:stream';
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { newId } from '../src/core/uuid';
 import { createPlaybackTokens, playbackKey } from '../src/core/video';
 import { makeApp, type TestApp } from './app';
 import type { TestClient } from './client';
@@ -920,6 +921,7 @@ describe('playback', () => {
     const copied = ok(
       await s.instructor.client.post(`/offerings/${target.id}/copy`, {
         sourceOfferingId: s.offeringId,
+        requestKey: newId(),
       }),
     );
     expect(copied.status).toBe('done');

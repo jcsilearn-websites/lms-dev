@@ -39,7 +39,7 @@ const BODIES: Record<string, unknown> = {
   'POST /offerings/:id/modules/:moduleId/items': { kind: 'link', title: 'x', url: 'https://e.org' },
   'PATCH /offerings/:id/items/:itemId': { title: 'x' },
   'POST /offerings/:id/items/:itemId/move': { after: null },
-  'POST /offerings/:id/copy': { sourceOfferingId: U },
+  'POST /offerings/:id/copy': { sourceOfferingId: U, requestKey: U },
   'POST /offerings/:id/files': { name: 'a.pdf', size: 10 },
   'POST /offerings/:id/videos': { fileName: 'a.mp4', size: 10 },
   'PATCH /offerings/:id/videos/:videoId/upload': {},

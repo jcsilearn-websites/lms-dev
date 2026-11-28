@@ -85,6 +85,7 @@ export async function deleteTenantCascade(client: pg.Client, tenantId: string): 
     'rubric_versions',
     'rubrics',
     'course_sync_pending',
+    'offering_copy_requests',
     'offering_sections',
     'course_offerings',
     'courses',

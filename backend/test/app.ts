@@ -18,6 +18,8 @@ export function testEnv(overrides: Record<string, string> = {}): ApiEnv {
     READY_TIMEOUT_MS: '20000',
     // the dedicated rate-limit tests lower these; everything else logs in many times from one IP
     RATE_LIMIT_LOGIN_PER_IP: '1000',
+    RATE_LIMIT_LOGIN_FAILURES_PER_IP: '1000',
+    RATE_LIMIT_AUTH_PER_IP: '1000',
     RATE_LIMIT_LOGIN_PER_EMAIL: '1000',
     RATE_LIMIT_MAX: '100000',
     // the default is `required` (and production refuses `off`): the suites that sign an administrator in with a password alone

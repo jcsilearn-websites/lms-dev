@@ -3,6 +3,7 @@ import type { RequestContext } from '../../core/context';
 import { ForbiddenError } from '../../core/errors';
 import { newId } from '../../core/uuid';
 import type { Database } from '../../db/client';
+import { isUniqueViolation } from '../../db/pg-errors';
 import {
   type AccessRow,
   type AccessSpec,
@@ -14,6 +15,7 @@ import type { FilesService } from '../files';
 import { VideoNotReadyError, type VideoService } from '../video';
 import {
   CopyInProgressError,
+  CopyKeyReusedError,
   CopyNotPossibleError,
   InvalidFileError,
   InvalidItemError,
@@ -373,7 +375,11 @@ export function createContentService(deps: {
       ctx: RequestContext,
       targetId: string,
       sourceId: string,
-      options: { shiftDays?: number | undefined; clearDates?: boolean | undefined } = {},
+      options: {
+        requestKey: string;
+        shiftDays?: number | undefined;
+        clearDates?: boolean | undefined;
+      },
     ) {
       if (targetId === sourceId)
         throw new CopyNotPossibleError('An offering cannot be copied into itself');
@@ -383,23 +389,55 @@ export function createContentService(deps: {
         accountAllowed: false,
         viewAll: can(ctx, 'course.read'),
       };
-      const r = await db.withTenant(target.tenantId, (tx) =>
-        contentRepo.copy(
-          tx,
-          {
-            tenantId: target.tenantId,
-            sourceId,
-            targetId,
-            actorUserId: ctx.userId,
-            shiftDays: options.shiftDays ?? null,
-            clearDates: options.clearDates === true,
-          },
-          { target, source, inlineLimit: COPY_INLINE_LIMIT },
-        ),
-      );
+      const request = {
+        shiftDays: options.shiftDays ?? null,
+        clearDates: options.clearDates === true,
+      };
+      const run = () =>
+        db.withTenant(target.tenantId, (tx) =>
+          contentRepo.copy(
+            tx,
+            {
+              tenantId: target.tenantId,
+              sourceId,
+              targetId,
+              actorUserId: ctx.userId,
+              requestKey: options.requestKey,
+              ...request,
+            },
+            { target, source, inlineLimit: COPY_INLINE_LIMIT },
+          ),
+        );
+      // A copy that committed while this one was running (the same request twice, or another copy into the same offering)
+      // makes this statement fail on a unique key and write NOTHING. Run once more: it now sees what was committed. The
+      // unique keys stay the guarantee; the retry only turns their error into the right answer.
+      const r = await run().catch((err: unknown) => {
+        if (!isUniqueViolation(err)) throw err;
+        return run();
+      });
       mayEdit(r.targetAcc);
       if (!r.sourceAcc?.visible) throw new OfferingNotFoundError();
       if (!r.sourceAcc.allowed) throw new ForbiddenError();
+      // this key was already answered: the same request gets the same answer, any other one is refused
+      const done = r.prior;
+      if (done) {
+        if (
+          done.actorUserId !== ctx.userId ||
+          done.targetId !== targetId ||
+          done.sourceId !== sourceId ||
+          done.shiftDays !== request.shiftDays ||
+          done.clearDates !== request.clearDates
+        ) {
+          throw new CopyKeyReusedError();
+        }
+        return {
+          status: done.mode,
+          modules: done.modules,
+          items: done.items,
+          assessments: done.assessments,
+          assignments: done.assignments,
+        };
+      }
       if (r.busy) throw new CopyInProgressError();
       return {
         status: r.mode ?? 'done',

@@ -332,6 +332,8 @@ async function main(): Promise<void> {
       EMAIL_PROVIDER: 'none',
       LOG_LEVEL: 'silent',
       RATE_LIMIT_LOGIN_PER_IP: '100000',
+      RATE_LIMIT_LOGIN_FAILURES_PER_IP: '100000',
+      RATE_LIMIT_AUTH_PER_IP: '100000',
       RATE_LIMIT_LOGIN_PER_EMAIL: '100000',
       RATE_LIMIT_MAX: '10000000',
     });

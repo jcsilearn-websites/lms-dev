@@ -113,7 +113,7 @@ Do this on a **staging** environment built like production (same Cloud Run sizes
 
 1. **Allow the host.** On every generator machine: `export LOADTEST_ALLOWED_HOSTS=<staging API host>,<college host>` (the college host is `<slug>.<APP_BASE_DOMAIN>` of staging).
 2. **Raise the limits that a single address would hit**, for the test window only, as environment variables of the staging API (and note them in the run's record):
-   `RATE_LIMIT_LOGIN_PER_IP` (a lab's worth of sign-ins from one generator address; the per-email limit stays), `RATE_LIMIT_MAX` (per session, normally unaffected), and
+   `RATE_LIMIT_LOGIN_PER_IP` and `RATE_LIMIT_LOGIN_FAILURES_PER_IP` (only if one generator address signs in more than 300 times a minute; the per-email limit stays), `RATE_LIMIT_MAX` (per session, normally unaffected), and
    `DATA_EXPORT_RATE_PER_HOUR` is irrelevant. With several generator addresses the per-address limit is spread; the strict limiter lives in PostgreSQL, so its cost shows in Cloud SQL.
    `TRUST_PROXY=true` must be on (`docs/production-config.md`) or all generators count as the load balancer's one address.
 3. **Seed.** Through the Cloud SQL Auth Proxy with the owner role, from a machine on the allowlist (the database host is `127.0.0.1` through the proxy):

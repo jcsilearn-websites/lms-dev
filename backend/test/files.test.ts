@@ -4,6 +4,7 @@ import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { EnvError, parseApiEnv } from '../src/config/env';
 import { createLocalStorage } from '../src/core/storage';
+import { newId } from '../src/core/uuid';
 import { makeApp, type TestApp } from './app';
 import type { TestClient } from './client';
 import {
@@ -471,6 +472,7 @@ describe('purging unreferenced files', () => {
     ok(
       await b.instructor.client.post(`/offerings/${b.offeringId}/copy`, {
         sourceOfferingId: a.offeringId,
+        requestKey: newId(),
       }),
     );
     ok(await a.instructor.client.delete(`/offerings/${a.offeringId}/items/${item.id}`));

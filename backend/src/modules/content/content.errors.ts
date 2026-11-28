@@ -64,6 +64,12 @@ export class CopyNotPossibleError extends BadRequestError {
   }
 }
 
+export class CopyKeyReusedError extends ConflictError {
+  constructor() {
+    super('request_key_reused', 'This request key was already used for a different copy');
+  }
+}
+
 export class CopyInProgressError extends ConflictError {
   constructor() {
     super('copy_in_progress', 'A copy into this offering is still running');

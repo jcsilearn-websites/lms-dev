@@ -52,6 +52,8 @@ const svc = () => t.app.modules.privacy.erasureService;
 const envOverrides = () => ({
   RATE_LIMIT_MAX: '1000000',
   RATE_LIMIT_LOGIN_PER_IP: '100000',
+  RATE_LIMIT_LOGIN_FAILURES_PER_IP: '100000',
+  RATE_LIMIT_AUTH_PER_IP: '100000',
   RATE_LIMIT_LOGIN_PER_EMAIL: '100000',
   LOGIN_MAX_ATTEMPTS: '50',
   DATA_EXPORT_RATE_PER_HOUR: '100000',

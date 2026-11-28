@@ -1,4 +1,4 @@
-import { boolean, jsonb, text, timestamp, uuid } from 'drizzle-orm/pg-core';
+import { boolean, integer, jsonb, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 import { createdAt, lms, updatedAt } from '../../db/lms-schema';
 
 // Migration 0018. `position` is a fractional ordering key (COLLATE "C"): moving an entry rewrites one row.
@@ -38,4 +38,21 @@ export const contentItems = lms.table('content_items', {
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
+});
+
+// Migration 0073: the answer of one offering-copy request, keyed by the client's request key (idempotency).
+export const offeringCopyRequests = lms.table('offering_copy_requests', {
+  tenantId: uuid('tenant_id').notNull(),
+  requestKey: uuid('request_key').notNull(),
+  targetOfferingId: uuid('target_offering_id').notNull(),
+  sourceOfferingId: uuid('source_offering_id').notNull(),
+  actorUserId: uuid('actor_user_id').notNull(),
+  shiftDays: integer('shift_days'),
+  clearDates: boolean('clear_dates').notNull(),
+  mode: text('mode').notNull(),
+  modules: integer('modules').notNull(),
+  items: integer('items').notNull(),
+  assessments: integer('assessments').notNull(),
+  assignments: integer('assignments').notNull(),
+  createdAt: createdAt(),
 });

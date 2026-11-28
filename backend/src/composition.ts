@@ -376,6 +376,8 @@ export function modulesConfigFromEnv(
     | 'LOCKOUT_BASE_SECONDS'
     | 'LOCKOUT_MAX_SECONDS'
     | 'RATE_LIMIT_LOGIN_PER_IP'
+    | 'RATE_LIMIT_LOGIN_FAILURES_PER_IP'
+    | 'RATE_LIMIT_AUTH_PER_IP'
     | 'RATE_LIMIT_LOGIN_PER_EMAIL'
     | 'RATE_LIMIT_AUTH_WINDOW_MS'
     | 'DATA_EXPORT_RATE_PER_HOUR'
@@ -492,7 +494,9 @@ export function modulesConfigFromEnv(
       lockMaxSeconds: env.LOCKOUT_MAX_SECONDS,
     },
     authRateLimits: {
-      perIp: env.RATE_LIMIT_LOGIN_PER_IP,
+      perIp: env.RATE_LIMIT_AUTH_PER_IP,
+      signInPerIp: env.RATE_LIMIT_LOGIN_PER_IP,
+      signInFailuresPerIp: env.RATE_LIMIT_LOGIN_FAILURES_PER_IP,
       perEmail: env.RATE_LIMIT_LOGIN_PER_EMAIL,
       windowMs: env.RATE_LIMIT_AUTH_WINDOW_MS,
     },

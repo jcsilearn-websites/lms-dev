@@ -182,7 +182,7 @@ POST /api/academic-years/:id/set-current  ->  default
 POST /api/academic-years/:id/unarchive  ->  default
 POST /api/auth/invites  ->  default
 POST /api/auth/invites/accept  ->  default + auth per address
-POST /api/auth/login  ->  default + auth per address and e-mail
+POST /api/auth/login  ->  default + sign-in per address (attempts and failures) and e-mail
 POST /api/auth/logout  ->  default
 POST /api/auth/members/:userId/unlock  ->  default
 POST /api/auth/mfa/enrol/confirm  ->  default + auth per address

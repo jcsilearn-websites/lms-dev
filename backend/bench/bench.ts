@@ -81,6 +81,8 @@ async function main(): Promise<void> {
       LOG_LEVEL: 'silent',
       // the benchmark logs in hundreds of times from one IP
       RATE_LIMIT_LOGIN_PER_IP: '100000',
+      RATE_LIMIT_LOGIN_FAILURES_PER_IP: '100000',
+      RATE_LIMIT_AUTH_PER_IP: '100000',
       RATE_LIMIT_LOGIN_PER_EMAIL: '100000',
       RATE_LIMIT_MAX: '1000000',
     });

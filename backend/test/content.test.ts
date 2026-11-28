@@ -1,5 +1,6 @@
 import type pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { newId } from '../src/core/uuid';
 import { makeApp, type TestApp } from './app';
 import type { TestClient } from './client';
 import {
@@ -563,7 +564,10 @@ describe('copying content from another offering', () => {
     const di = dst.instructor.client;
     ok(await di.post(`/offerings/${dst.offering.id}/modules`, { title: 'Existing' }));
     const r = ok(
-      await di.post(`/offerings/${dst.offering.id}/copy`, { sourceOfferingId: src.offering.id }),
+      await di.post(`/offerings/${dst.offering.id}/copy`, {
+        sourceOfferingId: src.offering.id,
+        requestKey: newId(),
+      }),
     );
     expect(r).toEqual({ status: 'done', modules: 2, items: 2, assessments: 0, assignments: 0 });
 
@@ -593,12 +597,14 @@ describe('copying content from another offering', () => {
       errorCode(
         await a.instructor.client.post(`/offerings/${a.offering.id}/copy`, {
           sourceOfferingId: a.offering.id,
+          requestKey: newId(),
         }),
       ),
     ).toBe('copy_not_possible');
     // the instructor of A does not take part in B
     const probe = await a.instructor.client.post(`/offerings/${a.offering.id}/copy`, {
       sourceOfferingId: b.offering.id,
+      requestKey: newId(),
     });
     expect(probe.statusCode).toBe(404);
     // a learner of A cannot copy anything (no course.publish)
@@ -606,6 +612,7 @@ describe('copying content from another offering', () => {
       (
         await a.learner.client.post(`/offerings/${a.offering.id}/copy`, {
           sourceOfferingId: b.offering.id,
+          requestKey: newId(),
         })
       ).statusCode,
     ).toBe(403);
@@ -620,6 +627,7 @@ describe('copying content from another offering', () => {
       (
         await a.instructor.client.post(`/offerings/${a.offering.id}/copy`, {
           sourceOfferingId: b.offering.id,
+          requestKey: newId(),
         })
       ).statusCode,
     ).toBe(403);

@@ -190,6 +190,8 @@ async function main(): Promise<void> {
       ...process.env,
       LOG_LEVEL: 'silent',
       RATE_LIMIT_LOGIN_PER_IP: '100000',
+      RATE_LIMIT_LOGIN_FAILURES_PER_IP: '100000',
+      RATE_LIMIT_AUTH_PER_IP: '100000',
       RATE_LIMIT_LOGIN_PER_EMAIL: '100000',
       RATE_LIMIT_MAX: '10000000',
     });

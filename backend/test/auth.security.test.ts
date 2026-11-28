@@ -189,7 +189,7 @@ describe('rate limits', () => {
   });
 
   it('also limits password-reset requests and invite acceptance', async () => {
-    const t = app({ RATE_LIMIT_LOGIN_PER_IP: '2', RATE_LIMIT_LOGIN_PER_EMAIL: '1000' });
+    const t = app({ RATE_LIMIT_AUTH_PER_IP: '2', RATE_LIMIT_LOGIN_PER_EMAIL: '1000' });
     const forgot = [];
     for (let i = 0; i < 3; i++) {
       forgot.push(

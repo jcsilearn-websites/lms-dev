@@ -152,9 +152,17 @@ describe('round-trip cost (the endpoint budgets are unchanged; the limiter has i
     const t = app({ RATE_LIMIT_LOGIN_PER_IP: '1000', RATE_LIMIT_LOGIN_PER_EMAIL: '1000' });
     await t.app.ready();
     t.statements.reset();
-    await new TestClient(t, A.host).login('nobody@rls-a.test', 'whatever pass');
-    // login: one for the address, one for the (hashed) email
+    // a successful sign-in: one for the address, one for the (hashed) email
+    expect((await new TestClient(t, A.host).login(A.memberEmail, TEST_PASSWORD)).statusCode).toBe(
+      200,
+    );
     expect(t.statements.limiter).toHaveLength(2);
+    t.statements.reset();
+    // a refused one counts a third key: the failures of the address
+    expect(
+      (await new TestClient(t, A.host).login('nobody@rls-a.test', 'whatever pass')).statusCode,
+    ).toBe(401);
+    expect(t.statements.limiter).toHaveLength(3);
     t.statements.reset();
     const res = await t.app.inject({
       method: 'POST',

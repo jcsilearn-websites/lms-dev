@@ -10,6 +10,7 @@ import { makeApp, type TestApp } from './app';
 //   custom    the route's own number, same keys, replacing the default
 //   strict    counted in the SHARED store on every request, per address and route (on top of default / custom)
 //   auth      the credential limits per address (and per e-mail), shared (on top of default)
+//   sign-in   RATE_LIMIT_LOGIN_PER_IP attempts and RATE_LIMIT_LOGIN_FAILURES_PER_IP failures per address, plus the e-mail limit
 
 interface Seen {
   key: string;
@@ -41,6 +42,9 @@ beforeAll(async () => {
         parts.push(
           `strict ${c.strictRateLimit.max} per ${c.strictRateLimit.windowMs / 1000}s per address`,
         );
+      }
+      if (hooks.includes('signInPerIp')) {
+        parts.push('sign-in per address (attempts and failures) and e-mail');
       }
       if (hooks.includes('perIp')) {
         parts.push(hooks.includes('perEmail') ? 'auth per address and e-mail' : 'auth per address');

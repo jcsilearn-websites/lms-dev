@@ -146,7 +146,11 @@ export function createContentController(deps: { contentService: ContentService }
         contextFrom(request),
         request.params.id,
         request.body.sourceOfferingId,
-        { shiftDays: request.body.shiftDays, clearDates: request.body.clearDates },
+        {
+          requestKey: request.body.requestKey,
+          shiftDays: request.body.shiftDays,
+          clearDates: request.body.clearDates,
+        },
       );
       return reply.code(r.status === 'queued' ? 202 : 200).send(r);
     },
