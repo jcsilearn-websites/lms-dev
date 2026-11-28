@@ -6,9 +6,16 @@ import {
   COMMON_ERRORS,
   ForgotPasswordRequestSchema,
   InviteRequestSchema,
+  LoginChallengeSchema,
   LoginRequestSchema,
   MemberParamsSchema,
   MeResponseSchema,
+  MfaEnrolConfirmRequestSchema,
+  MfaEnrolConfirmResponseSchema,
+  MfaEnrolStartRequestSchema,
+  MfaEnrolStartResponseSchema,
+  MfaStatusSchema,
+  MfaVerifyRequestSchema,
   ResetPasswordRequestSchema,
 } from '../../contracts';
 
@@ -18,7 +25,34 @@ export const loginRouteSchema = {
   tags,
   summary: 'Log in with email + password (sets the session cookie)',
   body: LoginRequestSchema,
+  response: { 200: MeResponseSchema, 202: LoginChallengeSchema, ...COMMON_ERRORS },
+};
+
+export const mfaVerifyRouteSchema = {
+  tags,
+  summary: 'Second step of a sign-in: a code of the authenticator app, or a recovery code',
+  body: MfaVerifyRequestSchema,
   response: { 200: MeResponseSchema, ...COMMON_ERRORS },
+};
+
+export const mfaEnrolStartRouteSchema = {
+  tags,
+  summary: 'Start setting up two-step sign-in (the emailed link and the password)',
+  body: MfaEnrolStartRequestSchema,
+  response: { 200: MfaEnrolStartResponseSchema, ...COMMON_ERRORS },
+};
+
+export const mfaEnrolConfirmRouteSchema = {
+  tags,
+  summary: 'Confirm the authenticator app with its first code; answers the recovery codes ONCE',
+  body: MfaEnrolConfirmRequestSchema,
+  response: { 200: MfaEnrolConfirmResponseSchema, ...COMMON_ERRORS },
+};
+
+export const mfaStatusRouteSchema = {
+  tags,
+  summary: 'My two-step sign-in: required, set up, recovery codes left',
+  response: { 200: MfaStatusSchema, ...COMMON_ERRORS },
 };
 
 export const logoutRouteSchema = {

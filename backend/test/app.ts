@@ -90,14 +90,26 @@ export interface TestApp {
 }
 
 export function makeApp(
-  opts: { env?: Record<string, string>; db?: Database; logLevel?: string } = {},
+  opts: {
+    env?: Record<string, string>;
+    db?: Database;
+    logLevel?: string;
+    /** the clock of the second factor (step 14c) */
+    now?: () => Date;
+  } = {},
 ): TestApp {
   const env = testEnv({ ...(opts.logLevel ? { LOG_LEVEL: opts.logLevel } : {}), ...opts.env });
   const statements = statementCounter();
   const db = opts.db ?? createDb({ ...testAppDbOptions(2), onStatement: statements.record });
   const { lines, stream } = logCapture();
   const mailer = createCapturingProvider();
-  const app = buildApp({ env, db, logger: createLogger(env, stream), emailProvider: mailer });
+  const app = buildApp({
+    env,
+    db,
+    logger: createLogger(env, stream),
+    emailProvider: mailer,
+    ...(opts.now ? { now: opts.now } : {}),
+  });
   return {
     app,
     db,

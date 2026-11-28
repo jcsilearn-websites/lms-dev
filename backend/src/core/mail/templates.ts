@@ -28,6 +28,11 @@ export const TEMPLATE_PARAMS = {
   password_reset: obj({ token: str(200), minutes: Type.Integer(), host: Type.Optional(str(20)) }),
   password_changed: obj({}),
   admin_promoted: obj({}),
+  // two-factor sign-in (step 14c): the enrolment link (the token is minted when the mail is sent) and the notices
+  mfa_enrol: obj({ token: str(200), minutes: Type.Integer() }),
+  mfa_enrolled: obj({}),
+  mfa_recovery_used: obj({ remaining: Type.Integer({ minimum: 0 }) }),
+  mfa_locked: obj({}),
   grade_released: obj({
     course: str(),
     item: str(),
@@ -177,6 +182,44 @@ const BUILDERS: Builders = {
       `You are now an institution admin of ${college(ctx)}.`,
       'For your security you have been signed out: sign in again to use the new access.',
     ],
+  }),
+  mfa_enrol: (p, ctx) => ({
+    subject: 'Set up two-step sign-in',
+    heading: 'Set up two-step sign-in',
+    paragraphs: [
+      'Your account has administrator access, so signing in needs a second step: a code from an authenticator app on your phone.',
+      `Use this link within ${p.minutes} minutes. You will be asked for your password again. It works once.`,
+    ],
+    action: { label: 'Set up two-step sign-in', url: `${ctx.origin}/mfa/enrol?token=${p.token}` },
+    note: 'If you did not just try to sign in, someone knows your password: change it now.',
+  }),
+  mfa_enrolled: (_p, ctx) => ({
+    subject: 'Two-step sign-in is now on',
+    heading: 'Two-step sign-in is now on',
+    paragraphs: [
+      'An authenticator app was just set up for your account, and your other sessions were signed out.',
+      "If this was not you, reset your password now and tell your college's administrator.",
+    ],
+    action: { label: 'Reset your password', url: at(ctx, '/forgot-password') },
+  }),
+  mfa_recovery_used: (p, ctx) => ({
+    subject: 'A recovery code was used to sign in',
+    heading: 'A recovery code was used',
+    paragraphs: [
+      'Someone signed in to your account with one of your recovery codes instead of your authenticator app.',
+      `You have ${plural(p.remaining, 'recovery code')} left.`,
+      'If this was not you, reset your password now.',
+    ],
+    action: { label: 'Reset your password', url: at(ctx, '/forgot-password') },
+  }),
+  mfa_locked: (_p, ctx) => ({
+    subject: 'Too many wrong sign-in codes',
+    heading: 'Too many wrong sign-in codes',
+    paragraphs: [
+      'Several wrong codes were entered in a row after your correct password, so code entry is paused for a while.',
+      'If this was not you, reset your password now: whoever tried knows it.',
+    ],
+    action: { label: 'Reset your password', url: at(ctx, '/forgot-password') },
   }),
   grade_released: (p, ctx) => ({
     subject:

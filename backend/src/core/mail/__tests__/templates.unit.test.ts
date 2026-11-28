@@ -35,6 +35,10 @@ const SAMPLE: Record<string, Record<string, unknown>> = {
   password_reset: { token: 'TOKEN_reset', minutes: 30 },
   password_changed: {},
   admin_promoted: {},
+  mfa_enrol: { token: 'TOKEN_mfa', minutes: 30 },
+  mfa_enrolled: {},
+  mfa_recovery_used: { remaining: 9 },
+  mfa_locked: {},
   grade_released: {
     course: 'Physics I',
     item: 'Lab 3',
@@ -108,9 +112,16 @@ describe('templates', () => {
 
   for (const name of Object.keys(SAMPLE)) {
     it(`${name}: HTML + text snapshot`, () => {
-      const security = ['invite', 'password_reset', 'password_changed', 'admin_promoted'].includes(
-        name,
-      );
+      const security = [
+        'invite',
+        'password_reset',
+        'password_changed',
+        'admin_promoted',
+        'mfa_enrol',
+        'mfa_enrolled',
+        'mfa_recovery_used',
+        'mfa_locked',
+      ].includes(name);
       const platform = name === 'usage_closed';
       const out = render(
         name,

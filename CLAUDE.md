@@ -896,11 +896,27 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
   `cross-env` (it must be set before the process starts). **The future Cloud Run Dockerfile must set
   `ENV UV_THREADPOOL_SIZE=8`** (or run the start script).
 
+## Two-factor sign-in (step 14c: parts 0 and 1 built; part 2 step-up + reset and part 3 screens + enforcement NOT built)
+
+Full design, decisions and numbers: **`docs/adr/0026-mfa.md`**. Migrations 0069 (tables) and 0070 (functions); **the next migration is 0071** (not applied to the dev database by the agent:
+`pnpm db:migrate`). **`MFA_ENFORCEMENT` is `off` by default until part 3** (then production refuses `off`); an enrolled person is challenged either way; the SPA has NO screens yet.
+- **Password sign-in creates no session** for an enrolled person (202 `{step:'totp'}` + a 5-minute SameSite=Strict challenge cookie) or for one who must enrol (202 `{step:'enrol_email'}`);
+  `auth_login_complete` refuses both, and `auth_lookup_session` ignores an administrator session without `mfa_verified_at` while enforcement is on. `session_insert` is the ONE session insert.
+- **Enrolment** needs the emailed link (30 min, single use, minted by the worker) AND the password. **TOTP** SHA-1/6/30 s, ±1 step, only a later step than the last accepted. Secrets AES-256-GCM
+  with the user id as AAD under `MFA_ENCRYPTION_KEYS` (API only; the worker gets none); recovery codes keyed HMAC; `pnpm mfa:rekey`. **Losing the keys locks every enrolled person out.**
+- **An attempt is charged and audited BEFORE it is checked** (`mfa_totp_attempt`; recovery is one statement). TOTP: 5th wrong 60 s doubling to 15 min, from the 20th one try a day. Recovery codes have their
+  OWN counter (same shape, cap 15 min). 5 tries of each per challenge.
+- **Lock order `user_credentials` -> `user_mfa` -> challenge -> sessions, in EVERY function that touches them, also where nothing in `user_credentials` changes** (account erasure holds it first and then `users`;
+  the audit rows reference `users`: without the first lock an erasure and a verification deadlock, tested). Account erasure removes the factor by a trigger on `users.erased_at`.
+- Tests: `test/mfa.test.ts`, `test/mfa.atomic.test.ts` (failure injection + held-lock races), `test/mfa-helpers.ts` (an authenticator with an EXPLICIT clock: `makeApp({ now })`); budgets: password step 2, verify 2,
+  recovery 1, wrong code 1, enrol start / confirm 2, `GET /me/mfa` 2. A new `mfa_*` function goes on the app or internal list in `auth.functions.test.ts`.
+
 ## Launch checklist (before the first production college goes live)
 
 Collected from the sections above so nothing is lost; each line points at where the reason is. Tick them in the launch PR.
-- [ ] **At least two platform admins exist** (`pnpm admin:create`). Account erasure by a platform admin needs a DIFFERENT platform admin to approve (step 14b-1 part 4), so with one the
-  request can never be approved. The E2E suite uses `root@` and `root2@e2e.test` for the same reason.
+- [ ] **At least THREE platform admins exist** (`pnpm admin:create`). Account erasure needs a DIFFERENT platform admin to approve (step 14b-1 part 4), and the two-factor reset (step 14c part 2) needs a filer and an
+  approver who are both not the person being reset. The E2E suite uses `root@` and `root2@e2e.test` for the erasure case.
+- [ ] `MFA_ENFORCEMENT=required`, `MFA_ENCRYPTION_KEYS` in Secret Manager with a sealed offline copy apart from the database backups (step 14c).
 - [ ] Malware scanning of uploaded files is built (assignment files first); see TODO.
 - [ ] `SUPPRESSION_HASH_KEYS` and `SIGNING_KEYS` are in Secret Manager, every version kept, with a sealed offline copy apart from the database backups; the erasure-ledger bucket is separate
   from the backups, versioned and retention-locked (`docs/production-config.md`).

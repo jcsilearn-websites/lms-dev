@@ -7,12 +7,22 @@ import type {
   InviteRequestSchema,
   LoginRequestSchema,
   MemberParamsSchema,
+  MfaEnrolConfirmRequestSchema,
+  MfaEnrolStartRequestSchema,
+  MfaVerifyRequestSchema,
   ResetPasswordRequestSchema,
 } from '../../contracts';
 import { clientInfo, contextFrom } from '../../core/context';
 import { NotFoundError } from '../../core/errors';
 import { buildOrigin } from '../../core/host';
-import type { AuthService, HostScope } from './auth.service';
+import { MfaLockedError } from './auth.errors';
+import {
+  MFA_CHALLENGE_TTL_SECONDS,
+  MFA_ENROL_CHALLENGE_TTL_SECONDS,
+  type MfaService,
+  type MfaSignIn,
+} from './auth.mfa.service';
+import { type AuthService, type HostScope, meResponse } from './auth.service';
 
 export interface SessionCookieConfig {
   name: string;
@@ -23,10 +33,11 @@ export interface SessionCookieConfig {
 // clears the session cookie. No DB access, no business rules.
 export function createAuthController(deps: {
   authService: AuthService;
+  mfaService: MfaService;
   cookie: SessionCookieConfig;
   baseDomain: string;
 }) {
-  const { authService, cookie, baseDomain } = deps;
+  const { authService, mfaService, cookie, baseDomain } = deps;
 
   const cookieOptions = {
     httpOnly: true,
@@ -34,6 +45,31 @@ export function createAuthController(deps: {
     sameSite: 'lax' as const,
     path: '/',
   };
+
+  // the "password was right" cookie of a sign-in in progress: never sent cross-site, minutes long
+  const challengeName = cookie.secure ? '__Host-mfa' : 'mfa';
+  const challengeOptions = { ...cookieOptions, sameSite: 'strict' as const };
+
+  const challengeOf = (request: FastifyRequest): string | undefined =>
+    request.cookies[challengeName];
+  const setChallenge = (reply: FastifyReply, token: string, seconds: number) =>
+    reply.setCookie(challengeName, token, { ...challengeOptions, maxAge: seconds });
+
+  const tenantOf = (request: FastifyRequest) =>
+    request.tenant ? { id: request.tenant.id, slug: request.tenant.slug } : null;
+
+  /** A second step succeeded: the session cookie replaces the challenge cookie. */
+  function signedIn(request: FastifyRequest, reply: FastifyReply, result: MfaSignIn) {
+    const s = result.signedIn;
+    reply.setCookie(cookie.name, result.token, { ...cookieOptions, expires: s.expiresAt });
+    reply.clearCookie(challengeName, challengeOptions);
+    return meResponse({
+      user: { id: s.userId, email: s.email, displayName: s.displayName },
+      tenant: tenantOf(request),
+      role: s.role,
+      isPlatformAdmin: s.isPlatformAdmin,
+    });
+  }
 
   function scopeOf(request: FastifyRequest): HostScope {
     const origin = buildOrigin(request.hostInfo, baseDomain, cookie.secure);
@@ -47,16 +83,72 @@ export function createAuthController(deps: {
       request: FastifyRequest<{ Body: Static<typeof LoginRequestSchema> }>,
       reply: FastifyReply,
     ) => {
-      const tenant = request.tenant ? { id: request.tenant.id, slug: request.tenant.slug } : null;
       const result = await authService.login({
         email: request.body.email,
         password: request.body.password,
-        tenant,
+        tenant: tenantOf(request),
         client: clientInfo(request),
       });
+      if (result.kind === 'challenge') {
+        if (result.step === 'totp') {
+          setChallenge(reply, result.challengeToken, MFA_CHALLENGE_TTL_SECONDS);
+        }
+        reply.status(202);
+        return { step: result.step };
+      }
       reply.setCookie(cookie.name, result.token, { ...cookieOptions, expires: result.expiresAt });
       return result.me;
     },
+
+    mfaVerify: async (
+      request: FastifyRequest<{ Body: Static<typeof MfaVerifyRequestSchema> }>,
+      reply: FastifyReply,
+    ) => {
+      try {
+        const result = await mfaService.verify({
+          challengeToken: challengeOf(request),
+          code: request.body.code,
+          recoveryCode: request.body.recoveryCode,
+          tenant: tenantOf(request),
+          client: clientInfo(request),
+        });
+        return signedIn(request, reply, result);
+      } catch (err) {
+        if (err instanceof MfaLockedError) {
+          reply.header('retry-after', String(Math.max(1, err.retryAfterSeconds)));
+        }
+        throw err;
+      }
+    },
+
+    mfaEnrolStart: async (
+      request: FastifyRequest<{ Body: Static<typeof MfaEnrolStartRequestSchema> }>,
+      reply: FastifyReply,
+    ) => {
+      const { challengeToken, ...secret } = await mfaService.startEnrolment({
+        token: request.body.token,
+        password: request.body.password,
+        tenant: tenantOf(request),
+        client: clientInfo(request),
+      });
+      setChallenge(reply, challengeToken, MFA_ENROL_CHALLENGE_TTL_SECONDS);
+      return secret;
+    },
+
+    mfaEnrolConfirm: async (
+      request: FastifyRequest<{ Body: Static<typeof MfaEnrolConfirmRequestSchema> }>,
+      reply: FastifyReply,
+    ) => {
+      const result = await mfaService.confirmEnrolment({
+        challengeToken: challengeOf(request),
+        code: request.body.code,
+        tenant: tenantOf(request),
+        client: clientInfo(request),
+      });
+      return { recoveryCodes: result.recoveryCodes, me: signedIn(request, reply, result) };
+    },
+
+    mfaStatus: async (request: FastifyRequest) => mfaService.status(contextFrom(request)),
 
     logout: async (request: FastifyRequest, reply: FastifyReply) => {
       await authService.logout(contextFrom(request));

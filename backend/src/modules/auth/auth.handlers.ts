@@ -1,14 +1,16 @@
 import type { HandlerMap } from '../../core/handlers';
 import type { PurgeConfig } from '../sessions';
+import type { MfaService } from './auth.mfa.service';
 import type { AuthService } from './auth.service';
 
 // Background-job handlers for this module, run by the worker (src/worker.ts). They call the module's
 // service, never the repository or the database directly.
 export function createAuthHandlers(deps: {
   authService: AuthService;
+  mfaService: Pick<MfaService, 'purgeChallenges'>;
   purge: PurgeConfig;
 }): HandlerMap {
-  const { authService, purge } = deps;
+  const { authService, mfaService, purge } = deps;
   return {
     // enqueued (in the import transaction) for every member a bulk import created; queues the invite email (outbox)
     'invites.send': {
@@ -30,6 +32,7 @@ export function createAuthHandlers(deps: {
           retentionDays: purge.retentionDays,
           batchSize: purge.batchSize,
         }),
+        challenges: await mfaService.purgeChallenges(purge.batchSize),
       }),
     },
   };

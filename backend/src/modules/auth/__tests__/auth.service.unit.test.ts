@@ -152,10 +152,9 @@ describe('auth service: login (fake repositories)', () => {
       ip: '10.0.0.1',
       userAgent: 'vitest',
     });
-    expect(result.me).toMatchObject({
-      role: 'member',
-      tenant,
-      user: { id: userId, displayName: 'Ada' },
+    expect(result).toMatchObject({
+      kind: 'session',
+      me: { role: 'member', tenant, user: { id: userId, displayName: 'Ada' } },
     });
     await s.background.drain();
     expect(s.authRepo.loginFailed).not.toHaveBeenCalled();
@@ -289,7 +288,10 @@ describe('auth service: login (fake repositories)', () => {
       tenant: null,
       client,
     });
-    expect(res.me).toMatchObject({ tenant: null, role: null, isPlatformAdmin: true });
+    expect(res).toMatchObject({
+      kind: 'session',
+      me: { tenant: null, role: null, isPlatformAdmin: true },
+    });
     expect(allowed.sessionsService.completeLogin).toHaveBeenCalledWith(
       expect.objectContaining({ tenantId: null }),
     );

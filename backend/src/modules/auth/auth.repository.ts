@@ -20,6 +20,8 @@ export interface LoginBegin {
   tenantActive: boolean | null;
   membershipRole: 'institution_admin' | 'member' | null;
   membershipStatus: 'active' | 'pending' | null;
+  /** the person has a second factor: the password alone creates no session */
+  mfaEnrolled: boolean;
 }
 
 export interface LoginRecord {
@@ -33,7 +35,7 @@ export type AcceptInviteStatus = 'ok' | 'invalid' | 'password_required';
 
 export interface CreateTokenInput {
   id: string;
-  purpose: 'invite' | 'password_reset';
+  purpose: 'invite' | 'password_reset' | 'mfa_enrol';
   tokenHash: Buffer;
   userId: string;
   tenantId: string | null;
@@ -57,6 +59,7 @@ export function createAuthRepository() {
         r_tenant_active: boolean | null;
         r_membership_role: LoginBegin['membershipRole'];
         r_membership_status: LoginBegin['membershipStatus'];
+        r_mfa_enrolled: boolean;
       };
       return {
         userId: r.r_user_id,
@@ -66,6 +69,7 @@ export function createAuthRepository() {
         tenantActive: r.r_tenant_active,
         membershipRole: r.r_membership_role,
         membershipStatus: r.r_membership_status,
+        mfaEnrolled: r.r_mfa_enrolled,
       };
     },
 

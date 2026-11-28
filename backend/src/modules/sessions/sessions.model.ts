@@ -14,4 +14,6 @@ export const sessions = lms.table('sessions', {
   ip: inet('ip'),
   userAgent: text('user_agent'),
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
+  /** when the session passed the second factor (step 14c); null = it did not need one */
+  mfaVerifiedAt: timestamp('mfa_verified_at', { withTimezone: true }),
 });

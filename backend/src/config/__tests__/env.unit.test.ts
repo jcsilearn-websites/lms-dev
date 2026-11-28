@@ -246,6 +246,7 @@ describe('video provider policy', () => {
     DB_SSL_CA: '/certs/ca.crt',
     // production needs the key of the keyed hash of a suppressed address (step 14b)
     SUPPRESSION_HASH_KEYS: `k1:${'p'.repeat(40)}`,
+    MFA_ENCRYPTION_KEYS: `k1:${'m'.repeat(40)}`,
   };
   it('the local provider (ffmpeg in the worker) is the default for development and test', () => {
     for (const NODE_ENV of ['development', 'test']) {
@@ -325,6 +326,7 @@ describe('DB_SSL policy', () => {
       DB_SSL: 'verify-full',
       DB_SSL_CA: '/certs/prod-ca.crt',
       SUPPRESSION_HASH_KEYS: `k1:${'p'.repeat(40)}`,
+      MFA_ENCRYPTION_KEYS: `k1:${'m'.repeat(40)}`,
     });
     expect(env.DB_SSL_CA).toBe('/certs/prod-ca.crt');
     expect(sslWarning(env)).toBeUndefined();

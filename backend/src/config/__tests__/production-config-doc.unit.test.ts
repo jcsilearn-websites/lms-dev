@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   apiEnvSchema,
   assertAuthPolicy,
+  assertMfaPolicy,
   assertPrivacyPolicy,
   assertSslPolicy,
   assertStoragePolicy,
@@ -138,6 +139,24 @@ describe('the refusals the page promises are real', () => {
     ).not.toThrow();
     expect(() =>
       assertPrivacyPolicy({ NODE_ENV: 'development', STORAGE_SIGNING_SECRET: 's'.repeat(40) }),
+    ).not.toThrow();
+  });
+
+  it('MFA_ENCRYPTION_KEYS is required in production, not elsewhere when STORAGE_SIGNING_SECRET exists', () => {
+    says('MFA_ENCRYPTION_KEYS', /refuses to start/);
+    expect(rows.get('MFA_ENCRYPTION_KEYS')?.required).toMatch(/^yes in production/);
+    expect(() =>
+      assertMfaPolicy({ ...production, STORAGE_SIGNING_SECRET: 's'.repeat(40) }),
+    ).toThrow(/MFA_ENCRYPTION_KEYS: required/);
+    expect(() =>
+      assertMfaPolicy({ ...production, MFA_ENCRYPTION_KEYS: `k1:${'a'.repeat(40)}` }),
+    ).not.toThrow();
+    expect(() => assertMfaPolicy({ NODE_ENV: 'development' })).toThrow(/MFA_ENCRYPTION_KEYS/);
+    expect(() => assertMfaPolicy({ ...production, MFA_ENCRYPTION_KEYS: 'k1:short' })).toThrow(
+      /32\+ characters/,
+    );
+    expect(() =>
+      assertMfaPolicy({ NODE_ENV: 'development', STORAGE_SIGNING_SECRET: 's'.repeat(40) }),
     ).not.toThrow();
   });
 

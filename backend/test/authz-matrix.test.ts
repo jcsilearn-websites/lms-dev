@@ -484,6 +484,7 @@ const ROWS: Row[] = [
   platformPerm('GET', '/platform/audit', 200),
   // ---- any signed-in user
   authenticated('GET', '/auth/me', 200),
+  authenticated('GET', '/me/mfa', 200),
   authenticated('GET', '/auth/sessions', 200),
   authenticated('DELETE', `/auth/sessions/${U}`, 404),
 ];
@@ -497,6 +498,10 @@ const NOT_IN_MATRIX: Record<string, string> = {
   'POST /auth/password/forgot': 'public',
   'POST /auth/password/reset': 'public',
   'POST /auth/invites/accept': 'public',
+  // two-factor sign-in (step 14c): the challenge cookie or the emailed token is the authority
+  'POST /auth/mfa/verify': 'public',
+  'POST /auth/mfa/enrol/start': 'public',
+  'POST /auth/mfa/enrol/confirm': 'public',
   'GET /health/live': 'public',
   'GET /health/ready': 'public',
   'GET /metrics': 'public + bearer token (test/observability.test.ts)',

@@ -23,6 +23,7 @@ import {
   guardEmailProvider,
   unsubscribeKey,
 } from './core/mail';
+import { createMfaCrypto, parseMfaKeys } from './core/mfa-crypto';
 import { createPasswordHasher } from './core/password';
 import {
   createGcsStorage,
@@ -81,6 +82,8 @@ import {
   createAuthHandlers,
   createAuthRepository,
   createAuthService,
+  createMfaRepository,
+  createMfaService,
   DEFAULT_AUTH_CONFIG,
 } from './modules/auth';
 import {
@@ -239,6 +242,10 @@ export interface ModulesConfig {
   readyTimeoutMs: number;
   sessions: SessionsConfig;
   auth: Partial<AuthConfig>;
+  /** two-factor sign-in (step 14c): forced enrolment, and the keys of the secrets at rest (empty in the worker) */
+  mfa: { enforced: boolean; keys: SigningKeyEntry[] };
+  /** the clock of the second factor's time decisions (tests pass explicit instants) */
+  now?: () => Date;
   authRateLimits: AuthRateLimitConfig;
   privacy: {
     exportRatePerHour: number;
@@ -332,6 +339,26 @@ export function parseConcurrency(value: string): Record<string, number> {
     if (name && n) out[name] = Number(n);
   }
   return out;
+}
+
+/**
+ * Two-factor sign-in is configured on the API only (the worker's environment has neither variable and gets no key). Outside
+ * production a key derived from the storage secret stands in; in production assertMfaPolicy refuses an API without one.
+ */
+function mfaConfig(env: {
+  NODE_ENV: string;
+  STORAGE_SIGNING_SECRET?: string | undefined;
+  MFA_ENCRYPTION_KEYS?: string | undefined;
+  MFA_ENFORCEMENT?: 'off' | 'required' | undefined;
+}) {
+  const fallback =
+    env.NODE_ENV !== 'production' && env.STORAGE_SIGNING_SECRET
+      ? [{ kid: 'dev0', secret: env.STORAGE_SIGNING_SECRET }]
+      : [];
+  return {
+    enforced: env.MFA_ENFORCEMENT === 'required',
+    keys: env.MFA_ENCRYPTION_KEYS ? parseMfaKeys(env.MFA_ENCRYPTION_KEYS) : fallback,
+  };
 }
 
 /** Translates validated env into the module settings (used by the API and the worker). */
@@ -467,6 +494,7 @@ export function modulesConfigFromEnv(
       perEmail: env.RATE_LIMIT_LOGIN_PER_EMAIL,
       windowMs: env.RATE_LIMIT_AUTH_WINDOW_MS,
     },
+    mfa: mfaConfig(env),
     privacy: {
       exportRatePerHour: env.DATA_EXPORT_RATE_PER_HOUR,
       // outside production a key derived from the storage secret is used (assertPrivacyPolicy refuses a missing key in production)
@@ -676,7 +704,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     createSessionsService({
       db,
       sessionsRepo: createSessionsRepository(),
-      config: config.sessions,
+      config: { ...config.sessions, requireMfa: config.mfa.enforced },
     }),
   );
   const membershipsService = traced(
@@ -718,7 +746,10 @@ export function createModules(db: Database, config: ModulesConfig) {
     ring('unsubscribe', config.email.unsubscribeSecret),
     { ttlSeconds: config.email.unsubscribeTtlSeconds },
   );
-  let authRef: Pick<AuthService, 'mintInviteToken' | 'mintResetToken'> | null = null;
+  let authRef: Pick<
+    AuthService,
+    'mintInviteToken' | 'mintResetToken' | 'mintMfaEnrolToken'
+  > | null = null;
   const minter = () => {
     if (!authRef) throw new Error('auth service not wired');
     return authRef;
@@ -741,6 +772,7 @@ export function createModules(db: Database, config: ModulesConfig) {
       tokens: {
         invite: (tenantId, membershipId) => minter().mintInviteToken(tenantId, membershipId),
         reset: (userId) => minter().mintResetToken(userId),
+        mfaEnrol: (userId, tenantId) => minter().mintMfaEnrolToken(userId, tenantId),
       },
       config: {
         baseDomain: config.baseDomain,
@@ -766,9 +798,29 @@ export function createModules(db: Database, config: ModulesConfig) {
       },
     }),
   );
+  const mfaService = traced(
+    'mfa',
+    createMfaService({
+      db,
+      mfaRepo: createMfaRepository(),
+      authRepo: createAuthRepository(),
+      hasher,
+      crypto: config.mfa.keys.length > 0 ? createMfaCrypto(config.mfa.keys) : null,
+      config: {
+        enforced: config.mfa.enforced,
+        sessionIdleSeconds: config.sessions.idleSeconds,
+        sessionAbsoluteSeconds: config.sessions.absoluteSeconds,
+        maxAttempts: config.auth.maxAttempts ?? DEFAULT_AUTH_CONFIG.maxAttempts,
+        lockBaseSeconds: config.auth.lockBaseSeconds ?? DEFAULT_AUTH_CONFIG.lockBaseSeconds,
+        lockMaxSeconds: config.auth.lockMaxSeconds ?? DEFAULT_AUTH_CONFIG.lockMaxSeconds,
+      },
+      ...(config.now ? { now: config.now } : {}),
+    }),
+  );
   const authService = traced(
     'auth',
     createAuthService({
+      secondFactor: mfaService,
       db,
       authRepo: createAuthRepository(),
       hasher,
@@ -985,7 +1037,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createMembershipsHandlers({ membershipsService }),
     ...createAuditHandlers({ auditService }),
     ...createSessionsHandlers({ sessionsService, purge: config.purge }),
-    ...createAuthHandlers({ authService, purge: config.purge }),
+    ...createAuthHandlers({ authService, mfaService, purge: config.purge }),
     ...createJobsHandlers({ jobsService, purge: config.purge }),
     ...createRateLimitHandlers({ rateLimitService, everyMs: 60_000 }),
     ...createEmailHandlers({ emailService, purge: { everyMs: config.purge.everyMs } }),
@@ -1151,6 +1203,7 @@ export function createModules(db: Database, config: ModulesConfig) {
       service: authService,
       controller: createAuthController({
         authService,
+        mfaService,
         cookie: config.cookie,
         baseDomain: config.baseDomain,
       }),

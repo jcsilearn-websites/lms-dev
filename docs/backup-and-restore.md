@@ -111,6 +111,18 @@ With `--finish` (needs `LMS_APP_PASSWORD` and the application's own variables):
 `/health/ready`, the job queue (`lms.jobs`: queued jobs of the restored moment run again; the idempotency keys of the mail outbox stop a second email for the
 same event), and the alert dashboards of `docs/slo.md`.
 
+## `MFA_ENCRYPTION_KEYS`: a backup of its own
+
+**A database backup does not contain what is needed to use the two-factor data in it** (step 14c, `docs/adr/0026-mfa.md`). The authenticator secrets are
+encrypted, and the recovery codes hashed, with `MFA_ENCRYPTION_KEYS`, which lives in the application's configuration and never in the database.
+
+- **Keep the keys backed up separately from the database backups**: every version in Secret Manager plus a sealed offline copy, under different credentials.
+- **After a restore, give the API the same keys**, including every OLD one a restored row still refers to: an older backup may hold rows made before the last
+  rotation. `pnpm mfa:rekey` prints the key ids in use; run it after the restore if the keys were rotated since the backup.
+- **If the keys are lost**, the restore succeeds, every check of the drill passes, and **no enrolled administrator can sign in**: neither the authenticator
+  codes nor the recovery codes can be checked. Each person's factor has to be removed and set up again. Nothing in the database can rebuild the key.
+- The drill proves it both ways: restored rows decrypt and match with the saved keys, and do not with any other key.
+
 ## Cloud SQL point-in-time recovery
 
 Cloud SQL replaces the dump for the day-to-day cases. Settings (the GCP step applies them; `--database-flags` replaces the whole list, see

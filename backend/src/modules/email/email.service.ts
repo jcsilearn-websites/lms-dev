@@ -46,6 +46,8 @@ export interface EmailServiceConfig {
 export interface SecurityTokens {
   invite(tenantId: string, membershipId: string): Promise<{ token: string; days: number } | null>;
   reset(userId: string): Promise<{ token: string; minutes: number }>;
+  /** the two-factor enrolment link; tenantId null = the admin host */
+  mfaEnrol(userId: string, tenantId: string | null): Promise<{ token: string; minutes: number }>;
 }
 
 export interface SendJob {
@@ -115,6 +117,11 @@ export function createEmailService(deps: {
     if (row.template === 'password_reset') {
       if (!row.userId) return null;
       const minted = await deps.tokens.reset(row.userId);
+      return { token: minted.token, minutes: minted.minutes };
+    }
+    if (row.template === 'mfa_enrol') {
+      if (!row.userId) return null;
+      const minted = await deps.tokens.mfaEnrol(row.userId, row.tenantId ?? null);
       return { token: minted.token, minutes: minted.minutes };
     }
     return params;

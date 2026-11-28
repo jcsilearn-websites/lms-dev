@@ -43,7 +43,14 @@ import {
   submissions,
 } from '../src/modules/assignments/assignments.model';
 import { auditLog, platformAuditLog } from '../src/modules/audit/audit.model';
-import { authTokenPurpose, authTokens, userCredentials } from '../src/modules/auth/auth.model';
+import {
+  authMfaChallenges,
+  authTokenPurpose,
+  authTokens,
+  userCredentials,
+  userMfa,
+  userMfaRecoveryCodes,
+} from '../src/modules/auth/auth.model';
 import { contentItems, contentModules } from '../src/modules/content/content.model';
 import {
   courseOfferings,
@@ -130,6 +137,9 @@ const schema = {
   platformAuditLog,
   userCredentials,
   authTokens,
+  userMfa,
+  userMfaRecoveryCodes,
+  authMfaChallenges,
   sessions,
   membershipRole,
   membershipStatus,

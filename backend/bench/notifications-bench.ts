@@ -348,7 +348,11 @@ async function main(): Promise<void> {
       rate: { take: async () => {} },
       unsubscribe: createUnsubscribeTokens('b'.repeat(64), { ttlSeconds: 3600 }),
       webhooks: [],
-      tokens: { invite: async () => null, reset: async () => ({ token: 't', minutes: 30 }) },
+      tokens: {
+        invite: async () => null,
+        reset: async () => ({ token: 't', minutes: 30 }),
+        mfaEnrol: async () => ({ token: 't', minutes: 30 }),
+      },
       config: {
         baseDomain: 'localhost',
         secure: false,

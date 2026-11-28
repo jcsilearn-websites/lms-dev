@@ -20,7 +20,6 @@ const ALLOWED: Record<string, string> = {
   auth_ensure_user: 'creates the global account of a person signing up through an invite',
   auth_find_login: 'sign-in: finds the account by address (the college host is already known)',
   auth_login_begin: 'sign-in: the account and its credentials',
-  auth_login_complete: 'sign-in: re-reads the account under the row lock',
   auth_lookup_session:
     'the session of the signed-in person (they read their OWN account on every request)',
   email_enqueue_security: LIVE_ADDRESS,
@@ -53,6 +52,15 @@ const ALLOWED: Record<string, string> = {
   privacy_erasure_reapply:
     'after a restore: erases the person from the ledger again (checks the address, then the same core as the execution)',
   notify_usage_closed: 'the address of the platform administrators',
+  // two-factor sign-in (step 14c): all about the ONE person signing in, never a list of members
+  session_insert:
+    'internal (no grant): the account of the person being signed in, for the answer of THEIR own sign-in',
+  mfa_required_here:
+    'internal: reads only the platform administrator flag of the person signing in',
+  mfa_password_accepted:
+    'internal: after the right password, reads only the platform administrator flag of that person',
+  mfa_enrol_lookup:
+    'the OWN address of the person holding the emailed enrolment link (shown in their authenticator app)',
 };
 // The platform area (admin host). REVIEWED one by one (step 14b-1): none of them lists the members of one college. The only
 // college-scoped member list on the admin host, GET /platform/tenants/:id/members, is served by memberships.listPageIn, which reads

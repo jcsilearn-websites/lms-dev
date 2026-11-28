@@ -62,10 +62,11 @@ export function createSessionsRepository() {
         tenantId: string | null;
         touchSeconds: number;
         idleSeconds: number;
+        requireMfa: boolean;
       },
     ): Promise<SessionLookupRow | undefined> {
       const result = await db.execute(
-        sql`select * from lms.auth_lookup_session(${args.tokenHash}::bytea, ${args.tenantId}::uuid, ${args.touchSeconds}::int, ${args.idleSeconds}::int)`,
+        sql`select * from lms.auth_lookup_session(${args.tokenHash}::bytea, ${args.tenantId}::uuid, ${args.touchSeconds}::int, ${args.idleSeconds}::int, ${args.requireMfa}::boolean)`,
       );
       return result.rows[0] as SessionLookupRow | undefined;
     },
@@ -87,10 +88,11 @@ export function createSessionsRepository() {
         ip: string | null;
         userAgent: string | null;
         auditId: string;
+        requireMfa: boolean;
       },
     ): Promise<LoginCompleteRow | undefined> {
       const res = await db.execute(
-        sql`select * from lms.auth_login_complete(${a.userId}::uuid, ${a.tenantId}::uuid, ${a.sessionId}::uuid, ${a.tokenHash}::bytea, ${a.idleSeconds}::int, ${a.absoluteSeconds}::int, ${a.ip}::inet, ${a.userAgent}::text, ${a.auditId}::uuid)`,
+        sql`select * from lms.auth_login_complete(${a.userId}::uuid, ${a.tenantId}::uuid, ${a.sessionId}::uuid, ${a.tokenHash}::bytea, ${a.idleSeconds}::int, ${a.absoluteSeconds}::int, ${a.ip}::inet, ${a.userAgent}::text, ${a.auditId}::uuid, ${a.requireMfa}::boolean)`,
       );
       return res.rows[0] as LoginCompleteRow | undefined;
     },

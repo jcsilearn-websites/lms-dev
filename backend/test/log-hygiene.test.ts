@@ -12,6 +12,7 @@ import {
 } from './assignments-helpers';
 import { deliverEmails, lastTokenFor, TestClient } from './client';
 import { loginAs, ok, structure } from './courses-helpers';
+import { codeAt, createClock, enrol } from './mfa-helpers';
 import { type AuthFixture, createAuthFixture, TEST_PASSWORD, testOwnerPool } from './support';
 
 // Step 14a: LOG HYGIENE. Representative flows run at DEBUG level (the most a deployment would ever log), and every line that was
@@ -169,4 +170,56 @@ describe('logs never contain personal data, credentials or academic content', ()
     );
     expect(audit.rows[0]?.n).toBeGreaterThan(5);
   }, 60_000);
+});
+
+describe('two-factor sign-in leaves nothing secret in a log (step 14c)', () => {
+  it('enrolment, a code, a wrong code and a recovery code: no secret, link, code or token', async () => {
+    const clock = createClock();
+    const app = makeApp({
+      logLevel: 'debug',
+      env: { MFA_ENFORCEMENT: 'required', TENANT_CACHE_TTL_MS: '3600000' },
+      now: () => clock.now(),
+    });
+    try {
+      const B = await createAuthFixture(owner, 'log-mfa');
+      await app.app.ready();
+      const who = await enrol(app, owner, clock, { host: B.host, email: B.adminEmail });
+      const enrolToken = /token=([A-Za-z0-9_-]+)/.exec(
+        app.mailer.sent.find((m) => m.to === B.adminEmail && /token=/.test(m.text))?.text ?? '',
+      )?.[1] as string;
+
+      const browser = new TestClient(app, B.host);
+      expect((await browser.login(B.adminEmail, TEST_PASSWORD)).statusCode).toBe(202);
+      const challengeToken = browser.cookie('mfa') as string;
+      const used = codeAt(who.secret, clock);
+      await browser.post('/auth/mfa/verify', { recoveryCode: 'ZZZZZ-ZZZZZ' });
+      ok(await browser.post('/auth/mfa/verify', { code: used }));
+      const again = new TestClient(app, B.host);
+      await again.login(B.adminEmail, TEST_PASSWORD);
+      ok(await again.post('/auth/mfa/verify', { recoveryCode: who.recoveryCodes[0] }));
+      await deliverEmails(app);
+      await app.app.modules.background.drain();
+
+      const text = app.logs.map((l) => JSON.stringify(l)).join('\n');
+      expect(text).toContain('/auth/mfa/verify');
+      const secrets = [
+        who.secret,
+        enrolToken,
+        challengeToken,
+        used,
+        'ZZZZZ-ZZZZZ',
+        'otpauth://',
+        B.adminEmail,
+        TEST_PASSWORD,
+        ...who.recoveryCodes,
+        ...[browser, again, who.browser].flatMap((c) => [...c.cookies.values()]),
+      ];
+      expect(enrolToken).toBeTruthy();
+      for (const secret of secrets) {
+        expect(text.includes(secret), `a log line holds ${secret.slice(0, 6)}...`).toBe(false);
+      }
+    } finally {
+      await app.close();
+    }
+  });
 });

@@ -22,6 +22,7 @@ import {
   InvalidTokenError,
   PasswordRequiredError,
 } from './auth.errors';
+import { MFA_ENROL_LINK_TTL_SECONDS, type MfaService } from './auth.mfa.service';
 import { assertPasswordAllowed } from './auth.password-policy';
 import type { AuthRepository } from './auth.repository';
 
@@ -32,6 +33,29 @@ export interface AuthConfig {
   lockMaxSeconds: number;
   inviteTtlSeconds: number;
   resetTtlSeconds: number;
+}
+
+/** The `me` answer of a signed-in person (also what /auth/mfa/verify and the enrolment answer with). */
+export function meResponse(args: {
+  user: { id: string; email: string; displayName: string };
+  tenant: { id: string; slug: string } | null;
+  role: MeResponse['role'];
+  isPlatformAdmin: boolean;
+}): MeResponse {
+  const subject = {
+    userId: args.user.id,
+    tenantId: args.tenant?.id ?? null,
+    role: args.role,
+    isPlatformAdmin: args.isPlatformAdmin,
+  };
+  return {
+    user: args.user,
+    tenant: args.tenant ? { id: args.tenant.id, slug: args.tenant.slug } : null,
+    role: args.role,
+    isPlatformAdmin: args.isPlatformAdmin,
+    // account-level permissions only (course participation is resolved per course); UI hint, not enforcement
+    permissions: ALL_PERMISSIONS.filter((p) => can(subject, p)),
+  };
 }
 
 export const DEFAULT_AUTH_CONFIG: AuthConfig = {
@@ -49,11 +73,18 @@ export interface HostScope {
   origin: string;
 }
 
-export interface LoginResult {
+export interface SessionStarted {
+  kind: 'session';
   token: string;
   expiresAt: Date;
   me: MeResponse;
 }
+
+/** Signed in, or: the password was right but there is no session yet (step 14c). */
+export type LoginResult =
+  | SessionStarted
+  | { kind: 'challenge'; step: 'totp'; challengeToken: string }
+  | { kind: 'challenge'; step: 'enrol_email' };
 
 export function createAuthService(deps: {
   db: Pick<Database, 'withoutTenant' | 'withTenant'>;
@@ -75,37 +106,20 @@ export function createAuthService(deps: {
   membershipsService: Pick<MembershipsService, 'getMembership' | 'invite'>;
   auditService: Pick<AuditService, 'recordIn'>;
   config?: Partial<AuthConfig>;
+  /**
+   * Two-factor sign-in (step 14c). Without it nobody is challenged, and the database still refuses a password-only session to a
+   * person who has a factor (auth_login_complete): leaving it out can only fail closed.
+   */
+  secondFactor?: Pick<MfaService, 'enforced' | 'afterPassword'>;
 }) {
   const { db, authRepo, hasher, securityMail, background, sessionsService, usersService } = deps;
-  const { membershipsService, auditService } = deps;
+  const { membershipsService, auditService, secondFactor } = deps;
   const config: AuthConfig = { ...DEFAULT_AUTH_CONFIG, ...deps.config };
   // Per instance, an optimisation only (the database decides): a logical clock and "user -> the tick at
   // which this instance saw the account get locked". A request that started before that tick read a stale
   // lockout; one that started after it reads the real one from the database.
   let lockClock = 0;
   const lockSeen = new Map<string, number>();
-
-  function meResponse(args: {
-    user: { id: string; email: string; displayName: string };
-    tenant: { id: string; slug: string } | null;
-    role: MeResponse['role'];
-    isPlatformAdmin: boolean;
-  }): MeResponse {
-    const subject = {
-      userId: args.user.id,
-      tenantId: args.tenant?.id ?? null,
-      role: args.role,
-      isPlatformAdmin: args.isPlatformAdmin,
-    };
-    return {
-      user: args.user,
-      tenant: args.tenant ? { id: args.tenant.id, slug: args.tenant.slug } : null,
-      role: args.role,
-      isPlatformAdmin: args.isPlatformAdmin,
-      // account-level permissions only (course participation is resolved per course); UI hint, not enforcement
-      permissions: ALL_PERMISSIONS.filter((p) => can(subject, p)),
-    };
-  }
 
   return {
     /**
@@ -184,6 +198,21 @@ export function createAuthService(deps: {
         await db.withoutTenant((exec) => authRepo.setPassword(exec, userId, newHash));
       }
 
+      // two-factor sign-in: an enrolled person, or one who must enrol, gets NO session from the password
+      const mustEnrol =
+        secondFactor?.enforced === true &&
+        (input.tenant ? begin.membershipRole === 'institution_admin' : begin.isPlatformAdmin);
+      if (secondFactor && (begin.mfaEnrolled || mustEnrol)) {
+        const next = await secondFactor.afterPassword({
+          userId,
+          enrolled: begin.mfaEnrolled,
+          tenantId,
+          client: input.client,
+        });
+        if (!next) throw new InvalidCredentialsError(); // changed in the meantime
+        return { kind: 'challenge', ...next };
+      }
+
       const session = await sessionsService.completeLogin({
         userId,
         tenantId,
@@ -193,6 +222,7 @@ export function createAuthService(deps: {
       if (!session) throw new InvalidCredentialsError(); // membership/tenant changed in the meantime
 
       return {
+        kind: 'session',
         token: session.token,
         expiresAt: session.expiresAt,
         me: meResponse({
@@ -265,6 +295,27 @@ export function createAuthService(deps: {
         }),
       );
       return { token, minutes: Math.round(config.resetTtlSeconds / 60) };
+    },
+
+    /** The worker's half of the two-factor enrolment mail: a fresh single-use token (a newer one voids the older). */
+    async mintMfaEnrolToken(
+      userId: string,
+      tenantId: string | null,
+    ): Promise<{ token: string; minutes: number }> {
+      const token = await generateToken();
+      await db.withoutTenant((exec) =>
+        authRepo.createToken(exec, {
+          id: newId(),
+          purpose: 'mfa_enrol',
+          tokenHash: hashToken(token),
+          userId,
+          tenantId,
+          membershipId: null,
+          ttlSeconds: MFA_ENROL_LINK_TTL_SECONDS,
+          createdBy: null,
+        }),
+      );
+      return { token, minutes: Math.round(MFA_ENROL_LINK_TTL_SECONDS / 60) };
     },
 
     /**

@@ -76,6 +76,7 @@ function make(
   const tokens = {
     invite: vi.fn(async () => ({ token: 'INVITE-TOKEN', days: 7 })),
     reset: vi.fn(async () => ({ token: 'RESET-TOKEN', minutes: 30 })),
+    mfaEnrol: vi.fn(async () => ({ token: 'MFA-TOKEN', minutes: 30 })),
   };
   const service = createEmailService({
     db: fakeDb(),

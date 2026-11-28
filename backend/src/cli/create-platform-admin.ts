@@ -78,6 +78,11 @@ async function main(): Promise<void> {
              failed_attempts = 0, locked_until = NULL, updated_at = now()`,
       [userId, hash],
     );
+    // sessions that began before the account was a platform admin (or under the old password) end here (step 14c)
+    await client.query(
+      'UPDATE lms.sessions SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL',
+      [userId],
+    );
     await client.query(
       `SELECT lms.auth_audit_platform($1, NULL, 'platform_admin.bootstrapped', 'user', $2, '{}'::jsonb, NULL)`,
       [newId(), userId],

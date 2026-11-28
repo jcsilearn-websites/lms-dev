@@ -146,6 +146,8 @@ describe('sessions service (fake repository)', () => {
       tenantId: 't',
       touchSeconds: 300,
       idleSeconds: 3600,
+      // two-factor enforcement is off unless configured
+      requireMfa: false,
     });
     expect(await service.lookup(hash, 't')).toBeNull();
   });

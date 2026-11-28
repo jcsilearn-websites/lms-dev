@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { type Static, type TSchema, Type } from '@sinclair/typebox';
 import { Value } from '@sinclair/typebox/value';
 import { parseSigningKeys } from '../core/keyring';
+import { parseMfaKeys } from '../core/mfa-crypto';
 import { hostOf, isLocalHost } from './local';
 import { DB_SSL_MODES, type DbSsl } from './ssl';
 
@@ -298,7 +299,19 @@ const opsFields = {
   OTEL_TRACE_SAMPLE_RATIO: Type.Number({ minimum: 0, maximum: 1, default: 0.1 }),
 };
 
+/**
+ * Two-factor sign-in (step 14c, docs/adr/0026-mfa.md). API only. MFA_ENCRYPTION_KEYS: `kid:secret,kid:secret` (the same format and rules
+ * as SIGNING_KEYS, 32+ characters each; a SEPARATE secret): the first encrypts, all decrypt. Required when NODE_ENV=production;
+ * elsewhere a key derived from STORAGE_SIGNING_SECRET is used (development and tests only). MFA_ENFORCEMENT: whether platform and
+ * institution administrators are FORCED to enrol; an enrolled person is always asked for a code. `off` until the screens exist.
+ */
+const mfaFields = {
+  MFA_ENCRYPTION_KEYS: Type.Optional(Type.String({ minLength: 34 })),
+  MFA_ENFORCEMENT: Type.Union([Type.Literal('off'), Type.Literal('required')], { default: 'off' }),
+};
+
 export const apiEnvSchema = Type.Object({
+  ...mfaFields,
   // shared rate limiting (step 14a, docs/adr/0022): `memory` = per instance (development, tests), `postgres` = counters shared by
   // every API instance (the production default). RATE_LIMIT_SYNC_MS: how often an instance folds its local hits into the shared store.
   RATE_LIMIT_STORE: Type.Optional(Type.Union([Type.Literal('memory'), Type.Literal('postgres')])),
@@ -450,6 +463,31 @@ export function assertPrivacyPolicy(env: {
   if (issues.length > 0) throw new EnvError(issues);
 }
 
+/** Two-factor sign-in (step 14c): the secrets at rest need their own key in production. */
+export function assertMfaPolicy(env: {
+  NODE_ENV: string;
+  MFA_ENCRYPTION_KEYS?: string | undefined;
+  STORAGE_SIGNING_SECRET?: string | undefined;
+}): void {
+  const issues: string[] = [];
+  try {
+    parseMfaKeys(env.MFA_ENCRYPTION_KEYS);
+  } catch (err) {
+    issues.push(err instanceof Error ? err.message : 'MFA_ENCRYPTION_KEYS: invalid');
+  }
+  if (env.NODE_ENV === 'production' && !env.MFA_ENCRYPTION_KEYS) {
+    issues.push(
+      'MFA_ENCRYPTION_KEYS: required (a key of its own, 32+ characters) when NODE_ENV=production',
+    );
+  }
+  if (env.NODE_ENV !== 'production' && !env.MFA_ENCRYPTION_KEYS && !env.STORAGE_SIGNING_SECRET) {
+    issues.push(
+      'MFA_ENCRYPTION_KEYS: set it (or STORAGE_SIGNING_SECRET, development only) so that second-factor secrets can be encrypted',
+    );
+  }
+  if (issues.length > 0) throw new EnvError(issues);
+}
+
 export function parseApiEnv(source: Record<string, string | undefined> = process.env): ApiEnv {
   const env = parseEnv(apiEnvSchema, source);
   assertSslPolicy(env, [env.DATABASE_APP_URL]);
@@ -457,6 +495,7 @@ export function parseApiEnv(source: Record<string, string | undefined> = process
   assertStoragePolicy(env);
   assertVideoPolicy(env);
   assertPrivacyPolicy(env);
+  assertMfaPolicy(env);
   return env;
 }
 

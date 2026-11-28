@@ -6,6 +6,9 @@ import pg from 'pg';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { reapplyErasures } from '../src/cli/privacy-reapply-erasures';
 import { passwordFromUrl } from '../src/config/secrets';
+import { createMfaCrypto, parseMfaKeys } from '../src/core/mfa-crypto';
+import { newTotpSecret } from '../src/core/totp';
+import { newId } from '../src/core/uuid';
 import { runMigrations } from '../src/db/migrate';
 import { makeApp, type TestApp, testEnv } from './app';
 import { loginAs, ok, type Person, person } from './courses-helpers';
@@ -42,6 +45,10 @@ vi.setConfig({ testTimeout: 280_000, hookTimeout: 280_000 });
 const ROOT = join(import.meta.dirname, '..', '..');
 const script = (name: string) => join(ROOT, 'scripts', 'backup', name);
 const KEYS = `k1:${'a'.repeat(40)}`;
+// the two-factor keys that are "saved apart from the database" (step 14c)
+const MFA_KEYS = `mfa1:${'f'.repeat(40)}`;
+const MFA_SECRET = newTotpSecret();
+const MFA_RECOVERY_CODE = 'ABCDEFGH10';
 const WRONG_CLUSTER_PASSWORD = 'a-different-password-on-the-new-cluster';
 
 let owner: pg.Pool;
@@ -53,6 +60,7 @@ let X: Person; // asks for erasure; erased AFTER the backup
 let Y: Person; // bystander in the same college
 let Z: Person; // a member of the other college
 let requestX: string;
+let mfaUserId: string;
 let ledgerDir: string;
 let work: string;
 let cluster: ScratchCluster;
@@ -290,6 +298,20 @@ beforeAll(async () => {
   X = await person(owner, t, A, 'Drill Erased Person');
   Y = await person(owner, t, A, 'Drill Bystander');
   Z = await person(owner, t, B, 'Drill Other College');
+  // two-factor data (step 14c) of a person of their own: encrypted / hashed under keys that are NOT in the database
+  const holder = await person(owner, t, A, 'Drill Two Factor');
+  mfaUserId = holder.userId;
+  const sealed = createMfaCrypto(parseMfaKeys(MFA_KEYS)).seal(mfaUserId, MFA_SECRET);
+  const recovery = createMfaCrypto(parseMfaKeys(MFA_KEYS)).hashRecoveryCode(MFA_RECOVERY_CODE);
+  await owner.query(
+    `INSERT INTO lms.user_mfa (user_id, secret_ciphertext, secret_nonce, key_id, enabled_at, last_used_step)
+     VALUES ($1, $2, $3, $4, now(), 0)`,
+    [mfaUserId, sealed.ciphertext, sealed.nonce, sealed.kid],
+  );
+  await owner.query(
+    'INSERT INTO lms.user_mfa_recovery_codes (id, user_id, code_hash, key_id) VALUES ($1, $2, $3, $4)',
+    [newId(), mfaUserId, recovery.hash, recovery.kid],
+  );
   const asked = ok(await X.client.post('/me/erasure', { password: TEST_PASSWORD }));
   requestX = asked.request.id as string;
   ok(await admin2.client.post(`/privacy/erasure-requests/${requestX}/approve`, {}));
@@ -604,6 +626,41 @@ describe('5. a proper restore into the bare cluster (roles from the globals file
         expect(f.proconfig?.some((s) => s.startsWith('search_path='))).toBe(true);
     } finally {
       await c.end();
+    }
+  });
+
+  it('two-factor rows decrypt and match with the keys saved APART from the database, and with no other key', async () => {
+    const [row] = await clusterQuery<{
+      secret_ciphertext: Buffer;
+      secret_nonce: Buffer;
+      key_id: string;
+    }>(db, 'SELECT secret_ciphertext, secret_nonce, key_id FROM lms.user_mfa WHERE user_id = $1', [
+      mfaUserId,
+    ]);
+    const [code] = await clusterQuery<{ code_hash: Buffer; key_id: string }>(
+      db,
+      'SELECT code_hash, key_id FROM lms.user_mfa_recovery_codes WHERE user_id = $1',
+      [mfaUserId],
+    );
+    if (!row || !code) throw new Error('the two-factor rows were not restored');
+    const stored = { kid: row.key_id, nonce: row.secret_nonce, ciphertext: row.secret_ciphertext };
+
+    const saved = createMfaCrypto(parseMfaKeys(MFA_KEYS));
+    expect(saved.open(mfaUserId, stored)).toEqual(MFA_SECRET);
+    const candidate = saved
+      .recoveryCandidates(MFA_RECOVERY_CODE)
+      .find((c) => c.kid === code.key_id);
+    expect(candidate?.hash.equals(code.code_hash)).toBe(true);
+
+    // the keys are what the backup does NOT carry: another key (even under the same id) opens nothing
+    const other = createMfaCrypto(parseMfaKeys(`mfa1:${'x'.repeat(40)}`));
+    expect(() => other.open(mfaUserId, stored)).toThrow(/could not be decrypted/);
+    expect(other.recoveryCandidates(MFA_RECOVERY_CODE)[0]?.hash.equals(code.code_hash)).toBe(false);
+    // ... and neither the secret nor the key is anywhere in the backup folder
+    for (const name of await readdir(backupDir)) {
+      const bytes = await readFile(join(backupDir, name));
+      expect(bytes.includes(MFA_SECRET), name).toBe(false);
+      expect(bytes.includes('f'.repeat(40)), name).toBe(false);
     }
   });
 

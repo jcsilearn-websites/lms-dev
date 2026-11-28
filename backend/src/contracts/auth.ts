@@ -36,6 +36,56 @@ export const MeResponseSchema = Type.Object({
 });
 export type MeResponse = Static<typeof MeResponseSchema>;
 
+// ---- two-factor sign-in (step 14c, docs/adr/0026-mfa.md)
+
+/**
+ * 202 of POST /auth/login: the password was right but there is NO session yet. `totp`: send the code to /auth/mfa/verify (the
+ * challenge cookie is set). `enrol_email`: this account must set up its second factor first; a link was e-mailed to it.
+ */
+export const LoginChallengeSchema = Type.Object({
+  step: Type.Union([Type.Literal('totp'), Type.Literal('enrol_email')]),
+});
+export type LoginChallenge = Static<typeof LoginChallengeSchema>;
+
+const TotpCode = Type.String({ pattern: '^[0-9]{6}$' });
+
+/** Exactly one of `code` (the authenticator app) and `recoveryCode`. */
+export const MfaVerifyRequestSchema = Type.Object({
+  code: Type.Optional(TotpCode),
+  recoveryCode: Type.Optional(Type.String({ minLength: 10, maxLength: 24 })),
+});
+export type MfaVerifyRequest = Static<typeof MfaVerifyRequestSchema>;
+
+export const MfaEnrolStartRequestSchema = Type.Object({ token: Token, password: Password });
+export type MfaEnrolStartRequest = Static<typeof MfaEnrolStartRequestSchema>;
+
+export const MfaEnrolStartResponseSchema = Type.Object({
+  /** base32, for typing into an authenticator app */
+  secret: Type.String(),
+  /** the same as a link; the QR code of the screen encodes exactly this */
+  otpauthUri: Type.String(),
+});
+export type MfaEnrolStartResponse = Static<typeof MfaEnrolStartResponseSchema>;
+
+export const MfaEnrolConfirmRequestSchema = Type.Object({ code: TotpCode });
+export type MfaEnrolConfirmRequest = Static<typeof MfaEnrolConfirmRequestSchema>;
+
+export const MfaEnrolConfirmResponseSchema = Type.Object({
+  /** shown ONCE: they are stored only as keyed hashes */
+  recoveryCodes: Type.Array(Type.String()),
+  me: MeResponseSchema,
+});
+export type MfaEnrolConfirmResponse = Static<typeof MfaEnrolConfirmResponseSchema>;
+
+export const MfaStatusSchema = Type.Object({
+  /** the role on this host must use a second factor */
+  required: Type.Boolean(),
+  enrolled: Type.Boolean(),
+  enrolledAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
+  recoveryCodesRemaining: Type.Integer({ minimum: 0 }),
+});
+export type MfaStatus = Static<typeof MfaStatusSchema>;
+
 export const ForgotPasswordRequestSchema = Type.Object({ email: Email });
 export const ResetPasswordRequestSchema = Type.Object({ token: Token, newPassword: Password });
 export const ChangePasswordRequestSchema = Type.Object({

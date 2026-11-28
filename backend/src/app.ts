@@ -54,6 +54,8 @@ export interface AppDeps {
   logger: FastifyBaseLogger;
   /** Overrides the email provider chosen by EMAIL_PROVIDER (tests inject a capturing one). */
   emailProvider?: EmailProvider;
+  /** Overrides the clock of the second factor's time decisions (tests). */
+  now?: () => Date;
 }
 
 /**
@@ -63,7 +65,7 @@ export interface AppDeps {
 /** Prefix of every application route (health probes are also served at the root). */
 export const API_PREFIX = '/api';
 
-export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
+export function buildApp({ env, db, logger, emailProvider, now }: AppDeps) {
   const app = Fastify({
     loggerInstance: logger,
     logController: new LogController({ requestIdLogLabel: 'request_id' }),
@@ -76,7 +78,10 @@ export function buildApp({ env, db, logger, emailProvider }: AppDeps) {
     routerOptions: { maxParamLength: 2048 },
   }).withTypeProvider<TypeBoxTypeProvider>();
 
-  const modules = createModules(db, modulesConfigFromEnv(env, logger, emailProvider));
+  const modules = createModules(db, {
+    ...modulesConfigFromEnv(env, logger, emailProvider),
+    ...(now ? { now } : {}),
+  });
 
   // Order matters: error handling, cross-cutting plugins (rate limit, CSRF), tenant + session
   // resolution, then module routes.

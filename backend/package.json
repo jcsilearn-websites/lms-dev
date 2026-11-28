@@ -36,6 +36,7 @@
     "bench:ratelimit": "tsx bench/ratelimit-bench.ts",
     "docs:permissions": "tsx src/cli/docs-permissions.ts",
     "admin:create": "tsx src/cli/create-platform-admin.ts",
+    "mfa:rekey": "tsx src/cli/mfa-rekey.ts",
     "privacy:reapply-erasures": "tsx src/cli/privacy-reapply-erasures.ts",
     "db:dev:clean": "tsx src/cli/dev-clean.ts"
   },

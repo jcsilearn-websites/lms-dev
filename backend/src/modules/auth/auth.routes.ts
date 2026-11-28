@@ -11,6 +11,10 @@ import {
   loginRouteSchema,
   logoutRouteSchema,
   meRouteSchema,
+  mfaEnrolConfirmRouteSchema,
+  mfaEnrolStartRouteSchema,
+  mfaStatusRouteSchema,
+  mfaVerifyRouteSchema,
   resendInviteRouteSchema,
   resetRouteSchema,
   unlockRouteSchema,
@@ -47,6 +51,44 @@ export function createAuthRoutes(deps: {
       '/auth/me',
       { config: { authenticated: true }, schema: meRouteSchema },
       authController.me,
+    );
+
+    // two-factor sign-in (step 14c). Public: the challenge cookie (or the emailed token) is the authority; the same
+    // per-address limit as sign-in, shared by every instance
+    app.post(
+      '/auth/mfa/verify',
+      {
+        config: { public: true },
+        onRequest: [limit.perIp],
+        preHandler: [requireKnownHost],
+        schema: mfaVerifyRouteSchema,
+      },
+      authController.mfaVerify,
+    );
+    app.post(
+      '/auth/mfa/enrol/start',
+      {
+        config: { public: true },
+        onRequest: [limit.perIp],
+        preHandler: [requireKnownHost],
+        schema: mfaEnrolStartRouteSchema,
+      },
+      authController.mfaEnrolStart,
+    );
+    app.post(
+      '/auth/mfa/enrol/confirm',
+      {
+        config: { public: true },
+        onRequest: [limit.perIp],
+        preHandler: [requireKnownHost],
+        schema: mfaEnrolConfirmRouteSchema,
+      },
+      authController.mfaEnrolConfirm,
+    );
+    app.get(
+      '/me/mfa',
+      { config: { authenticated: true }, schema: mfaStatusRouteSchema },
+      authController.mfaStatus,
     );
 
     app.post(

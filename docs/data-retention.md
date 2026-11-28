@@ -54,6 +54,18 @@ One transaction, locks taken in a fixed order (memberships, credentials, the use
 **It never touches a college's academic record**: enrolments, progress, attempts, submissions, grades and the frozen gradebooks are byte for byte as
 before (a test compares them); a college sees the person only under its own pseudonym.
 
+## Two-step sign-in data (step 14c)
+
+| Table                      | Holds                                                                                               | Kept                                                                                   |
+| -------------------------- | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| `user_mfa`                 | the authenticator secret, encrypted (`MFA_ENCRYPTION_KEYS`); failure counters                       | as long as the person has the factor; **deleted by an account erasure**                |
+| `user_mfa_recovery_codes`  | keyed hashes of the recovery codes, when each was used                                              | with the factor                                                                        |
+| `auth_mfa_challenges`      | sign-in attempts in progress: a token hash, the client's address and user agent, the pending secret | minutes; purged one day after expiry (`auth.purge_tokens`); deleted by account erasure |
+| `sessions.mfa_verified_at` | when a session passed the second factor                                                             | with the session                                                                       |
+
+A college-level erasure does not touch the first three: they belong to the global account. No export holds a secret or a code. Backups keep them until the
+backup expires; without the keys they cannot be read.
+
 ## What stays after an account erasure, and for how long
 
 | Data                                                  | Kept                                                                                                            | Why                                                                                                                                                                                                                                                 |

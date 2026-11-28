@@ -12,6 +12,8 @@ export interface SessionsConfig {
   absoluteSeconds: number;
   /** last_seen_at / idle expiry are refreshed at most this often (avoids a write per request). */
   touchSeconds: number;
+  /** two-factor sign-in is enforced: an administrator's session without it does not count (step 14c) */
+  requireMfa?: boolean;
 }
 
 export interface SessionSummary {
@@ -76,6 +78,7 @@ export function createSessionsService(deps: {
           ip: input.ip,
           userAgent: input.userAgent,
           auditId: newId(),
+          requireMfa: config.requireMfa ?? false,
         }),
       );
       if (row?.r_status !== 'ok' || !row.r_expires_at) return null;
@@ -97,6 +100,7 @@ export function createSessionsService(deps: {
           tenantId,
           touchSeconds: config.touchSeconds,
           idleSeconds: config.idleSeconds,
+          requireMfa: config.requireMfa ?? false,
         }),
       );
       if (!row) return null;

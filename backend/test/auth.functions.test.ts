@@ -57,6 +57,30 @@ const AUTH_FUNCTIONS = [
   'auth_change_password',
   'auth_purge_sessions',
   'auth_purge_tokens',
+  // two-factor sign-in (step 14c, 0070)
+  'auth_purge_mfa_challenges',
+];
+
+/** The second factor (0069 / 0070): what the application may call, and the internal helpers it may not. */
+const MFA_APP_FUNCTIONS = [
+  'mfa_challenge_create',
+  'mfa_enrol_attempt',
+  'mfa_enrol_complete',
+  'mfa_enrol_link_requested',
+  'mfa_enrol_lookup',
+  'mfa_enrol_start',
+  'mfa_recovery_use',
+  'mfa_status',
+  'mfa_totp_accept',
+  'mfa_totp_attempt',
+];
+const MFA_INTERNAL_FUNCTIONS = [
+  'mfa_audit',
+  'mfa_forget_erased_user',
+  'mfa_password_accepted',
+  'mfa_required_here',
+  'mfa_revoke_admin_sessions',
+  'session_insert',
 ];
 
 describe('lms_app has no direct access to credential, token and platform-audit tables', () => {
@@ -178,6 +202,17 @@ describe('SECURITY DEFINER functions are hardened', () => {
       'is_platform_admin',
       'email',
       'display_name',
+      'mfa_verified_at',
+    ]);
+    // two-factor sign-in (step 14c): the narrow answers of the reading functions
+    expect(
+      await cols(
+        "SELECT * FROM lms.mfa_enrol_lookup(decode(repeat('00', 32), 'hex'), NULL, now())",
+      ),
+    ).toEqual(['r_user_id', 'r_email', 'r_password_hash', 'r_locked_until']);
+    expect(await cols(`SELECT * FROM lms.mfa_status('${newId()}')`)).toEqual([
+      'r_enrolled_at',
+      'r_recovery_remaining',
     ]);
     expect(
       await cols("SELECT * FROM lms.auth_consume_reset_token(decode(repeat('00', 32), 'hex'))"),
@@ -408,5 +443,34 @@ describe('sessions and the plain user_id foreign key', () => {
 
     await owner.query('UPDATE lms.sessions SET revoked_at = now() WHERE id = $1', [row.id]);
     expect((await lookup(S.tenantId)).rowCount).toBe(0);
+  });
+});
+
+describe('the second-factor functions are hardened', () => {
+  it('every one is SECURITY DEFINER, owner-owned, pinned search_path; only the listed ones are callable by lms_app', async () => {
+    const { rows } = await owner.query<{
+      proname: string;
+      prosecdef: boolean;
+      mine: boolean;
+      config: string[] | null;
+      app: boolean;
+      anyone: boolean;
+    }>(
+      `SELECT p.proname, p.prosecdef, r.rolname = current_user AS mine, p.proconfig AS config,
+              has_function_privilege('lms_app', p.oid, 'EXECUTE') AS app,
+              EXISTS (SELECT 1 FROM aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a WHERE a.grantee = 0) AS anyone
+         FROM pg_proc p JOIN pg_roles r ON r.oid = p.proowner
+        WHERE p.pronamespace = 'lms'::regnamespace AND (p.proname LIKE 'mfa\\_%' OR p.proname = 'session_insert')`,
+    );
+    expect(rows.map((r) => r.proname).sort()).toEqual(
+      [...MFA_APP_FUNCTIONS, ...MFA_INTERNAL_FUNCTIONS].sort(),
+    );
+    for (const r of rows) {
+      expect(r.prosecdef, r.proname).toBe(true);
+      expect(r.mine, r.proname).toBe(true);
+      expect(r.config, r.proname).toContain('search_path=lms, pg_temp');
+      expect(r.anyone, `${r.proname} is executable by PUBLIC`).toBe(false);
+      expect(r.app, r.proname).toBe(MFA_APP_FUNCTIONS.includes(r.proname));
+    }
   });
 });

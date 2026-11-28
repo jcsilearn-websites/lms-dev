@@ -8,12 +8,9 @@ import {
   type RouterHistory,
   redirect,
 } from '@tanstack/react-router';
-import { departmentOptions, optionKeys } from '../features/academics/academics.api';
 import { meKey } from '../features/auth/auth.api';
 import { LoginPage } from '../features/auth/LoginPage';
 import { loadMe, meQueryOptions } from '../features/auth/useMe';
-import { getConfig, getGrid, gradebookKeys } from '../features/gradebook/gradebook.api';
-import { listMembers, memberKeys } from '../features/members/members.api';
 import { safeRedirect } from '../shared/utils/redirect';
 import { AppShell } from './AppShell';
 import { RouteCrash } from './ErrorBoundary';
@@ -23,7 +20,8 @@ import { RootLayout } from './RootLayout';
 // TanStack Router, code-based route tree. Why this router: typed and validated search params (the
 // members filters live in the URL and can be shared), `defaultPreload: 'intent'` loads a route's code
 // and data on hover/focus, and lazy route components give per-route chunks. Only the login page is in
-// the entry chunk (it is what a visitor sees first); every other screen is a lazy chunk.
+// the entry chunk (it is what a visitor sees first); every other screen is a lazy chunk. A loader that
+// prefetches imports its feature's API module DYNAMICALLY, for the same reason (the entry budget is 125 KB).
 
 export interface RouterContext {
   queryClient: QueryClient;
@@ -103,6 +101,11 @@ const appRoute = createRoute({
   component: AppShell,
 });
 
+/** A loader's head start on the data: never awaited, and a failure (the chunk or the request) is the page's to show. */
+const prefetch = (work: Promise<unknown>): void => {
+  work.catch(() => {});
+};
+
 /** Hide-and-redirect guard: the backend enforces permissions; this just avoids dead screens. */
 function requires(permission: string) {
   return ({ context }: { context: RouterContext }) => {
@@ -181,18 +184,26 @@ const membersRoute = child(
     }) => {
       // with filters in the URL the page asks for exactly that list itself: do not fetch the plain one too
       if (Object.keys(location.search).length > 0) return;
-      void context.queryClient.prefetchInfiniteQuery({
-        queryKey: memberKeys.list({}),
-        queryFn: ({ pageParam, signal }) => listMembers({}, pageParam, signal),
-        initialPageParam: undefined as string | undefined,
-        getNextPageParam: (last: MemberListResponse) => last.nextCursor ?? undefined,
-        pages: 1,
-      });
-      void context.queryClient.prefetchQuery({
-        queryKey: optionKeys.departments,
-        queryFn: ({ signal }) => departmentOptions(signal),
-        staleTime: 5 * 60_000,
-      });
+      prefetch(
+        import('../features/members/members.api').then(({ listMembers, memberKeys }) =>
+          context.queryClient.prefetchInfiniteQuery({
+            queryKey: memberKeys.list({}),
+            queryFn: ({ pageParam, signal }) => listMembers({}, pageParam, signal),
+            initialPageParam: undefined as string | undefined,
+            getNextPageParam: (last: MemberListResponse) => last.nextCursor ?? undefined,
+            pages: 1,
+          }),
+        ),
+      );
+      prefetch(
+        import('../features/academics/academics.api').then(({ departmentOptions, optionKeys }) =>
+          context.queryClient.prefetchQuery({
+            queryKey: optionKeys.departments,
+            queryFn: ({ signal }) => departmentOptions(signal),
+            staleTime: 5 * 60_000,
+          }),
+        ),
+      );
     },
   },
 );
@@ -278,17 +289,26 @@ const gradebookRoute = child(
   {
     // the data starts loading while the (lazy) page code does: not awaited, a failure is the page's to show
     loader: ({ context, params }: { context: RouterContext; params: { id: string } }) => {
-      void context.queryClient.prefetchQuery({
-        queryKey: gradebookKeys.config(params.id),
-        queryFn: ({ signal }) => getConfig(params.id, signal),
-      });
-      void context.queryClient.prefetchInfiniteQuery({
-        queryKey: gradebookKeys.grid(params.id, undefined),
-        queryFn: ({ pageParam, signal }) => getGrid(params.id, undefined, pageParam, signal),
-        initialPageParam: undefined as string | undefined,
-        getNextPageParam: (last: { nextCursor: string | null }) => last.nextCursor ?? undefined,
-        pages: 1,
-      });
+      prefetch(
+        import('../features/gradebook/gradebook.api').then(
+          ({ getConfig, getGrid, gradebookKeys }) =>
+            Promise.all([
+              context.queryClient.prefetchQuery({
+                queryKey: gradebookKeys.config(params.id),
+                queryFn: ({ signal }) => getConfig(params.id, signal),
+              }),
+              context.queryClient.prefetchInfiniteQuery({
+                queryKey: gradebookKeys.grid(params.id, undefined),
+                queryFn: ({ pageParam, signal }) =>
+                  getGrid(params.id, undefined, pageParam, signal),
+                initialPageParam: undefined as string | undefined,
+                getNextPageParam: (last: { nextCursor: string | null }) =>
+                  last.nextCursor ?? undefined,
+                pages: 1,
+              }),
+            ]),
+        ),
+      );
     },
   },
 );

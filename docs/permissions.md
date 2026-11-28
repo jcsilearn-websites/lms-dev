@@ -105,6 +105,9 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/auth/logout` | any signed-in user |
 | GET | `/api/auth/me` | any signed-in user |
 | POST | `/api/auth/members/:userId/unlock` | `member.unlock` or `platform.user.unlock` |
+| POST | `/api/auth/mfa/enrol/confirm` | public |
+| POST | `/api/auth/mfa/enrol/start` | public |
+| POST | `/api/auth/mfa/verify` | public |
 | POST | `/api/auth/password/change` | any signed-in user |
 | POST | `/api/auth/password/forgot` | public |
 | POST | `/api/auth/password/reset` | public |
@@ -185,6 +188,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/me/erasure` | any signed-in user |
 | POST | `/api/me/erasure/cancel` | any signed-in user |
 | GET | `/api/me/erasure/preview` | any signed-in user |
+| GET | `/api/me/mfa` | any signed-in user |
 | GET | `/api/me/notification-preferences` | any signed-in user |
 | PUT | `/api/me/notification-preferences` | any signed-in user |
 | GET | `/api/me/profile` | `profile.read_own` |
