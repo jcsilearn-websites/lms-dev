@@ -1,4 +1,10 @@
-import type { Ack, LoginRequest, MeResponse, SessionList } from '@lms/backend/contracts';
+import type {
+  Ack,
+  LoginChallenge,
+  LoginRequest,
+  MeResponse,
+  SessionList,
+} from '@lms/backend/contracts';
 import { ApiError, api } from '../../shared/api/client';
 import { clearServiceWorkerCaches } from '../../sw/clearCaches';
 
@@ -49,8 +55,9 @@ export const fetchMe = async (signal?: AbortSignal) => {
   }
 };
 
+/** 200 = signed in. 202 `{ step }` = the password was right but there is no session yet (two-step sign-in). */
 export const login = (body: LoginRequest) =>
-  api<MeResponse>('/auth/login', { method: 'POST', body, anonymousOk: true });
+  api<MeResponse | LoginChallenge>('/auth/login', { method: 'POST', body, anonymousOk: true });
 export const logout = async () => {
   forgetMe();
   try {

@@ -79,6 +79,8 @@ describe('tables reachable only through SECURITY DEFINER functions', () => {
       'user_mfa',
       'user_mfa_recovery_codes',
       'auth_mfa_challenges',
+      // step 14c part 2: resets of a lost second factor (global, no tenant)
+      'mfa_reset_requests',
       // step 14b-1 part 4: the account erasure requests (global, no tenant)
       'account_erasure_requests',
       // step 13: the outbox (it holds addresses), suppressions, provider events, the platform inbox, the scan state

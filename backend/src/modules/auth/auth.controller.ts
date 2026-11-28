@@ -9,6 +9,8 @@ import type {
   MemberParamsSchema,
   MfaEnrolConfirmRequestSchema,
   MfaEnrolStartRequestSchema,
+  MfaResetFileSchema,
+  MfaStepUpRequestSchema,
   MfaVerifyRequestSchema,
   ResetPasswordRequestSchema,
 } from '../../contracts';
@@ -22,6 +24,7 @@ import {
   type MfaService,
   type MfaSignIn,
 } from './auth.mfa.service';
+import type { MfaResetService } from './auth.mfa-reset.service';
 import { type AuthService, type HostScope, meResponse } from './auth.service';
 
 export interface SessionCookieConfig {
@@ -34,10 +37,11 @@ export interface SessionCookieConfig {
 export function createAuthController(deps: {
   authService: AuthService;
   mfaService: MfaService;
+  mfaResetService: MfaResetService;
   cookie: SessionCookieConfig;
   baseDomain: string;
 }) {
-  const { authService, mfaService, cookie, baseDomain } = deps;
+  const { authService, mfaService, mfaResetService, cookie, baseDomain } = deps;
 
   const cookieOptions = {
     httpOnly: true,
@@ -69,6 +73,18 @@ export function createAuthController(deps: {
       role: s.role,
       isPlatformAdmin: s.isPlatformAdmin,
     });
+  }
+
+  /** A locked factor says when to try again. */
+  async function withRetryAfter<T>(reply: FastifyReply, run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (err) {
+      if (err instanceof MfaLockedError) {
+        reply.header('retry-after', String(Math.max(1, err.retryAfterSeconds)));
+      }
+      throw err;
+    }
   }
 
   function scopeOf(request: FastifyRequest): HostScope {
@@ -103,8 +119,8 @@ export function createAuthController(deps: {
     mfaVerify: async (
       request: FastifyRequest<{ Body: Static<typeof MfaVerifyRequestSchema> }>,
       reply: FastifyReply,
-    ) => {
-      try {
+    ) =>
+      withRetryAfter(reply, async () => {
         const result = await mfaService.verify({
           challengeToken: challengeOf(request),
           code: request.body.code,
@@ -113,13 +129,7 @@ export function createAuthController(deps: {
           client: clientInfo(request),
         });
         return signedIn(request, reply, result);
-      } catch (err) {
-        if (err instanceof MfaLockedError) {
-          reply.header('retry-after', String(Math.max(1, err.retryAfterSeconds)));
-        }
-        throw err;
-      }
-    },
+      }),
 
     mfaEnrolStart: async (
       request: FastifyRequest<{ Body: Static<typeof MfaEnrolStartRequestSchema> }>,
@@ -149,6 +159,57 @@ export function createAuthController(deps: {
     },
 
     mfaStatus: async (request: FastifyRequest) => mfaService.status(contextFrom(request)),
+
+    mfaStepUp: async (
+      request: FastifyRequest<{ Body: Static<typeof MfaStepUpRequestSchema> }>,
+      reply: FastifyReply,
+    ) => withRetryAfter(reply, () => mfaService.stepUp(contextFrom(request), request.body)),
+
+    mfaReplaceStart: async (request: FastifyRequest, reply: FastifyReply) => {
+      const { challengeToken, ...secret } = await mfaService.startReplacement(contextFrom(request));
+      setChallenge(reply, challengeToken, MFA_ENROL_CHALLENGE_TTL_SECONDS);
+      return secret;
+    },
+
+    mfaReplaceConfirm: async (
+      request: FastifyRequest<{ Body: Static<typeof MfaEnrolConfirmRequestSchema> }>,
+      reply: FastifyReply,
+    ) => {
+      await mfaService.confirmReplacement(contextFrom(request), {
+        challengeToken: challengeOf(request),
+        code: request.body.code,
+      });
+      reply.clearCookie(challengeName, challengeOptions);
+      return { status: 'ok' };
+    },
+
+    mfaRecoveryCodes: async (request: FastifyRequest) => ({
+      recoveryCodes: await mfaService.regenerateRecoveryCodes(contextFrom(request)),
+    }),
+
+    mfaDisable: async (request: FastifyRequest) => {
+      await mfaService.disable(contextFrom(request));
+      return { status: 'ok' };
+    },
+
+    mfaResetList: async (
+      request: FastifyRequest<{ Querystring: { limit?: number; after?: string } }>,
+    ) => mfaResetService.list(contextFrom(request), request.query),
+
+    mfaResetFile: async (
+      request: FastifyRequest<{ Body: Static<typeof MfaResetFileSchema> }>,
+      reply: FastifyReply,
+    ) => {
+      const filed = await mfaResetService.file(contextFrom(request), request.body.email);
+      reply.status(202);
+      return { request: filed };
+    },
+
+    mfaResetDecide:
+      (action: 'approve' | 'reject' | 'cancel') =>
+      async (request: FastifyRequest<{ Params: { id: string } }>) => ({
+        request: await mfaResetService.decide(contextFrom(request), request.params.id, action),
+      }),
 
     logout: async (request: FastifyRequest, reply: FastifyReply) => {
       await authService.logout(contextFrom(request));

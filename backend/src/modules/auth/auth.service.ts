@@ -147,7 +147,10 @@ export function createAuthService(deps: {
         throw new NotFoundError('tenant_not_found', 'Tenant not found');
       }
 
-      const known = begin.userId !== null && begin.passwordHash !== null;
+      // a reset of the second factor invalidates the password: the stored value is not a hash, so the account answers (and
+      // takes the time) like an unknown one until a new password is chosen
+      const known =
+        begin.userId !== null && begin.passwordHash !== null && !begin.passwordHash.startsWith('!');
       // A guess that read the account before another guess locked it, and only now gets its hashing slot,
       // is dropped without argon2 work (it counts as "while locked": not counted, never a success).
       const lockedMeanwhile = () =>

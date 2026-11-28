@@ -18,6 +18,8 @@ export interface SessionLookupRow {
   is_platform_admin: boolean;
   email: string;
   display_name: string;
+  mfa_verified_at: Date | string | null;
+  mfa_enrolled: boolean;
 }
 
 export interface LoginCompleteRow {

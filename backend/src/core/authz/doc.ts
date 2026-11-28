@@ -24,6 +24,14 @@ const PARTICIPATIONS = ['instructor', 'assistant', 'learner'] as const;
 const mark = (yes: boolean) => (yes ? 'yes' : '');
 
 function authLabel(c: RouteDeclaration | undefined): string {
+  const base = declarationLabel(c);
+  if (c?.stepUp === undefined) return base;
+  return c.stepUp === true
+    ? `${base} + step-up`
+    : `${base} + step-up (for an institution admin invite)`;
+}
+
+function declarationLabel(c: RouteDeclaration | undefined): string {
   if (c?.public === true) return 'public';
   if (c?.authenticated === true) return 'any signed-in user';
   const p = c?.permission;
@@ -107,7 +115,8 @@ export function renderPermissionsDoc(routes: readonly DocRoute[]): string {
   out.push('');
   out.push(
     'Every route declares exactly one of `config.permission`, `config.authenticated` or `config.public` ' +
-      '(the app refuses to start otherwise).',
+      '(the app refuses to start otherwise). **+ step-up**: a person with two-step sign-in must have passed their second factor ' +
+      'less than 10 minutes ago, otherwise 403 `mfa_step_up_required` (docs/adr/0026-mfa.md).',
   );
   out.push('');
   out.push('| Method | Path | Authorization |');

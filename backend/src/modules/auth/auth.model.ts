@@ -50,6 +50,22 @@ export const userMfa = lms.table('user_mfa', {
   updatedAt: updatedAt(),
 });
 
+export const mfaResetRequests = lms.table('mfa_reset_requests', {
+  id: uuid('id').primaryKey(),
+  userId: uuid('user_id').notNull(),
+  status: text('status').notNull(),
+  requestedAt: timestamp('requested_at', { withTimezone: true }).notNull(),
+  requestedBy: uuid('requested_by').notNull(),
+  expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+  approvedAt: timestamp('approved_at', { withTimezone: true }),
+  approvedBy: uuid('approved_by'),
+  executeAfter: timestamp('execute_after', { withTimezone: true }),
+  decidedAt: timestamp('decided_at', { withTimezone: true }),
+  decidedBy: uuid('decided_by'),
+  reason: text('reason'),
+  executedAt: timestamp('executed_at', { withTimezone: true }),
+});
+
 export const userMfaRecoveryCodes = lms.table('user_mfa_recovery_codes', {
   id: uuid('id').primaryKey(),
   userId: uuid('user_id').notNull(),

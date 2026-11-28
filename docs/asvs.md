@@ -11,22 +11,22 @@ Legend: **Met** = built and tested | **Met (platform)** = depends on the GCP dep
 
 ## Summary
 
-| Chapter                               | Met | Partial | Gap | N/A | Notes                                                                                                                       |
-| ------------------------------------- | --- | ------- | --- | --- | --------------------------------------------------------------------------------------------------------------------------- |
-| V1 Architecture, design, threat model | 8   | 2       | 0   | 1   | threat model written (Step 14a); no formal secure-design review process                                                     |
-| V2 Authentication                     | 12  | 2       | 2   | 2   | TOTP built, not yet forced by default (step 14c); no breached-password API; minimum length 12 for new and changed passwords |
-| V3 Session management                 | 12  | 1       | 0   | 0   |                                                                                                                             |
-| V4 Access control                     | 8   | 0       | 0   | 0   | route-table fuzz across tenants                                                                                             |
-| V5 Validation, sanitization, encoding | 14  | 1       | 0   | 4   | all SQL by bind parameters; the 20 assembled fragments are reviewed                                                         |
-| V6 Stored cryptography                | 7   | 1       | 0   | 1   | key ring and rotation (Step 14a); secrets come from the environment                                                         |
-| V7 Error handling and logging         | 8   | 0       | 0   | 0   | log-hygiene test                                                                                                            |
-| V8 Data protection                    | 4   | 2       | 2   | 0   | **no data-subject export / erasure yet (Step 14b)**                                                                         |
-| V9 Communications                     | 3   | 0       | 0   | 0   | TLS ends at the gateway; database TLS verified in production                                                                |
-| V10 Malicious code                    | 3   | 1       | 1   | 0   | **no malware scanning of uploads**                                                                                          |
-| V11 Business logic                    | 7   | 0       | 0   | 0   | deadline fairness, idempotency, immutable history                                                                           |
-| V12 Files and resources               | 7   | 1       | 1   | 0   | scanning gap as above                                                                                                       |
-| V13 API and web service               | 7   | 0       | 0   | 1   | schemas on every route, request and response                                                                                |
-| V14 Configuration                     | 9   | 1       | 0   | 0   | dependency audit in CI (Step 14a)                                                                                           |
+| Chapter                               | Met | Partial | Gap | N/A | Notes                                                                                                                |
+| ------------------------------------- | --- | ------- | --- | --- | -------------------------------------------------------------------------------------------------------------------- |
+| V1 Architecture, design, threat model | 8   | 2       | 0   | 1   | threat model written (Step 14a); no formal secure-design review process                                              |
+| V2 Authentication                     | 13  | 2       | 1   | 2   | TOTP forced for administrators (step 14c); no breached-password API; minimum length 12 for new and changed passwords |
+| V3 Session management                 | 12  | 1       | 0   | 0   |                                                                                                                      |
+| V4 Access control                     | 8   | 0       | 0   | 0   | route-table fuzz across tenants                                                                                      |
+| V5 Validation, sanitization, encoding | 14  | 1       | 0   | 4   | all SQL by bind parameters; the 20 assembled fragments are reviewed                                                  |
+| V6 Stored cryptography                | 7   | 1       | 0   | 1   | key ring and rotation (Step 14a); secrets come from the environment                                                  |
+| V7 Error handling and logging         | 8   | 0       | 0   | 0   | log-hygiene test                                                                                                     |
+| V8 Data protection                    | 4   | 2       | 2   | 0   | **no data-subject export / erasure yet (Step 14b)**                                                                  |
+| V9 Communications                     | 3   | 0       | 0   | 0   | TLS ends at the gateway; database TLS verified in production                                                         |
+| V10 Malicious code                    | 3   | 1       | 1   | 0   | **no malware scanning of uploads**                                                                                   |
+| V11 Business logic                    | 7   | 0       | 0   | 0   | deadline fairness, idempotency, immutable history                                                                    |
+| V12 Files and resources               | 7   | 1       | 1   | 0   | scanning gap as above                                                                                                |
+| V13 API and web service               | 7   | 0       | 0   | 1   | schemas on every route, request and response                                                                         |
+| V14 Configuration                     | 9   | 1       | 0   | 0   | dependency audit in CI (Step 14a)                                                                                    |
 
 ## V1 Architecture, design and threat modelling
 
@@ -57,31 +57,31 @@ Legend: **Met** = built and tested | **Met (platform)** = depends on the GCP dep
 | 2.4.x                         | Met       | argon2id with parameters re-checked at every login (rehash when they change)                                                                                                                                                                                                                                                                                     |
 | 2.5.x                         | Met       | reset links are not sent in clear anywhere except the mail itself; a reset revokes every session and never removes the second factor                                                                                                                                                                                                                             |
 | 2.6.x / 2.7.x                 | Met / N/A | 2.6 (lookup secrets = recovery codes): 10 codes of 50 bits, single use, stored as keyed hashes, throttled on their own counter. 2.7 (out-of-band): none beyond the emailed single-use links                                                                                                                                                                      |
-| 2.8.x                         | **Gap**   | **TOTP built for platform and institution administrators** (step 14c part 1, ADR 0026: encrypted secrets, replay protection, throttling, audit), **mandatory for all of them once `MFA_ENFORCEMENT=required` is the default** (part 3). Still a gap until then; ordinary members cannot opt in                                                                   |
+| 2.8.x                         | Met       | TOTP **forced** for platform and institution administrators (`MFA_ENFORCEMENT=required` by default, refused as `off` in production; ADR 0026): encrypted secrets, replay protection, throttling, audit, step-up for sensitive actions, four-eyes reset; `mfa*.test.ts`, E2E `20-mfa`. Limits: TOTP is not phishing-resistant; ordinary members cannot opt in     |
 | 2.9.x                         | N/A       | no cryptographic authenticators                                                                                                                                                                                                                                                                                                                                  |
 | 2.10.x                        | Met       | no default or hard-coded credentials; the seed refuses production; no secrets in the repository                                                                                                                                                                                                                                                                  |
 | password breach check (2.1.7) | **Gap**   | a local list of common passwords only; no k-anonymity lookup against a breach corpus (needs an outbound call and a policy decision)                                                                                                                                                                                                                              |
 
 ## V3 Session management
 
-| Req         | Status  | How                                                                                                                                                               |
-| ----------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 3.1.1       | Met     | the token is never in a URL (a playback token is a different, resource-bound capability, redacted from logs)                                                      |
-| 3.2.1-3.2.3 | Met     | a new token at login, 256-bit random, only its hash stored, `HttpOnly`, `Secure`, `__Host-` prefix, `SameSite=Lax`                                                |
-| 3.3.1-3.3.4 | Met     | logout, password change, reset and role change revoke sessions; idle (7 d) and absolute (30 d) limits; the user can list and revoke their own sessions            |
-| 3.4.x       | Met     | cookie attributes as above; the session is bound to one host (a college's cookie is ignored elsewhere)                                                            |
-| 3.5.x       | Partial | no token-based API access exists; a session cache for video segments tolerates a revoked session for at most `VIDEO_SESSION_CACHE_TTL_SECONDS` (60 s), documented |
-| 3.7.1       | Met     | sensitive actions (password change) need the current password                                                                                                     |
+| Req         | Status  | How                                                                                                                                                                          |
+| ----------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 3.1.1       | Met     | the token is never in a URL (a playback token is a different, resource-bound capability, redacted from logs)                                                                 |
+| 3.2.1-3.2.3 | Met     | a new token at login, 256-bit random, only its hash stored, `HttpOnly`, `Secure`, `__Host-` prefix, `SameSite=Lax`                                                           |
+| 3.3.1-3.3.4 | Met     | logout, password change, reset and role change revoke sessions; idle (7 d) and absolute (30 d) limits; the user can list and revoke their own sessions                       |
+| 3.4.x       | Met     | cookie attributes as above; the session is bound to one host (a college's cookie is ignored elsewhere)                                                                       |
+| 3.5.x       | Partial | no token-based API access exists; a session cache for video segments tolerates a revoked session for at most `VIDEO_SESSION_CACHE_TTL_SECONDS` (60 s), documented            |
+| 3.7.1       | Met     | sensitive actions need the current password (password change, data requests) and, for a person with a second factor, a verification under 10 minutes old (step-up, ADR 0026) |
 
 ## V4 Access control
 
-| Req              | Status         | How                                                                                                                                                                                  |
-| ---------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 4.1.1-4.1.3      | Met            | deny by default; permission names, never role strings; enforced on a trusted layer; the app refuses to start with an undeclared route                                                |
-| 4.1.5            | Met            | access control fails securely (401 / 403 before body validation)                                                                                                                     |
-| 4.2.1-4.2.2      | Met            | object-level checks in the same statement as the work (offering scope, course scope), RLS underneath, CSRF on every state change                                                     |
-| 4.3.x            | Met (platform) | admin interfaces are on a separate host; MFA for them is the V2.8 gap                                                                                                                |
-| **verification** |                | `authz-matrix.test.ts` (every endpoint x every caller), `offering-scope.test.ts`, **`tenant-fuzz.test.ts`** (every route x every caller of another college, with that college's ids) |
+| Req              | Status | How                                                                                                                                                                                  |
+| ---------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 4.1.1-4.1.3      | Met    | deny by default; permission names, never role strings; enforced on a trusted layer; the app refuses to start with an undeclared route                                                |
+| 4.1.5            | Met    | access control fails securely (401 / 403 before body validation)                                                                                                                     |
+| 4.2.1-4.2.2      | Met    | object-level checks in the same statement as the work (offering scope, course scope), RLS underneath, CSRF on every state change                                                     |
+| 4.3.x            | Met    | admin interfaces are on a separate host and need two-step sign-in (2.8)                                                                                                              |
+| **verification** |        | `authz-matrix.test.ts` (every endpoint x every caller), `offering-scope.test.ts`, **`tenant-fuzz.test.ts`** (every route x every caller of another college, with that college's ids) |
 
 ## V5 Validation, sanitization and encoding
 
@@ -185,7 +185,7 @@ Legend: **Met** = built and tested | **Met (platform)** = depends on the GCP dep
 
 ## TODO list from this assessment
 
-1. **MFA** (V2.8): TOTP is built (step 14c part 1); make it mandatory with the screens (part 3), add step-up and the reset workflow (part 2). WebAuthn later.
+1. **Phishing-resistant authentication** (V2.8 hardening): WebAuthn / passkeys for administrators. TOTP is built and forced (step 14c).
 2. **Breached-password check** (V2.1.7): a k-anonymity lookup needs an outbound call and a policy decision. (The 12-character minimum is done.)
 3. **Malware scanning of uploads** (V10, V12): GCS finalisation pipeline; before the first production college.
 4. **Data subject rights** (V8.3): export and erasure flows, retention table: Step 14b.

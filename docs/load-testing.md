@@ -63,6 +63,8 @@ the target database).
 
 - **People and structure go straight into the database** in one transaction (an administrator, instructors, learners, a year, a term, a course, a published offering, every
   participation). All accounts share ONE argon2id hash of one password with the application's own parameters, so a sign-in costs what a real one costs and is never rehashed.
+- **Two-step sign-in does not affect the harness**: it signs in as an instructor (`teacher1`) and learners, never as an administrator, so a target running
+  `MFA_ENFORCEMENT=required` needs no change. A scenario that ever signs in as an administrator would have to enrol one.
 - **Content goes through the real API** as a real instructor sign-in: a module, 8 readings, a question bank of 40, an exam of 30 questions (20 attempts allowed, so a college can be
   re-tested 20 times), an assignment (files and text, resubmission allowed, so a second run is a new version), and a video: an ffmpeg test clip (default 120 s) uploaded through the
   resumable API and transcoded by the worker. Without ffmpeg or a running worker the video is skipped and the video scenario says so.

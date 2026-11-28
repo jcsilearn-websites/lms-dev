@@ -34,14 +34,17 @@ export function createEmailRoutes(deps: {
     app.delete(
       '/platform/email/suppressions/:id',
       {
-        config: { permission: 'platform.email.manage' },
+        config: { permission: 'platform.email.manage', stepUp: true },
         schema: s.platformClearSuppressionRouteSchema,
       },
       c.platformClear,
     );
     app.put(
       '/platform/tenants/:id/email-sender',
-      { config: { permission: 'platform.email.manage' }, schema: s.setEmailSenderRouteSchema },
+      {
+        config: { permission: 'platform.email.manage', stepUp: true },
+        schema: s.setEmailSenderRouteSchema,
+      },
       c.setSender,
     );
 

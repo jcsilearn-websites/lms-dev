@@ -62,8 +62,10 @@ before (a test compares them); a college sees the person only under its own pseu
 | `user_mfa_recovery_codes`  | keyed hashes of the recovery codes, when each was used                                              | with the factor                                                                        |
 | `auth_mfa_challenges`      | sign-in attempts in progress: a token hash, the client's address and user agent, the pending secret | minutes; purged one day after expiry (`auth.purge_tokens`); deleted by account erasure |
 | `sessions.mfa_verified_at` | when a session passed the second factor                                                             | with the session                                                                       |
+| `mfa_reset_requests`       | who asked to reset whose second factor, who decided, when, and why it ended (ids and times only)    | kept as the record, beside the audit log; no automatic purge                           |
 
-A college-level erasure does not touch the first three: they belong to the global account. No export holds a secret or a code. Backups keep them until the
+A college-level erasure does not touch the first three: they belong to the global account. An account erasure leaves the reset requests (they
+hold ids, shown under the pseudonym); a pending reset of an erased account ends by itself (there is no factor left). No export holds a secret or a code. Backups keep them until the
 backup expires; without the keys they cannot be read.
 
 ## What stays after an account erasure, and for how long

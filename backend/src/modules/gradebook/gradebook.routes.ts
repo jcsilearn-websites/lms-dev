@@ -66,7 +66,11 @@ export function createGradebookRoutes(deps: {
     // ---- the institution admin
     app.post(`${G}/approve`, { config: approve, schema: s.approveRouteSchema }, c.approve);
     app.post(`${G}/return`, { config: approve, schema: s.returnRouteSchema }, c.returnBack);
-    app.post(`${G}/unlock`, { config: approve, schema: s.unlockRouteSchema }, c.unlock);
+    app.post(
+      `${G}/unlock`,
+      { config: { ...approve, stepUp: true }, schema: s.unlockRouteSchema },
+      c.unlock,
+    );
     app.get(
       '/gradebook/queue',
       { config: { permission: 'gradebook.approve' }, schema: s.queueRouteSchema },

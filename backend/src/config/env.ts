@@ -303,11 +303,14 @@ const opsFields = {
  * Two-factor sign-in (step 14c, docs/adr/0026-mfa.md). API only. MFA_ENCRYPTION_KEYS: `kid:secret,kid:secret` (the same format and rules
  * as SIGNING_KEYS, 32+ characters each; a SEPARATE secret): the first encrypts, all decrypt. Required when NODE_ENV=production;
  * elsewhere a key derived from STORAGE_SIGNING_SECRET is used (development and tests only). MFA_ENFORCEMENT: whether platform and
- * institution administrators are FORCED to enrol; an enrolled person is always asked for a code. `off` until the screens exist.
+ * institution administrators are FORCED to enrol; an enrolled person is always asked for a code. `required` is the default;
+ * `off` is for development and tests and is refused in production.
  */
 const mfaFields = {
   MFA_ENCRYPTION_KEYS: Type.Optional(Type.String({ minLength: 34 })),
-  MFA_ENFORCEMENT: Type.Union([Type.Literal('off'), Type.Literal('required')], { default: 'off' }),
+  MFA_ENFORCEMENT: Type.Union([Type.Literal('off'), Type.Literal('required')], {
+    default: 'required',
+  }),
 };
 
 export const apiEnvSchema = Type.Object({
@@ -328,6 +331,9 @@ export const apiEnvSchema = Type.Object({
   READY_TIMEOUT_MS: Type.Integer({ minimum: 100, default: 2000 }),
   SHUTDOWN_TIMEOUT_MS: Type.Integer({ minimum: 1000, default: 10_000 }),
   TRUST_PROXY: Type.Boolean({ default: false }),
+  // how many proxies stand in front of the API: only that many X-Forwarded-For entries, counted from the RIGHT, are believed.
+  // Without it TRUST_PROXY believes the leftmost entry, which the client writes itself (every per-address limit could be escaped).
+  TRUST_PROXY_HOPS: Type.Optional(Type.Integer({ minimum: 1, maximum: 5 })),
   ...authFields,
   ...jobFields,
   ...importFields,
@@ -464,12 +470,29 @@ export function assertPrivacyPolicy(env: {
 }
 
 /** Two-factor sign-in (step 14c): the secrets at rest need their own key in production. */
+/** In production a trusted proxy needs its hop count: trusting every entry lets a client choose its own address. */
+export function assertProxyPolicy(env: {
+  NODE_ENV: string;
+  TRUST_PROXY?: boolean | undefined;
+  TRUST_PROXY_HOPS?: number | undefined;
+}): void {
+  if (env.NODE_ENV === 'production' && env.TRUST_PROXY && env.TRUST_PROXY_HOPS === undefined) {
+    throw new EnvError([
+      'TRUST_PROXY_HOPS: required when TRUST_PROXY=true and NODE_ENV=production',
+    ]);
+  }
+}
+
 export function assertMfaPolicy(env: {
   NODE_ENV: string;
   MFA_ENCRYPTION_KEYS?: string | undefined;
+  MFA_ENFORCEMENT?: 'off' | 'required' | undefined;
   STORAGE_SIGNING_SECRET?: string | undefined;
 }): void {
   const issues: string[] = [];
+  if (env.NODE_ENV === 'production' && env.MFA_ENFORCEMENT === 'off') {
+    issues.push('MFA_ENFORCEMENT: `off` is refused when NODE_ENV=production');
+  }
   try {
     parseMfaKeys(env.MFA_ENCRYPTION_KEYS);
   } catch (err) {
@@ -496,6 +519,7 @@ export function parseApiEnv(source: Record<string, string | undefined> = process
   assertVideoPolicy(env);
   assertPrivacyPolicy(env);
   assertMfaPolicy(env);
+  assertProxyPolicy(env);
   return env;
 }
 

@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type ReactNode, useEffect, useId, useRef } from 'react';
 import { Button } from './button';
 
 // Dialogs use the native <dialog> element opened with showModal(): the browser provides the focus
@@ -16,6 +16,8 @@ export function Dialog({
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
+  // one id per dialog: the step-up dialog opens over another one
+  const titleId = useId();
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -27,7 +29,7 @@ export function Dialog({
     // biome-ignore lint/a11y/useKeyWithClickEvents: <dialog> handles the keyboard itself
     <dialog
       ref={ref}
-      aria-labelledby="dialog-title"
+      aria-labelledby={titleId}
       onClose={onClose}
       onClick={(e) => {
         if (e.target === ref.current) onClose(); // click on the backdrop
@@ -36,7 +38,7 @@ export function Dialog({
     >
       {open && (
         <div className="space-y-4 p-5">
-          <h2 id="dialog-title" className="text-lg font-semibold">
+          <h2 id={titleId} className="text-lg font-semibold">
             {title}
           </h2>
           {children}

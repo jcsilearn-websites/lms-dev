@@ -6,6 +6,7 @@ import {
   assertAuthPolicy,
   assertMfaPolicy,
   assertPrivacyPolicy,
+  assertProxyPolicy,
   assertSslPolicy,
   assertStoragePolicy,
   assertVideoPolicy,
@@ -157,6 +158,32 @@ describe('the refusals the page promises are real', () => {
     );
     expect(() =>
       assertMfaPolicy({ NODE_ENV: 'development', STORAGE_SIGNING_SECRET: 's'.repeat(40) }),
+    ).not.toThrow();
+  });
+
+  it('a trusted proxy without its hop count is refused in production', () => {
+    says('TRUST_PROXY_HOPS', /refuses to start/);
+    expect(() => assertProxyPolicy({ ...production, TRUST_PROXY: true })).toThrow(
+      /TRUST_PROXY_HOPS: required/,
+    );
+    expect(() =>
+      assertProxyPolicy({ ...production, TRUST_PROXY: true, TRUST_PROXY_HOPS: 2 }),
+    ).not.toThrow();
+    expect(() => assertProxyPolicy({ ...production, TRUST_PROXY: false })).not.toThrow();
+    expect(() => assertProxyPolicy({ NODE_ENV: 'development', TRUST_PROXY: true })).not.toThrow();
+  });
+
+  it('MFA_ENFORCEMENT=off is refused in production and nowhere else', () => {
+    says('MFA_ENFORCEMENT', /refused/);
+    const keys = { MFA_ENCRYPTION_KEYS: `k1:${'a'.repeat(40)}` };
+    expect(() => assertMfaPolicy({ ...production, ...keys, MFA_ENFORCEMENT: 'off' })).toThrow(
+      /MFA_ENFORCEMENT: `off` is refused/,
+    );
+    expect(() =>
+      assertMfaPolicy({ ...production, ...keys, MFA_ENFORCEMENT: 'required' }),
+    ).not.toThrow();
+    expect(() =>
+      assertMfaPolicy({ NODE_ENV: 'development', ...keys, MFA_ENFORCEMENT: 'off' }),
     ).not.toThrow();
   });
 

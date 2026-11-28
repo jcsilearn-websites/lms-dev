@@ -485,6 +485,18 @@ const ROWS: Row[] = [
   // ---- any signed-in user
   authenticated('GET', '/auth/me', 200),
   authenticated('GET', '/me/mfa', 200),
+  // step-up and the person's own factor (step 14c part 2): nobody here is enrolled
+  authenticated('POST', '/me/mfa/step-up', 400, {}),
+  authenticated('POST', '/me/mfa/replace/start', 409),
+  authenticated('POST', '/me/mfa/replace/confirm', 400, {}),
+  authenticated('POST', '/me/mfa/recovery-codes', 409),
+  authenticated('POST', '/me/mfa/disable', 409),
+  // resets of a lost second factor: platform administrators on the admin host
+  platformPerm('GET', '/platform/mfa-resets', 200),
+  platformPerm('POST', '/platform/mfa-resets', 400, {}),
+  platformPerm('POST', `/platform/mfa-resets/${U}/approve`, 404),
+  platformPerm('POST', `/platform/mfa-resets/${U}/reject`, 404),
+  platformPerm('POST', `/platform/mfa-resets/${U}/cancel`, 404),
   authenticated('GET', '/auth/sessions', 200),
   authenticated('DELETE', `/auth/sessions/${U}`, 404),
 ];

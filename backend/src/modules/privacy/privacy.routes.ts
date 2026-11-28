@@ -82,6 +82,7 @@ export function createPrivacyRoutes(deps: {
       e.requestAccount,
     );
     const platform = { permission: 'platform.account_erasure.manage' } as const;
+    const platformWrite = { ...platform, stepUp: true } as const;
     app.get(
       '/platform/account-erasures',
       { config: platform, schema: s.platformAccountErasureListRouteSchema },
@@ -89,25 +90,26 @@ export function createPrivacyRoutes(deps: {
     );
     app.post(
       '/platform/account-erasures',
-      { config: platform, schema: s.platformAccountErasureRequestRouteSchema },
+      { config: platformWrite, schema: s.platformAccountErasureRequestRouteSchema },
       e.platformRequest,
     );
     app.post(
       '/platform/account-erasures/:id/approve',
-      { config: platform, schema: s.approveAccountErasureRouteSchema },
+      { config: platformWrite, schema: s.approveAccountErasureRouteSchema },
       e.platformDecide('approve'),
     );
     app.post(
       '/platform/account-erasures/:id/reject',
-      { config: platform, schema: s.rejectAccountErasureRouteSchema },
+      { config: platformWrite, schema: s.rejectAccountErasureRouteSchema },
       e.platformDecide('reject'),
     );
     app.post(
       '/platform/account-erasures/:id/cancel',
-      { config: platform, schema: s.cancelAccountErasureRouteSchema },
+      { config: platformWrite, schema: s.cancelAccountErasureRouteSchema },
       e.platformDecide('cancel'),
     );
     const approve = { permission: 'privacy.erasure.approve' } as const;
+    const decide = { ...approve, stepUp: true } as const;
     app.get(
       '/privacy/erasure-requests',
       { config: approve, schema: s.erasureAdminListRouteSchema },
@@ -115,17 +117,17 @@ export function createPrivacyRoutes(deps: {
     );
     app.post(
       '/privacy/erasure-requests/:id/approve',
-      { config: approve, schema: s.approveErasureRouteSchema },
+      { config: decide, schema: s.approveErasureRouteSchema },
       e.decide('approve'),
     );
     app.post(
       '/privacy/erasure-requests/:id/reject',
-      { config: approve, schema: s.rejectErasureRouteSchema },
+      { config: decide, schema: s.rejectErasureRouteSchema },
       e.decide('reject'),
     );
     app.post(
       '/privacy/erasure-requests/:id/cancel',
-      { config: approve, schema: s.cancelErasureRouteSchema },
+      { config: decide, schema: s.cancelErasureRouteSchema },
       e.decide('cancel'),
     );
   };

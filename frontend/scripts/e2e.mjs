@@ -2,13 +2,13 @@
 // Runs the Playwright end-to-end suite against the REAL stack (see scripts/stack.mjs).
 // Usage: node scripts/e2e.mjs [playwright args...]     (E2E_SKIP_BUILD=1 reuses dist/)
 import { spawnSync } from 'node:child_process';
-import { FRONTEND, withStack } from './stack.mjs';
+import { FRONTEND, MFA_WEB_PORT, withStack } from './stack.mjs';
 
 const isWindows = process.platform === 'win32';
 let code = 1;
 const startedAt = Date.now();
 try {
-  code = await withStack(({ webPort, apiPort, mailFile, password }) => {
+  const run = ({ webPort, apiPort, mailFile, password }) => {
     console.log('> running Playwright');
     const result = spawnSync(
       isWindows ? 'npx.cmd' : 'npx',
@@ -21,6 +21,7 @@ try {
           ...process.env,
           E2E_WEB_PORT: String(webPort),
           E2E_API_PORT: String(apiPort),
+          E2E_MFA_PORT: String(MFA_WEB_PORT),
           E2E_MAIL_FILE: mailFile,
           E2E_PASSWORD: password,
           // when the stack was started: the worker's first notification scan consumes the daily digest of THAT local date (spec 14)
@@ -29,7 +30,8 @@ try {
       },
     );
     return result.status ?? 1;
-  });
+  };
+  code = await withStack(run, { mfa: true });
 } catch (err) {
   console.error(err instanceof Error ? err.message : err);
 }

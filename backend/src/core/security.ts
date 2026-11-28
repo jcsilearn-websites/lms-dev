@@ -56,7 +56,12 @@ export function createBadSessionLimiter(opts: {
   return {
     /** true = this address has used up its budget of unresolved sessions in the window */
     exceeded(ip: string): boolean {
-      return limiter.hit(`bad-session|${ip}`, opts.windowMs, opts.max).count > opts.max;
+      return this.retryAfterSeconds(ip) > 0;
+    },
+    /** Counts one unresolved session. 0 = within the budget, else the seconds until the window ends. */
+    retryAfterSeconds(ip: string): number {
+      const hit = limiter.hit(`bad-session|${ip}`, opts.windowMs, opts.max);
+      return hit.count > opts.max ? Math.max(1, Math.ceil(hit.ttlMs / 1000)) : 0;
     },
   };
 }

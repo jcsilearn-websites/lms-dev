@@ -77,6 +77,7 @@ describe('who is asked to enrol', () => {
     expect((await member.login(A.memberEmail, TEST_PASSWORD)).statusCode).toBe(200);
     expect(ok(await member.get('/me/mfa'))).toEqual({
       required: false,
+      canDisable: false,
       enrolled: false,
       enrolledAt: null,
       recoveryCodesRemaining: 0,

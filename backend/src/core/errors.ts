@@ -56,6 +56,13 @@ export class ForbiddenError extends AppError {
   }
 }
 
+/** A sensitive action of a person with two-step sign-in: their second factor must have been checked in the last 10 minutes. */
+export class MfaStepUpRequiredError extends ForbiddenError {
+  constructor() {
+    super('mfa_step_up_required', 'Confirm it is you with your authenticator code to continue');
+  }
+}
+
 export class TooManyRequestsError extends AppError {
   constructor(
     code = 'rate_limited',

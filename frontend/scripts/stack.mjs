@@ -16,6 +16,9 @@ export const FRONTEND = join(import.meta.dirname, '..');
 export const ROOT = join(FRONTEND, '..');
 export const WEB_PORT = 4173;
 export const API_PORT = 3100;
+/** the second instance of the two-factor spec: the same database and build, with MFA_ENFORCEMENT=required */
+export const MFA_WEB_PORT = 4175;
+const MFA_API_PORT = 3101;
 export const MAIL_FILE = join(ROOT, '.mail', 'e2e-outbox.jsonl');
 const isWindows = process.platform === 'win32';
 
@@ -24,7 +27,7 @@ export function run(cmd, args, opts = {}) {
 }
 
 /** Starts the stack, runs `fn({ webPort, apiPort, mailFile, password })`, stops the stack. Returns fn's result. */
-export async function withStack(fn, { extraMembers = 0 } = {}) {
+export async function withStack(fn, { extraMembers = 0, mfa = false } = {}) {
   // ---- 1. database
   console.log('> preparing the E2E database (lms_e2e)');
   const prep = run('pnpm', ['--filter', '@lms/backend', 'exec', 'tsx', 'test/e2e-prepare.ts'], {
@@ -74,6 +77,9 @@ export async function withStack(fn, { extraMembers = 0 } = {}) {
     RATE_LIMIT_MAX: '100000',
     RATE_LIMIT_LOGIN_PER_IP: '1000',
     RATE_LIMIT_LOGIN_PER_EMAIL: '1000',
+    // the default is `required`: the specs, Lighthouse, the screenshots and the load-test smoke sign administrators in with a
+    // password alone. A SECOND API instance with `required` serves the two-factor spec (20-mfa.spec.ts).
+    MFA_ENFORCEMENT: 'off',
     TENANT_CACHE_TTL_MS: '500',
     // the worker polls fast so the import test does not wait for the idle back-off
     JOB_POLL_INTERVAL_MS: '200',
@@ -97,11 +103,11 @@ export async function withStack(fn, { extraMembers = 0 } = {}) {
     ANALYTICS_ROLLUP_SECONDS: '5',
   };
   const children = [];
-  function start(name, cmd, args, shell = isWindows) {
+  function start(name, cmd, args, shell = isWindows, env = serviceEnv) {
     // shell:false for node itself: its path may contain spaces (C:\Program Files\nodejs)
     const child = spawn(cmd, args, {
       cwd: ROOT,
-      env: serviceEnv,
+      env,
       shell,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
@@ -154,6 +160,35 @@ export async function withStack(fn, { extraMembers = 0 } = {}) {
       ],
       false,
     );
+    if (mfa) {
+      // an API where administrators MUST use two-step sign-in, behind its own web server (cookies of the two never meet:
+      // every browser context of the spec talks to one of them only). The one worker serves both.
+      start(
+        'api-mfa',
+        'pnpm',
+        ['--filter', '@lms/backend', 'exec', 'tsx', 'src/server.ts'],
+        isWindows,
+        {
+          ...serviceEnv,
+          PORT: String(MFA_API_PORT),
+          MFA_ENFORCEMENT: 'required',
+        },
+      );
+      start(
+        'web-mfa',
+        process.execPath,
+        [
+          join(FRONTEND, 'scripts', 'serve.mjs'),
+          '--port',
+          String(MFA_WEB_PORT),
+          '--api',
+          `http://127.0.0.1:${MFA_API_PORT}`,
+        ],
+        false,
+      );
+      await waitFor(`http://127.0.0.1:${MFA_API_PORT}/health/live`, 'the two-factor API');
+      await waitFor(`http://127.0.0.1:${MFA_WEB_PORT}/`, 'the two-factor web server');
+    }
     await waitFor(`http://127.0.0.1:${API_PORT}/health/live`, 'the API');
     await waitFor(`http://127.0.0.1:${WEB_PORT}/`, 'the web server');
     await new Promise((r) => setTimeout(r, 1500)); // the worker has no port: give it a moment

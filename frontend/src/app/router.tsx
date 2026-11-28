@@ -11,6 +11,7 @@ import {
 import { meKey } from '../features/auth/auth.api';
 import { LoginPage } from '../features/auth/LoginPage';
 import { loadMe, meQueryOptions } from '../features/auth/useMe';
+import { setStepUpHandler } from '../shared/api/client';
 import { safeRedirect } from '../shared/utils/redirect';
 import { AppShell } from './AppShell';
 import { RouteCrash } from './ErrorBoundary';
@@ -22,6 +23,9 @@ import { RootLayout } from './RootLayout';
 // and data on hover/focus, and lazy route components give per-route chunks. Only the login page is in
 // the entry chunk (it is what a visitor sees first); every other screen is a lazy chunk. A loader that
 // prefetches imports its feature's API module DYNAMICALLY, for the same reason (the entry budget is 125 KB).
+
+// a sensitive request that needs the second step again opens its dialog (a chunk of its own, loaded only then)
+setStepUpHandler(() => import('../shared/mfa/stepUpDialog').then((m) => m.askStepUp()));
 
 export interface RouterContext {
   queryClient: QueryClient;
@@ -72,6 +76,15 @@ const acceptRoute = createRoute({
     () => import('../features/auth/AcceptInvitePage'),
     'AcceptInvitePage',
   ),
+});
+
+// the page behind the e-mailed two-step sign-in link: public (the link AND the password decide), also while signed in
+const mfaEnrolRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/mfa/enrol',
+  validateSearch: (s: Record<string, unknown>): { token?: string } =>
+    typeof s.token === 'string' ? { token: s.token } : {},
+  component: lazyRouteComponent(() => import('../features/mfa/EnrolPage'), 'EnrolPage'),
 });
 
 // the page behind an email's "stop emails about ..." link: public, the signed token decides (opening it changes nothing)
@@ -418,6 +431,16 @@ const accountErasuresRoute = child(
   lazyPage(() => import('../features/privacy/AccountErasuresPage'), 'AccountErasuresPage'),
   'platform.account_erasure.manage',
 );
+// two-step sign-in (step 14c): my own on both hosts, the resets on the admin host
+const securityRoute = child(
+  '/me/security',
+  lazyPage(() => import('../features/mfa/SecurityPage'), 'SecurityPage'),
+);
+const mfaResetsRoute = child(
+  '/platform/mfa-resets',
+  lazyPage(() => import('../features/mfa/MfaResetsPage'), 'MfaResetsPage'),
+  'platform.mfa_reset.manage',
+);
 const emailSuppressionsRoute = child(
   '/settings/email',
   lazyPage(
@@ -443,7 +466,14 @@ const platformAuditRoute = child(
   'platform.audit.read',
 );
 
-const publicRoutes = [loginRoute, forgotRoute, resetRoute, acceptRoute, unsubscribeRoute];
+const publicRoutes = [
+  loginRoute,
+  forgotRoute,
+  resetRoute,
+  acceptRoute,
+  unsubscribeRoute,
+  mfaEnrolRoute,
+];
 
 /**
  * ONE tree per host kind. addChildren() mutates the route objects it is called on, so the two trees
@@ -460,6 +490,8 @@ function buildRouteTree() {
           platformAuditRoute,
           accountErasuresRoute,
           notificationsRoute,
+          securityRoute,
+          mfaResetsRoute,
         ]
       : [
           homeRoute,
@@ -501,6 +533,7 @@ function buildRouteTree() {
           notificationSettingsRoute,
           erasureRequestsRoute,
           emailSuppressionsRoute,
+          securityRoute,
         ];
   return rootRoute.addChildren([...publicRoutes, appRoute.addChildren(children)]);
 }

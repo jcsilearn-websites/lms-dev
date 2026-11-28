@@ -83,6 +83,8 @@ import {
   createAuthRepository,
   createAuthService,
   createMfaRepository,
+  createMfaResetRepository,
+  createMfaResetService,
   createMfaService,
   DEFAULT_AUTH_CONFIG,
 } from './modules/auth';
@@ -817,6 +819,14 @@ export function createModules(db: Database, config: ModulesConfig) {
       ...(config.now ? { now: config.now } : {}),
     }),
   );
+  const mfaResetService = traced(
+    'mfaReset',
+    createMfaResetService({
+      db,
+      resetRepo: createMfaResetRepository(),
+      ...(config.now ? { now: config.now } : {}),
+    }),
+  );
   const authService = traced(
     'auth',
     createAuthService({
@@ -1037,7 +1047,7 @@ export function createModules(db: Database, config: ModulesConfig) {
     ...createMembershipsHandlers({ membershipsService }),
     ...createAuditHandlers({ auditService }),
     ...createSessionsHandlers({ sessionsService, purge: config.purge }),
-    ...createAuthHandlers({ authService, mfaService, purge: config.purge }),
+    ...createAuthHandlers({ authService, mfaService, mfaResetService, purge: config.purge }),
     ...createJobsHandlers({ jobsService, purge: config.purge }),
     ...createRateLimitHandlers({ rateLimitService, everyMs: 60_000 }),
     ...createEmailHandlers({ emailService, purge: { everyMs: config.purge.everyMs } }),
@@ -1204,6 +1214,7 @@ export function createModules(db: Database, config: ModulesConfig) {
       controller: createAuthController({
         authService,
         mfaService,
+        mfaResetService,
         cookie: config.cookie,
         baseDomain: config.baseDomain,
       }),

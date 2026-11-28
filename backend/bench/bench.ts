@@ -75,6 +75,8 @@ async function main(): Promise<void> {
   let db: ReturnType<typeof createDb> | undefined;
   try {
     const env = parseApiEnv({
+      // benchmarks sign in with a password alone
+      MFA_ENFORCEMENT: 'off',
       ...process.env,
       LOG_LEVEL: 'silent',
       // the benchmark logs in hundreds of times from one IP

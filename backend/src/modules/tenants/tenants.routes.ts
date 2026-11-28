@@ -19,6 +19,8 @@ export function createTenantsRoutes(deps: {
   tenantsController: TenantsController;
 }): FastifyPluginAsyncTypebox {
   const { tenantsController: c } = deps;
+  // every platform write asks for a recent second factor
+  const platformWrite = { permission: 'platform.tenant.manage', stepUp: true } as const;
   return async (app) => {
     // Public (the sign-in page needs it) but NOT exempt from the global rate limit.
     app.get('/tenant/info', { config: { public: true }, schema: tenantInfoRouteSchema }, c.info);
@@ -29,7 +31,7 @@ export function createTenantsRoutes(deps: {
     );
     app.post(
       '/platform/tenants',
-      { config: { permission: 'platform.tenant.manage' }, schema: createTenantRouteSchema },
+      { config: platformWrite, schema: createTenantRouteSchema },
       c.create,
     );
     app.get(
@@ -44,27 +46,31 @@ export function createTenantsRoutes(deps: {
     );
     app.patch(
       '/platform/tenants/:id',
-      { config: { permission: 'platform.tenant.manage' }, schema: updateTenantRouteSchema },
+      { config: platformWrite, schema: updateTenantRouteSchema },
       c.update,
     );
     app.post(
       '/platform/tenants/:id/suspend',
-      { config: { permission: 'platform.tenant.manage' }, schema: suspendTenantRouteSchema },
+      { config: platformWrite, schema: suspendTenantRouteSchema },
       c.suspend,
     );
     app.post(
       '/platform/tenants/:id/reactivate',
-      { config: { permission: 'platform.tenant.manage' }, schema: reactivateTenantRouteSchema },
+      { config: platformWrite, schema: reactivateTenantRouteSchema },
       c.reactivate,
     );
     app.post(
       '/platform/tenants/:id/admin-invite',
-      { config: { permission: 'platform.tenant.manage' }, schema: adminInviteRouteSchema },
+      { config: platformWrite, schema: adminInviteRouteSchema },
       c.inviteAdmin,
     );
     app.get(
       '/platform/tenants/:id/members',
-      { config: { permission: 'platform.tenant.read' }, schema: tenantMembersRouteSchema },
+      // an audited look into a college's members: step-up like a write
+      {
+        config: { permission: 'platform.tenant.read', stepUp: true },
+        schema: tenantMembersRouteSchema,
+      },
       c.members,
     );
   };

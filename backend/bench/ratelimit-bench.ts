@@ -77,6 +77,8 @@ async function main(): Promise<void> {
   const ownerUrl = process.env.DATABASE_URL;
   if (!ownerUrl) throw new Error('DATABASE_URL (the owner connection) is needed to clean up');
   const env = parseApiEnv({
+    // benchmarks sign in with a password alone
+    MFA_ENFORCEMENT: 'off',
     ...process.env,
     LOG_LEVEL: 'silent',
     RATE_LIMIT_MAX: '100000000',
@@ -127,6 +129,8 @@ async function main(): Promise<void> {
     // ---- 3. HTTP
     for (const store of ['memory', 'postgres'] as const) {
       const e = parseApiEnv({
+        // benchmarks sign in with a password alone
+        MFA_ENFORCEMENT: 'off',
         ...process.env,
         LOG_LEVEL: 'silent',
         RATE_LIMIT_MAX: '100000000',

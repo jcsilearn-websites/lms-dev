@@ -101,7 +101,29 @@ function isErrorBody(body: unknown): body is ErrorResponse {
 }
 
 /** The one place that sends a request: credentials, the CSRF header, JSON, error mapping, 401 handling. */
+let askStepUp: (() => Promise<boolean>) | null = null;
+
+/** The app registers how a person proves their second step (a dialog): this client does not know about screens. */
+export function setStepUpHandler(handler: (() => Promise<boolean>) | null): void {
+  askStepUp = handler;
+}
+
+/**
+ * A sensitive action answered 403 `mfa_step_up_required`: the registered handler asks for the second step and the SAME
+ * request is sent once more. Declined, or the dialog cannot load: the caller gets the original error.
+ */
 export async function api<T>(path: string, opts: ApiOptions = {}): Promise<T> {
+  try {
+    return await send<T>(path, opts);
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.code !== 'mfa_step_up_required') throw err;
+    const verified = (await askStepUp?.().catch(() => false)) ?? false;
+    if (!verified) throw err;
+    return send<T>(path, opts);
+  }
+}
+
+async function send<T>(path: string, opts: ApiOptions): Promise<T> {
   const retry = opts.retryBusy;
   if (!retry) return once<T>(path, opts);
   // The receipt of a refusal is bound to the exact payload that was refused: the body is frozen NOW, as text, so that nothing the

@@ -20,6 +20,9 @@ export function testEnv(overrides: Record<string, string> = {}): ApiEnv {
     RATE_LIMIT_LOGIN_PER_IP: '1000',
     RATE_LIMIT_LOGIN_PER_EMAIL: '1000',
     RATE_LIMIT_MAX: '100000',
+    // the default is `required` (and production refuses `off`): the suites that sign an administrator in with a password alone
+    // switch enforcement off HERE; the two-factor suites switch it back on with makeApp({ env: { MFA_ENFORCEMENT: 'required' } })
+    MFA_ENFORCEMENT: 'off',
     // a fake key for the local storage driver (the tests write to a throwaway directory)
     STORAGE_SIGNING_SECRET: 'test-only-signing-secret-0123456789abcdef',
     STORAGE_LOCAL_DIR: process.env.TEST_STORAGE_DIR ?? '.storage-test',

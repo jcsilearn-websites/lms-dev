@@ -896,33 +896,51 @@ Own sessions in Postgres; no third-party auth provider. Modules: `auth` (flows),
   `cross-env` (it must be set before the process starts). **The future Cloud Run Dockerfile must set
   `ENV UV_THREADPOOL_SIZE=8`** (or run the start script).
 
-## Two-factor sign-in (step 14c: parts 0 and 1 built; part 2 step-up + reset and part 3 screens + enforcement NOT built)
+## Two-factor sign-in (step 14c: built, parts 0-3)
 
-Full design, decisions and numbers: **`docs/adr/0026-mfa.md`**. Migrations 0069 (tables) and 0070 (functions); **the next migration is 0071** (not applied to the dev database by the agent:
-`pnpm db:migrate`). **`MFA_ENFORCEMENT` is `off` by default until part 3** (then production refuses `off`); an enrolled person is challenged either way; the SPA has NO screens yet.
+Full design, decisions and numbers: **`docs/adr/0026-mfa.md`**; procedures: `docs/mfa-runbook.md`. Migrations 0069-0072; **the next migration is 0073** (the agent does not apply them to the dev
+database: `pnpm db:migrate`). **`MFA_ENFORCEMENT` is `required` by default and production refuses `off`.** Tests that sign an administrator in with a password alone switch it off in ONE place
+(`testEnv` in `test/app.ts`; the E2E stack in `frontend/scripts/stack.mjs`; the benches); two-factor tests switch it back on with `makeApp({ env: { MFA_ENFORCEMENT: 'required' } })`, and E2E
+spec 20 uses a SECOND API instance (ports 3101 / 4175, `withStack(..., { mfa: true })`, its own platform admins `mfa-root1..3@e2e.test`).
 - **Password sign-in creates no session** for an enrolled person (202 `{step:'totp'}` + a 5-minute SameSite=Strict challenge cookie) or for one who must enrol (202 `{step:'enrol_email'}`);
   `auth_login_complete` refuses both, and `auth_lookup_session` ignores an administrator session without `mfa_verified_at` while enforcement is on. `session_insert` is the ONE session insert.
 - **Enrolment** needs the emailed link (30 min, single use, minted by the worker) AND the password. **TOTP** SHA-1/6/30 s, ±1 step, only a later step than the last accepted. Secrets AES-256-GCM
-  with the user id as AAD under `MFA_ENCRYPTION_KEYS` (API only; the worker gets none); recovery codes keyed HMAC; `pnpm mfa:rekey`. **Losing the keys locks every enrolled person out.**
-- **An attempt is charged and audited BEFORE it is checked** (`mfa_totp_attempt`; recovery is one statement). TOTP: 5th wrong 60 s doubling to 15 min, from the 20th one try a day. Recovery codes have their
-  OWN counter (same shape, cap 15 min). 5 tries of each per challenge.
-- **Lock order `user_credentials` -> `user_mfa` -> challenge -> sessions, in EVERY function that touches them, also where nothing in `user_credentials` changes** (account erasure holds it first and then `users`;
-  the audit rows reference `users`: without the first lock an erasure and a verification deadlock, tested). Account erasure removes the factor by a trigger on `users.erased_at`.
-- Tests: `test/mfa.test.ts`, `test/mfa.atomic.test.ts` (failure injection + held-lock races), `test/mfa-helpers.ts` (an authenticator with an EXPLICIT clock: `makeApp({ now })`); budgets: password step 2, verify 2,
-  recovery 1, wrong code 1, enrol start / confirm 2, `GET /me/mfa` 2. A new `mfa_*` function goes on the app or internal list in `auth.functions.test.ts`.
+  with the user id as AAD under `MFA_ENCRYPTION_KEYS` (API only); recovery codes keyed HMAC; `pnpm mfa:rekey`. **Losing the keys locks every enrolled person out.**
+- **An attempt is charged and audited BEFORE it is checked.** TOTP: 5th wrong 60 s doubling to 15 min, from the 20th one try a day (`lms.mfa_totp_charge`, the one place). Recovery codes have their
+  OWN counter (`lms.mfa_recovery_consume`).
+- **Step-up**: `config: { stepUp: true }` (or `{ when(request) }`) in the route; a verification UNDER 10 minutes old or `403 mfa_step_up_required`; it applies to whoever has a factor, or must have one
+  while enforcement is on. The list is pinned (`test/step-up-routes.test.ts`): **a new platform write needs the flag**, a new sensitive route goes on the list. A wrong code inside a session is 400,
+  never 401. The SPA's `api()` opens the dialog and repeats the request by itself.
+- **Reset**: platform admins only, filer ≠ approver ≠ person (CHECK constraints too), executed by `mfa.reset_run` 24 h after approval, expires after 7 days, cancelled when the person signs in with the
+  factor; execution invalidates the password with the value `!reset` (sign-in treats such an account as unknown). Break glass `pnpm mfa:reset --email` (owner connection).
+- **Lock order: person advisory lock -> reset request -> `user_credentials` -> `user_mfa` -> challenge -> sessions** in EVERY function that touches them (a function that can cancel a reset takes the
+  first two BEFORE the credentials). Account erasure removes the factor by a trigger on `users.erased_at` and takes neither of the first two.
+- **SPA**: every MFA screen is a lazy chunk (`features/mfa`, `shared/mfa`); `pnpm bundle:check` fails if their code or the QR encoder reaches the login load. **The login page has about 0.6 KB of its
+  125 KB budget left.** QR: `qrcode-generator` -> SVG (presentation attributes only); `jsqr` decodes it in the test.
+- Tests: `test/mfa*.test.ts`, `step-up-routes.test.ts`, `frontend/test/mfa*.test.tsx`, E2E `20-mfa.spec.ts`. A new `mfa_*` function goes on the app or internal list in `auth.functions.test.ts`.
+
+## Backend design review (after 14c)
+
+`docs/system-design-review.md`: consistency, every route's rate-limit tier, caching, resilience, observability, lifecycle, scalability, and the prioritised follow-ups. Rules it added:
+- **Every route's limit tier is a committed table** (`backend/test/rate-limit-tiers.txt`): a new route or a changed limit fails `rate-limit-tiers.test.ts` until it is written down (`vitest -u`). A public
+  route needs more than the default limit.
+- **`TRUST_PROXY=true` needs `TRUST_PROXY_HOPS`** in production: without a hop count a client chooses its own address.
+- The strict limiter waits 1 s for its store, then counts per instance. 429s are counted in `lms_http_rate_limited_total{route}`.
+- Open P0 / P1: verify the hop count on GCP; the per-address sign-in limit (10/min) locks out a lab behind one address; full-scale load test.
 
 ## Launch checklist (before the first production college goes live)
 
 Collected from the sections above so nothing is lost; each line points at where the reason is. Tick them in the launch PR.
 - [ ] **At least THREE platform admins exist** (`pnpm admin:create`). Account erasure needs a DIFFERENT platform admin to approve (step 14b-1 part 4), and the two-factor reset (step 14c part 2) needs a filer and an
   approver who are both not the person being reset. The E2E suite uses `root@` and `root2@e2e.test` for the erasure case.
-- [ ] `MFA_ENFORCEMENT=required`, `MFA_ENCRYPTION_KEYS` in Secret Manager with a sealed offline copy apart from the database backups (step 14c).
+- [ ] `MFA_ENCRYPTION_KEYS` in Secret Manager with a sealed offline copy apart from the database backups; the platform administrators have read `docs/mfa-runbook.md` (step 14c).
+- [ ] `TRUST_PROXY_HOPS` verified on the real deployment, and the per-address sign-in limit raised for colleges behind one address (`docs/system-design-review.md`).
 - [ ] Malware scanning of uploaded files is built (assignment files first); see TODO.
 - [ ] `SUPPRESSION_HASH_KEYS` and `SIGNING_KEYS` are in Secret Manager, every version kept, with a sealed offline copy apart from the database backups; the erasure-ledger bucket is separate
   from the backups, versioned and retention-locked (`docs/production-config.md`).
 - [ ] A restore drill has been run against the production-shaped setup and the erasure ledger re-applied after it (`docs/backup-and-restore.md`).
 - [ ] Counsel has answered `docs/legal-questions.md` (privacy notice, consent, under-18 learners, data fiduciary); a college with learners under 18 does not go live before that.
-- [ ] `DB_SSL=verify-full` + `DB_SSL_CA`, `TRUST_PROXY=true`, the SPA's CSP sent by the gateway, `SIGNING_LEGACY_TOKENS` decided (90 days after the key-id format ships).
+- [ ] `DB_SSL=verify-full` + `DB_SSL_CA`, `TRUST_PROXY=true` with `TRUST_PROXY_HOPS`, the SPA's CSP sent by the gateway, `SIGNING_LEGACY_TOKENS` decided (90 days after the key-id format ships).
 
 ## CI runner
 
@@ -1114,6 +1132,7 @@ pnpm --filter @lms/backend run bench:gradebook  500 and 1,200 learners x 60 item
 pnpm --filter @lms/backend run bench:analytics  10,000 students x 200 offerings: rollup refresh (full / incremental, fresh vs ANALYZEd), every dashboard's DB time, activity upsert (scratch DB)
 pnpm --filter @lms/backend run bench:notifications  10,000 students x 200 offerings x 60: reminder audience / enqueue, send throughput, unread count, digests (scratch DB, autovacuum off)
 pnpm --filter @lms/backend run bench:ratelimit  the shared limiter: store latency memory vs PostgreSQL, the local tier, HTTP with each store (a migrated TEST database)
+pnpm mfa:reset --email x@y.z   break glass: remove one account's second factor (owner connection, docs/mfa-runbook.md)
 pnpm audit:deps          dependency audit gate (high / critical fail unless an unexpired reviewed exception exists in audit-allowlist.json)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
@@ -1190,7 +1209,7 @@ Env: copy `.env.example` → `.env` (git-ignored). Backups `.env.*` are git-igno
   (behind learners, released grades, gradebook submitted / returned / approved); GPA / credits / transcript across courses; copying a gradebook with an
   offering; a mark history view in the grid; malware scanning of assignment files (before the first production college); the shared rate limiter.
 - **GCP database flags (offering-copy decision)**: Cloud SQL flags `jit=off` and `timezone=UTC` (`docs/production-config.md`; migration 0058 sets the same two on the `lms_app` role). `--database-flags` replaces the whole list.
-- **GCP (step 14a additions)**: the SPA's `Content-Security-Policy` (and the other `spaSecurityHeaders()`) must be sent by the **production gateway / CDN** (backend-bucket custom response headers or the load balancer header policy), the exact value from `backend/src/contracts/csp.ts`, with a deploy check that fetches `/` and compares; Secret Manager for `SIGNING_KEYS` and the other secrets (API and worker share the ring); Managed Prometheus scraping `/metrics` of the API and the worker port with `METRICS_TOKEN`; the alerts of `docs/slo.md`; `OTEL_EXPORTER_OTLP_ENDPOINT` to Cloud Trace; the Redis limiter only if measured; osv-scanner in CI (pinned binary + checksum); MFA for platform admins; the password policy (12 characters, breach check): owner decisions in `docs/asvs.md`.
+- **GCP (step 14a additions)**: the SPA's `Content-Security-Policy` (and the other `spaSecurityHeaders()`) must be sent by the **production gateway / CDN** (backend-bucket custom response headers or the load balancer header policy), the exact value from `backend/src/contracts/csp.ts`, with a deploy check that fetches `/` and compares; Secret Manager for `SIGNING_KEYS` and the other secrets (API and worker share the ring); Managed Prometheus scraping `/metrics` of the API and the worker port with `METRICS_TOKEN`; the alerts of `docs/slo.md`; `OTEL_EXPORTER_OTLP_ENDPOINT` to Cloud Trace; the Redis limiter only if measured; osv-scanner in CI (pinned binary + checksum); the password policy (12 characters, breach check): owner decisions in `docs/asvs.md`.
 - **GCP, service worker (step 14b-2 part D, `docs/adr/0025-service-worker.md`)**: the **gateway must send no-cache headers for `/sw.js` and `/sw-control.json`** (`Cache-Control: no-cache, no-store, must-revalidate`, as `serve.mjs` does:
   a cached copy of either delays an update or the kill switch), with the same deploy check as the CSP; and **enable the service worker in staging first** (build the first production releases with `VITE_SERVICE_WORKER=off`; turn it on
   in production only after a deploy over an old worker and the kill switch have both been tried in staging).
@@ -1265,7 +1284,7 @@ Only what is NOT already in the sections above, the ADRs (`docs/adr/`), `docs/be
   - **Rules for new code**: (1) never write an audit row after the change in a separate call; (2) a definer function that reads, decides, then writes must lock what it decided on (`FOR UPDATE` / advisory lock) or put the condition INTO the write (`UPDATE ... WHERE status = ...`,
     `INSERT ... ON CONFLICT`); (3) a read-merge-write of JSON settings takes the advisory lock first, in its own statement (the read must be a new snapshot).
 - **Migrations 0058 and 0059** are applied to the dev database by the agent in step 14a follow-ups; 0059 replaces `auth_accept_invite`, `auth_login_complete`, `platform_admin_invite`, `assignment_upload_begin` (same signatures: grants stay) and adds three `auth_*` functions (listed in `test/auth.functions.test.ts`).
-- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0069 (0060 / 0061 are step 14b-1 part 1, 0062 part 2, 0063-0065 part 3, 0066 / 0067 part 4, 0068 the lock mode of the college erasure; the owner applied 0060-0067; 0068 is NOT applied to the dev database by the agent: `pnpm db:migrate`). MFA (TOTP) is planned as step 14c.** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
+- **Where we are (step 14a built, 14b not)**: step 14a (production hardening) is built and described above; its verification is in the previous bullet. **The next migration is 0073 (0060 / 0061 are step 14b-1 part 1, 0062 part 2, 0063-0065 part 3, 0066 / 0067 part 4, 0068 the lock mode of the college erasure, 0069-0072 step 14c; the agent applies none of the newer ones to the dev database: `pnpm db:migrate`).** Passwords: minimum 12 characters for NEW and CHANGED ones (existing 10-11 character passwords still sign in). Step 14b notes: `docs/step-14b-notes.md` (the owner's message about erasure was CUT OFF: ask for the rest before building it). Steps 1-13 are built (13 = notifications and real email, see its section; 12 = dashboards, rollups, at-risk, usage metering). Steps 1-11c are built (1 foundation, 1b module restructure, 2 auth + tenants, 2b budgets + cleanup jobs, 4 permissions
   and member/tenant management, 5 academics + profiles + import + job queue, 5b its frontend, 6 courses + content + files, 6b soft
   removal + PostgreSQL 17, 7 video, 8 learning progress, 9 quizzes and exams, 10 assignments, 10b / 10c deadline fairness under load with
   payload-bound receipts, 11 gradebook, 11b / 11c its performance, the planner-settings matrix and loose ends). Step 8 was verified once in full: backend 1,005 + 65 serial tests, frontend

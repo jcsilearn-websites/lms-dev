@@ -112,6 +112,8 @@ export function createSessionsService(deps: {
         isPlatformAdmin: row.is_platform_admin,
         email: row.email,
         displayName: row.display_name,
+        mfaEnrolled: row.mfa_enrolled,
+        mfaVerifiedAt: row.mfa_verified_at === null ? null : new Date(row.mfa_verified_at),
       };
     },
 

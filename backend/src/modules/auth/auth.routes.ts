@@ -11,9 +11,19 @@ import {
   loginRouteSchema,
   logoutRouteSchema,
   meRouteSchema,
+  mfaDisableRouteSchema,
   mfaEnrolConfirmRouteSchema,
   mfaEnrolStartRouteSchema,
+  mfaRecoveryCodesRouteSchema,
+  mfaReplaceConfirmRouteSchema,
+  mfaReplaceStartRouteSchema,
+  mfaResetApproveRouteSchema,
+  mfaResetCancelRouteSchema,
+  mfaResetFileRouteSchema,
+  mfaResetListRouteSchema,
+  mfaResetRejectRouteSchema,
   mfaStatusRouteSchema,
+  mfaStepUpRouteSchema,
   mfaVerifyRouteSchema,
   resendInviteRouteSchema,
   resetRouteSchema,
@@ -90,6 +100,62 @@ export function createAuthRoutes(deps: {
       { config: { authenticated: true }, schema: mfaStatusRouteSchema },
       authController.mfaStatus,
     );
+    // the same per-address limit as sign-in: a stolen session cannot guess codes through this door faster
+    app.post(
+      '/me/mfa/step-up',
+      { config: { authenticated: true }, onRequest: [limit.perIp], schema: mfaStepUpRouteSchema },
+      authController.mfaStepUp,
+    );
+    const own = { authenticated: true, stepUp: true } as const;
+    app.post(
+      '/me/mfa/replace/start',
+      { config: own, schema: mfaReplaceStartRouteSchema },
+      authController.mfaReplaceStart,
+    );
+    app.post(
+      '/me/mfa/replace/confirm',
+      { config: own, schema: mfaReplaceConfirmRouteSchema },
+      authController.mfaReplaceConfirm,
+    );
+    app.post(
+      '/me/mfa/recovery-codes',
+      { config: own, schema: mfaRecoveryCodesRouteSchema },
+      authController.mfaRecoveryCodes,
+    );
+    app.post(
+      '/me/mfa/disable',
+      { config: own, schema: mfaDisableRouteSchema },
+      authController.mfaDisable,
+    );
+
+    // ---- reset of a lost second factor: platform administrators, three different people
+    const resets = { permission: 'platform.mfa_reset.manage' } as const;
+    const resetWrite = { ...resets, stepUp: true } as const;
+    app.get(
+      '/platform/mfa-resets',
+      { config: resets, schema: mfaResetListRouteSchema },
+      authController.mfaResetList,
+    );
+    app.post(
+      '/platform/mfa-resets',
+      { config: resetWrite, schema: mfaResetFileRouteSchema },
+      authController.mfaResetFile,
+    );
+    app.post(
+      '/platform/mfa-resets/:id/approve',
+      { config: resetWrite, schema: mfaResetApproveRouteSchema },
+      authController.mfaResetDecide('approve'),
+    );
+    app.post(
+      '/platform/mfa-resets/:id/reject',
+      { config: resetWrite, schema: mfaResetRejectRouteSchema },
+      authController.mfaResetDecide('reject'),
+    );
+    app.post(
+      '/platform/mfa-resets/:id/cancel',
+      { config: resetWrite, schema: mfaResetCancelRouteSchema },
+      authController.mfaResetDecide('cancel'),
+    );
 
     app.post(
       '/auth/password/forgot',
@@ -113,13 +179,23 @@ export function createAuthRoutes(deps: {
     );
     app.post(
       '/auth/password/change',
-      { config: { authenticated: true }, schema: changeRouteSchema },
+      // step-up: only for a person who has (or must have) a second factor
+      { config: { authenticated: true, stepUp: true }, schema: changeRouteSchema },
       authController.change,
     );
 
     app.post(
       '/auth/invites',
-      { config: { permission: 'member.invite' }, schema: inviteRouteSchema },
+      {
+        // inviting an institution admin asks for a step-up; inviting a member does not
+        config: {
+          permission: 'member.invite',
+          stepUp: {
+            when: (request) => (request.body as { role?: string }).role === 'institution_admin',
+          },
+        },
+        schema: inviteRouteSchema,
+      },
       authController.invite,
     );
     app.post(
@@ -142,7 +218,7 @@ export function createAuthRoutes(deps: {
       '/auth/members/:userId/unlock',
       {
         // tenant host: institution admins; admin host: platform admins (the service picks)
-        config: { permission: ['member.unlock', 'platform.user.unlock'] },
+        config: { permission: ['member.unlock', 'platform.user.unlock'], stepUp: true },
         schema: unlockRouteSchema,
       },
       authController.unlock,

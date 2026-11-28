@@ -33,6 +33,12 @@ export const TEMPLATE_PARAMS = {
   mfa_enrolled: obj({}),
   mfa_recovery_used: obj({ remaining: Type.Integer({ minimum: 0 }) }),
   mfa_locked: obj({}),
+  mfa_replaced: obj({}),
+  mfa_disabled: obj({}),
+  mfa_recovery_regenerated: obj({}),
+  mfa_reset_requested: obj({}),
+  mfa_reset_approved: obj({}),
+  mfa_reset_done: obj({}),
   grade_released: obj({
     course: str(),
     item: str(),
@@ -220,6 +226,59 @@ const BUILDERS: Builders = {
       'If this was not you, reset your password now: whoever tried knows it.',
     ],
     action: { label: 'Reset your password', url: at(ctx, '/forgot-password') },
+  }),
+  mfa_replaced: (_p, ctx) => ({
+    subject: 'Your authenticator app was replaced',
+    heading: 'Your authenticator app was replaced',
+    paragraphs: [
+      'A different authenticator app now gives the sign-in codes of your account, and your other sessions were signed out.',
+      "If this was not you, reset your password now and tell your college's administrator.",
+    ],
+    action: { label: 'Reset your password', url: at(ctx, '/forgot-password') },
+  }),
+  mfa_disabled: (_p, ctx) => ({
+    subject: 'Two-step sign-in was turned off',
+    heading: 'Two-step sign-in was turned off',
+    paragraphs: [
+      'Signing in to your account now needs your password only.',
+      "If this was not you, reset your password now and tell your college's administrator.",
+    ],
+    action: { label: 'Reset your password', url: at(ctx, '/forgot-password') },
+  }),
+  mfa_recovery_regenerated: (_p, ctx) => ({
+    subject: 'New recovery codes were made',
+    heading: 'New recovery codes were made',
+    paragraphs: [
+      'New recovery codes were made for your account. The earlier codes no longer work.',
+      'If this was not you, reset your password now.',
+    ],
+    action: { label: 'Reset your password', url: at(ctx, '/forgot-password') },
+  }),
+  // the reset notices carry no link to click that could act: signing in with the code is what stops a reset
+  mfa_reset_requested: () => ({
+    subject: 'A reset of your two-step sign-in was requested',
+    heading: 'A reset of your two-step sign-in was requested',
+    paragraphs: [
+      'A platform administrator asked to reset the two-step sign-in of your account. A second administrator must approve it first.',
+      'If you still have your authenticator app or a recovery code, sign in: that cancels the request. If you did not ask for this, tell your administrator now.',
+    ],
+  }),
+  mfa_reset_approved: () => ({
+    subject: 'Your two-step sign-in will be reset in 24 hours',
+    heading: 'The reset was approved',
+    paragraphs: [
+      'In 24 hours the two-step sign-in of your account is removed, every session ends and your password stops working.',
+      'To stop it, sign in with your authenticator app or a recovery code before then. If you did not ask for this, tell your administrator now.',
+    ],
+  }),
+  mfa_reset_done: (_p, ctx) => ({
+    subject: 'Your two-step sign-in was reset',
+    heading: 'Your two-step sign-in was reset',
+    paragraphs: [
+      'Your authenticator app and recovery codes were removed, you were signed out everywhere and your old password no longer works.',
+      'Choose a new password. If your role needs it, you will then be asked to set up two-step sign-in again.',
+    ],
+    action: { label: 'Choose a new password', url: at(ctx, '/forgot-password') },
   }),
   grade_released: (p, ctx) => ({
     subject:

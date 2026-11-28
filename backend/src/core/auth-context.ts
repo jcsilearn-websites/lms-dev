@@ -18,6 +18,10 @@ export interface AuthContext {
   isPlatformAdmin: boolean;
   email: string;
   displayName: string;
+  /** the person has a second factor */
+  mfaEnrolled: boolean;
+  /** when this session last passed it (sign-in or step-up); null = never */
+  mfaVerifiedAt: Date | null;
 }
 
 export interface ResolvedTenant {
@@ -72,7 +76,7 @@ export function registerAuthContext(
      */
     cachedSessions?: { cache: TtlCache<AuthContext>; keyOf(url: string): string | null };
     /** counts cookies that are not a live session per address (see createBadSessionLimiter) */
-    badSessions?: { exceeded(ip: string): boolean };
+    badSessions?: { retryAfterSeconds(ip: string): number };
   },
 ): void {
   void app.register(cookie);
@@ -80,7 +84,7 @@ export function registerAuthContext(
   app.decorateRequest('tenant', null);
   app.decorateRequest('hostInfo', null as never);
 
-  app.addHook('onRequest', async (request) => {
+  app.addHook('onRequest', async (request, reply) => {
     request.hostInfo = parseHost(request.host, deps.baseDomain);
     const info = request.hostInfo;
     // probes and non-tenant hosts carry no tenant/session context
@@ -111,8 +115,12 @@ export function registerAuthContext(
     if (auth) {
       request.auth = auth;
       request.log = request.log.child({ user_id: auth.userId });
-    } else if (deps.badSessions?.exceeded(request.ip)) {
-      throw new TooManyRequestsError();
+    } else {
+      const wait = deps.badSessions?.retryAfterSeconds(request.ip) ?? 0;
+      if (wait > 0) {
+        void reply.header('retry-after', String(wait));
+        throw new TooManyRequestsError();
+      }
     }
   });
 }

@@ -28,22 +28,25 @@ export function createMembershipsRoutes(deps: {
     );
     app.patch(
       '/members/:userId/role',
-      { config: { permission: 'member.update_role' }, schema: changeRoleRouteSchema },
+      { config: { permission: 'member.update_role', stepUp: true }, schema: changeRoleRouteSchema },
       c.changeRole,
     );
     app.post(
       '/members/:userId/suspend',
-      { config: { permission: 'member.suspend' }, schema: suspendMemberRouteSchema },
+      { config: { permission: 'member.suspend', stepUp: true }, schema: suspendMemberRouteSchema },
       c.suspend,
     );
     app.post(
       '/members/:userId/reactivate',
-      { config: { permission: 'member.suspend' }, schema: reactivateMemberRouteSchema },
+      {
+        config: { permission: 'member.suspend', stepUp: true },
+        schema: reactivateMemberRouteSchema,
+      },
       c.reactivate,
     );
     app.delete(
       '/members/:userId',
-      { config: { permission: 'member.remove' }, schema: removeMemberRouteSchema },
+      { config: { permission: 'member.remove', stepUp: true }, schema: removeMemberRouteSchema },
       c.remove,
     );
   };

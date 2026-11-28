@@ -61,6 +61,8 @@ async function main(): Promise<void> {
     await createPlatformAdmin(owner, 'root@e2e.test');
     // a SECOND platform administrator: an account erasure is filed by one and approved by the other (step 14b-1 part 4)
     await createPlatformAdmin(owner, 'root2@e2e.test');
+    // three more of their own for the two-factor spec (20): they enrol, so no earlier spec may sign in as them
+    for (const n of [1, 2, 3]) await createPlatformAdmin(owner, `mfa-root${n}@e2e.test`);
 
     // Lighthouse and the screenshots want a realistic list: E2E_EXTRA_MEMBERS plain members in e2e-one
     const extra = Number(process.env.E2E_EXTRA_MEMBERS ?? 0);

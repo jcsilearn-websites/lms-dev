@@ -325,6 +325,8 @@ async function main(): Promise<void> {
 
     // ------------------------------------------------------------------ 2. send throughput against a fake provider
     const env = parseApiEnv({
+      // benchmarks sign in with a password alone
+      MFA_ENFORCEMENT: 'off',
       ...process.env,
       DATABASE_APP_URL: appUrl,
       EMAIL_PROVIDER: 'none',

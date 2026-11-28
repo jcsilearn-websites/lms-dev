@@ -61,6 +61,16 @@ const ALLOWED: Record<string, string> = {
     'internal: after the right password, reads only the platform administrator flag of that person',
   mfa_enrol_lookup:
     'the OWN address of the person holding the emailed enrolment link (shown in their authenticator app)',
+  mfa_recovery_use: 'reads only the platform administrator flag of the person signing in',
+  mfa_required_anywhere: 'internal: reads only the platform administrator flag of one person',
+  mfa_platform_actor: 'internal: re-checks that the actor is a platform administrator',
+  mfa_reset_request:
+    'GLOBAL: a platform administrator files the reset of ONE account, found by its address',
+  mfa_reset_list:
+    'GLOBAL, platform administrators only: shows the account of each reset request (no college member list; a pseudonym once erased)',
+  mfa_reset_mail:
+    'internal: reads only the platform administrator flag, to choose the host of the security mail',
+  mfa_break_glass: 'owner connection only: finds the ONE account of the break glass by its address',
 };
 // The platform area (admin host). REVIEWED one by one (step 14b-1): none of them lists the members of one college. The only
 // college-scoped member list on the admin host, GET /platform/tenants/:id/members, is served by memberships.listPageIn, which reads

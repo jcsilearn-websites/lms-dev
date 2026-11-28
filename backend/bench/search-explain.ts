@@ -36,7 +36,12 @@ const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.len
 async function main(): Promise<void> {
   loadDotEnv();
   const ownerEnv = parseOwnerEnv();
-  const appEnv = parseApiEnv({ ...process.env, LOG_LEVEL: 'silent' });
+  const appEnv = parseApiEnv({
+    // benchmarks sign in with a password alone
+    MFA_ENFORCEMENT: 'off',
+    ...process.env,
+    LOG_LEVEL: 'silent',
+  });
   const owner = new pg.Client(
     connectionConfig(ownerEnv.DATABASE_URL, ownerEnv.DB_SSL, ownerEnv.DB_SSL_CA),
   );

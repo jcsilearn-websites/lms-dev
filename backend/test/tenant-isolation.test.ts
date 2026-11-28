@@ -372,6 +372,7 @@ describe('lms_app privileges', () => {
         'user_mfa',
         'user_mfa_recovery_codes',
         'auth_mfa_challenges',
+        'mfa_reset_requests',
         'users',
         'video_assets',
         'video_captions',

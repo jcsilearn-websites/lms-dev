@@ -73,6 +73,21 @@ const MFA_APP_FUNCTIONS = [
   'mfa_status',
   'mfa_totp_accept',
   'mfa_totp_attempt',
+  // step 14c part 2 (0072): step-up, the person's own factor, the four-eyes reset
+  'mfa_disable',
+  'mfa_recovery_regenerate',
+  'mfa_replace_attempt',
+  'mfa_replace_complete',
+  'mfa_replace_start',
+  'mfa_reset_decide',
+  'mfa_reset_due',
+  'mfa_reset_execute',
+  'mfa_reset_expire',
+  'mfa_reset_list',
+  'mfa_reset_request',
+  'mfa_stepup_accept',
+  'mfa_stepup_attempt',
+  'mfa_stepup_recovery',
 ];
 const MFA_INTERNAL_FUNCTIONS = [
   'mfa_audit',
@@ -81,6 +96,19 @@ const MFA_INTERNAL_FUNCTIONS = [
   'mfa_required_here',
   'mfa_revoke_admin_sessions',
   'session_insert',
+  // 0072: helpers, and the break glass (owner connection only)
+  'mfa_break_glass',
+  'mfa_platform_actor',
+  'mfa_recovery_consume',
+  'mfa_required_anywhere',
+  'mfa_reset_audit',
+  'mfa_reset_cancel_by_subject',
+  'mfa_reset_core',
+  'mfa_reset_json',
+  'mfa_reset_lock',
+  'mfa_reset_mail',
+  'mfa_session_live',
+  'mfa_totp_charge',
 ];
 
 describe('lms_app has no direct access to credential, token and platform-audit tables', () => {
@@ -203,6 +231,7 @@ describe('SECURITY DEFINER functions are hardened', () => {
       'email',
       'display_name',
       'mfa_verified_at',
+      'mfa_enrolled',
     ]);
     // two-factor sign-in (step 14c): the narrow answers of the reading functions
     expect(
@@ -213,6 +242,7 @@ describe('SECURITY DEFINER functions are hardened', () => {
     expect(await cols(`SELECT * FROM lms.mfa_status('${newId()}')`)).toEqual([
       'r_enrolled_at',
       'r_recovery_remaining',
+      'r_can_disable',
     ]);
     expect(
       await cols("SELECT * FROM lms.auth_consume_reset_token(decode(repeat('00', 32), 'hex'))"),

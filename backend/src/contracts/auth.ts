@@ -83,8 +83,77 @@ export const MfaStatusSchema = Type.Object({
   enrolled: Type.Boolean(),
   enrolledAt: Type.Union([Type.String({ format: 'date-time' }), Type.Null()]),
   recoveryCodesRemaining: Type.Integer({ minimum: 0 }),
+  /** false while any role of this person must use a second factor */
+  canDisable: Type.Boolean(),
 });
 export type MfaStatus = Static<typeof MfaStatusSchema>;
+
+/** POST /me/mfa/step-up: exactly one of the two. */
+export const MfaStepUpRequestSchema = MfaVerifyRequestSchema;
+export type MfaStepUpRequest = MfaVerifyRequest;
+
+export const MfaStepUpResponseSchema = Type.Object({
+  /** until then the actions that ask for a step-up are allowed */
+  validUntil: Type.String({ format: 'date-time' }),
+});
+export type MfaStepUpResponse = Static<typeof MfaStepUpResponseSchema>;
+
+export const MfaRecoveryCodesResponseSchema = Type.Object({
+  /** shown ONCE; the earlier codes stop working */
+  recoveryCodes: Type.Array(Type.String()),
+});
+export type MfaRecoveryCodesResponse = Static<typeof MfaRecoveryCodesResponseSchema>;
+
+// ---- reset of a lost second factor (platform administrators, three different people)
+
+const MfaResetStatus = Type.Union([
+  Type.Literal('pending_approval'),
+  Type.Literal('approved'),
+  Type.Literal('done'),
+  Type.Literal('rejected'),
+  Type.Literal('cancelled'),
+  Type.Literal('expired'),
+]);
+const NullableDateTime = Type.Union([Type.String({ format: 'date-time' }), Type.Null()]);
+const NullableText = Type.Union([Type.String(), Type.Null()]);
+
+export const MfaResetRequestSchema = Type.Object({
+  id: Uuid,
+  status: MfaResetStatus,
+  requestedAt: Type.String({ format: 'date-time' }),
+  expiresAt: Type.String({ format: 'date-time' }),
+  executeAfter: NullableDateTime,
+});
+export type MfaResetRequest = Static<typeof MfaResetRequestSchema>;
+
+export const MfaResetItemSchema = Type.Composite([
+  MfaResetRequestSchema,
+  Type.Object({
+    executedAt: NullableDateTime,
+    /** why it ended without a decision: subject_signed_in, subject_disabled, no_factor, break_glass */
+    reason: NullableText,
+    personName: Type.String(),
+    personEmail: NullableText,
+    requestedByName: Type.String(),
+    approvedByName: NullableText,
+    /** the caller is neither the filer nor the person */
+    canApprove: Type.Boolean(),
+    canCancel: Type.Boolean(),
+  }),
+]);
+export type MfaResetItem = Static<typeof MfaResetItemSchema>;
+
+export const MfaResetListSchema = Type.Object({
+  items: Type.Array(MfaResetItemSchema),
+  nextCursor: NullableText,
+});
+export type MfaResetList = Static<typeof MfaResetListSchema>;
+
+export const MfaResetFileSchema = Type.Object({ email: Email }, { additionalProperties: false });
+export type MfaResetFile = Static<typeof MfaResetFileSchema>;
+
+export const MfaResetResultSchema = Type.Object({ request: MfaResetRequestSchema });
+export type MfaResetResult = Static<typeof MfaResetResultSchema>;
 
 export const ForgotPasswordRequestSchema = Type.Object({ email: Email });
 export const ResetPasswordRequestSchema = Type.Object({ token: Token, newPassword: Password });

@@ -24,6 +24,7 @@
     "docs:permissions": "pnpm --filter @lms/backend run docs:permissions",
     "admin:create": "pnpm --filter @lms/backend run admin:create --",
     "mfa:rekey": "pnpm --filter @lms/backend run mfa:rekey --",
+    "mfa:reset": "pnpm --filter @lms/backend run mfa:reset --",
     "loadtest:test": "pnpm --filter @lms/loadtest run test",
     "loadtest:seed": "pnpm --filter @lms/loadtest run seed --",
     "loadtest:run": "pnpm --filter @lms/loadtest run run --",

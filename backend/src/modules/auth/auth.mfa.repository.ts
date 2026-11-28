@@ -16,6 +16,14 @@ export interface SessionInput {
   userAgent: string | null;
 }
 
+/** The signed-in session an action is made from. */
+export interface SessionRef {
+  userId: string;
+  sessionId: string;
+  tenantId: string | null;
+  ip: string | null;
+}
+
 export interface SignedIn {
   userId: string;
   email: string;
@@ -265,11 +273,163 @@ export function createMfaRepository() {
       const r = res.rows[0] as {
         r_enrolled_at: Date | string | null;
         r_recovery_remaining: number;
+        r_can_disable: boolean;
       };
       return {
         enrolledAt: r.r_enrolled_at === null ? null : new Date(r.r_enrolled_at),
         recoveryCodesRemaining: r.r_recovery_remaining,
+        canDisable: r.r_can_disable,
       };
+    },
+
+    // ---- step-up (the person is signed in)
+
+    async stepUpAttempt(
+      db: Executor,
+      a: SessionRef & { auditId: string; lockAuditId: string; now: Date },
+    ): Promise<
+      | { status: 'ok'; sealed: SealedSecret }
+      | { status: 'invalid' | 'not_enrolled' }
+      | { status: 'locked'; retryAfterSeconds: number }
+    > {
+      const res = await db.execute(
+        sql`select * from lms.mfa_stepup_attempt(${a.userId}::uuid, ${a.sessionId}::uuid, ${a.tenantId}::uuid, ${a.ip}::inet, ${a.auditId}::uuid, ${a.lockAuditId}::uuid, ${a.now.toISOString()}::timestamptz)`,
+      );
+      const r = res.rows[0] as {
+        r_status: 'ok' | 'invalid' | 'not_enrolled' | 'locked';
+        r_ciphertext: Buffer;
+        r_nonce: Buffer;
+        r_key_id: string;
+        r_retry_after: number;
+      };
+      if (r.r_status === 'ok') {
+        return {
+          status: 'ok',
+          sealed: { kid: r.r_key_id, nonce: r.r_nonce, ciphertext: r.r_ciphertext },
+        };
+      }
+      if (r.r_status === 'locked') return { status: 'locked', retryAfterSeconds: r.r_retry_after };
+      return { status: r.r_status };
+    },
+
+    async stepUpAccept(
+      db: Executor,
+      a: SessionRef & { step: number; auditId: string; now: Date },
+    ): Promise<'ok' | 'replayed' | 'invalid'> {
+      const res = await db.execute(
+        sql`select lms.mfa_stepup_accept(${a.userId}::uuid, ${a.sessionId}::uuid, ${a.tenantId}::uuid, ${a.step}::bigint, ${a.ip}::inet, ${a.auditId}::uuid, ${a.now.toISOString()}::timestamptz) as s`,
+      );
+      return (res.rows[0] as { s: 'ok' | 'replayed' | 'invalid' }).s;
+    },
+
+    async stepUpRecovery(
+      db: Executor,
+      a: SessionRef & { candidates: RecoveryHash[]; auditId: string; now: Date },
+    ): Promise<
+      | { status: 'ok' | 'wrong' | 'invalid' | 'not_enrolled' }
+      | { status: 'locked'; retryAfterSeconds: number }
+    > {
+      const hashes = pgArray(a.candidates.map((c) => `\\x${c.hash.toString('hex')}`));
+      const kids = pgArray(a.candidates.map((c) => c.kid));
+      const res = await db.execute(
+        sql`select * from lms.mfa_stepup_recovery(${a.userId}::uuid, ${a.sessionId}::uuid, ${a.tenantId}::uuid, ${hashes}::bytea[], ${kids}::text[], ${a.ip}::inet, ${a.auditId}::uuid, ${a.now.toISOString()}::timestamptz)`,
+      );
+      const r = res.rows[0] as {
+        r_status: 'ok' | 'wrong' | 'invalid' | 'not_enrolled' | 'locked';
+        r_retry_after: number;
+      };
+      return r.r_status === 'locked'
+        ? { status: 'locked', retryAfterSeconds: r.r_retry_after }
+        : { status: r.r_status };
+    },
+
+    // ---- the person's own factor
+
+    async regenerateCodes(
+      db: Executor,
+      a: {
+        userId: string;
+        tenantId: string | null;
+        codeIds: string[];
+        codes: RecoveryHash[];
+        ip: string | null;
+        auditId: string;
+        now: Date;
+      },
+    ): Promise<boolean> {
+      const hashes = pgArray(a.codes.map((c) => `\\x${c.hash.toString('hex')}`));
+      const res = await db.execute(
+        sql`select lms.mfa_recovery_regenerate(${a.userId}::uuid, ${a.tenantId}::uuid, ${pgArray(a.codeIds)}::uuid[], ${hashes}::bytea[], ${a.codes[0]?.kid ?? ''}::text, ${a.ip}::inet, ${a.auditId}::uuid, ${a.now.toISOString()}::timestamptz) as ok`,
+      );
+      return (res.rows[0] as { ok: boolean }).ok;
+    },
+
+    async replaceStart(
+      db: Executor,
+      a: {
+        userId: string;
+        tenantId: string | null;
+        id: string;
+        challengeHash: Buffer;
+        sealed: SealedSecret;
+        ttlSeconds: number;
+        ip: string | null;
+        userAgent: string | null;
+        auditId: string;
+        now: Date;
+      },
+    ): Promise<boolean> {
+      const res = await db.execute(
+        sql`select lms.mfa_replace_start(${a.userId}::uuid, ${a.tenantId}::uuid, ${a.id}::uuid, ${a.challengeHash}::bytea, ${a.sealed.ciphertext}::bytea, ${a.sealed.nonce}::bytea, ${a.sealed.kid}::text, ${a.ttlSeconds}::int, ${a.ip}::inet, ${a.userAgent}::text, ${a.auditId}::uuid, ${a.now.toISOString()}::timestamptz) as ok`,
+      );
+      return (res.rows[0] as { ok: boolean }).ok;
+    },
+
+    /** Charges one try of the pending secret; null = the setup cannot be used (any more). */
+    async replaceAttempt(
+      db: Executor,
+      a: {
+        userId: string;
+        tenantId: string | null;
+        challengeHash: Buffer;
+        max: number;
+        ip: string | null;
+        auditId: string;
+        now: Date;
+      },
+    ): Promise<SealedSecret | null> {
+      const res = await db.execute(
+        sql`select * from lms.mfa_replace_attempt(${a.userId}::uuid, ${a.challengeHash}::bytea, ${a.tenantId}::uuid, ${a.max}::int, ${a.ip}::inet, ${a.auditId}::uuid, ${a.now.toISOString()}::timestamptz)`,
+      );
+      const r = res.rows[0] as {
+        r_status: 'ok' | 'invalid';
+        r_ciphertext: Buffer;
+        r_nonce: Buffer;
+        r_key_id: string;
+      };
+      return r.r_status === 'ok'
+        ? { kid: r.r_key_id, nonce: r.r_nonce, ciphertext: r.r_ciphertext }
+        : null;
+    },
+
+    async replaceComplete(
+      db: Executor,
+      a: SessionRef & { challengeHash: Buffer; step: number; auditId: string; now: Date },
+    ): Promise<boolean> {
+      const res = await db.execute(
+        sql`select lms.mfa_replace_complete(${a.userId}::uuid, ${a.challengeHash}::bytea, ${a.tenantId}::uuid, ${a.step}::bigint, ${a.sessionId}::uuid, ${a.ip}::inet, ${a.auditId}::uuid, ${a.now.toISOString()}::timestamptz) as ok`,
+      );
+      return (res.rows[0] as { ok: boolean }).ok;
+    },
+
+    async disable(
+      db: Executor,
+      a: SessionRef & { auditId: string; now: Date },
+    ): Promise<'ok' | 'required' | 'not_enrolled'> {
+      const res = await db.execute(
+        sql`select lms.mfa_disable(${a.userId}::uuid, ${a.tenantId}::uuid, ${a.sessionId}::uuid, ${a.ip}::inet, ${a.auditId}::uuid, ${a.now.toISOString()}::timestamptz) as s`,
+      );
+      return (res.rows[0] as { s: 'ok' | 'required' | 'not_enrolled' }).s;
     },
 
     async purgeChallenges(db: Executor, batch: number): Promise<number> {

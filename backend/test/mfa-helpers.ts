@@ -100,3 +100,68 @@ export async function challenge(t: TestApp, who: { host: string; email: string }
   }
   return c;
 }
+
+// ---- held-lock races (the technique of test/races.test.ts): a session of the test holds what the code under test needs, the
+// test waits until PostgreSQL says the code is BLOCKED, then commits.
+
+export async function blocked(owner: pg.Pool, like: string, count = 1, timeoutMs = 10_000) {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    const r = await owner.query(
+      `SELECT 1 FROM pg_stat_activity
+        WHERE datname = current_database() AND pid <> pg_backend_pid() AND wait_event_type = 'Lock' AND query ILIKE $1`,
+      [like],
+    );
+    if ((r.rowCount ?? 0) >= count) return;
+    await new Promise((res) => setTimeout(res, 25));
+  }
+  throw new Error(`fewer than ${count} statement(s) like ${like} blocked on a lock`);
+}
+
+export async function hold(owner: pg.Pool) {
+  const c = await owner.connect();
+  await c.query('BEGIN');
+  let open = true;
+  return {
+    q: (sql: string, params: unknown[] = []) => c.query(sql, params),
+    async commit() {
+      if (!open) return;
+      open = false;
+      await c.query('COMMIT');
+      c.release();
+    },
+  };
+}
+
+// ---- failure injection: while armed, EVERY audit row (college and platform log) fails to be written
+
+export async function auditFailureInjection(owner: pg.Pool, name: string) {
+  const table = `public.${name}_switch`;
+  const fn = `public.${name}_fn`;
+  const drop = async () => {
+    await owner.query(`DROP TRIGGER IF EXISTS zz_${name} ON lms.audit_log`);
+    await owner.query(`DROP TRIGGER IF EXISTS zz_${name} ON lms.platform_audit_log`);
+    await owner.query(`DROP FUNCTION IF EXISTS ${fn}()`);
+    await owner.query(`DROP TABLE IF EXISTS ${table}`);
+  };
+  await drop();
+  await owner.query(`CREATE TABLE ${table} (failing boolean NOT NULL)`);
+  await owner.query(`INSERT INTO ${table} VALUES (false)`);
+  await owner.query(`
+    CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER AS $$
+    BEGIN
+      IF (SELECT failing FROM ${table}) THEN
+        RAISE EXCEPTION 'injected failure: the audit row could not be written' USING ERRCODE = 'XX000';
+      END IF;
+      RETURN NEW;
+    END $$`);
+  for (const log of ['lms.audit_log', 'lms.platform_audit_log']) {
+    await owner.query(
+      `CREATE TRIGGER zz_${name} BEFORE INSERT ON ${log} FOR EACH ROW EXECUTE FUNCTION ${fn}()`,
+    );
+  }
+  return {
+    arm: (on: boolean) => owner.query(`UPDATE ${table} SET failing = $1`, [on]),
+    drop,
+  };
+}

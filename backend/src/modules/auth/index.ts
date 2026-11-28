@@ -14,6 +14,8 @@ export {
   MFA_ENROL_LINK_TTL_SECONDS,
   type MfaService,
 } from './auth.mfa.service';
+export { createMfaResetRepository, type MfaResetRepository } from './auth.mfa-reset.repository';
+export { createMfaResetService, type MfaResetService } from './auth.mfa-reset.service';
 export { assertPasswordAllowed } from './auth.password-policy';
 export { type AuthRepository, createAuthRepository } from './auth.repository';
 export { createAuthRoutes } from './auth.routes';

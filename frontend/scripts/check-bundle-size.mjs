@@ -271,6 +271,45 @@ if (!json && chartReport)
 Charts live in: ${chartReport.files.join(', ')}; the home page (with the learner dashboard) loads ${chartReport.home} KB gzip beyond the login page and no chart code`,
   );
 
+// ---- two-step sign-in (step 14c): every MFA chunk is lazy. Nothing of it may be loaded with the entry (the login page has
+//   almost no room left), and the QR library must not ride along in another chunk of the login load. The check has teeth only
+//   while the chunks exist, so their absence fails it too.
+const MFA_CHUNK = /(^|\/)(features\/mfa|shared\/mfa)\/|node_modules\/(\.pnpm\/)?qrcode-generator/;
+const mfaKeys = Object.keys(manifest).filter((k) => MFA_CHUNK.test(k));
+for (const needed of [
+  'MfaChallengeStep',
+  'EnrolPage',
+  'SecurityPage',
+  'MfaResetsPage',
+  'stepUpDialog',
+]) {
+  if (!mfaKeys.some((k) => k.includes(needed)))
+    failures.push(`the MFA chunk ${needed} is not a lazy chunk of its own in the manifest`);
+}
+for (const k of mfaKeys) {
+  if (loginKeys.has(k)) failures.push(`${k} is statically reachable from the entry (MFA is lazy)`);
+}
+// A static import does not leave a chunk behind to find: it is inlined. So the words of the MFA screens are looked for too.
+for (const f of loginFiles) {
+  const code = readFileSync(join(DIST, f), 'utf8');
+  for (const words of ['authenticator app', 'recovery code']) {
+    if (code.toLowerCase().includes(words))
+      failures.push(`the login page load contains MFA screen code ("${words}"): ${f}`);
+  }
+}
+const QR_MARKER = 'bad rs block'; // a message of the QR encoder that survives minification
+const qrFiles = [...new Set(allJsFiles())].filter((f) =>
+  readFileSync(join(DIST, f), 'utf8').includes(QR_MARKER),
+);
+if (qrFiles.length === 0) failures.push('the QR encoder is not in the build');
+for (const f of qrFiles) {
+  if (loginFiles.includes(f)) failures.push(`the login page loads the QR encoder: ${f}`);
+}
+if (!json)
+  console.log(
+    `MFA: ${mfaKeys.length} lazy chunks, none in the login load; QR encoder in ${qrFiles.join(', ')}`,
+  );
+
 if (failures.length > 0) {
   console.error(`\nBUNDLE BUDGET EXCEEDED:\n  - ${failures.join('\n  - ')}`);
   process.exit(1);

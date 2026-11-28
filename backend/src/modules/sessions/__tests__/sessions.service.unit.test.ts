@@ -124,6 +124,8 @@ describe('sessions service (fake repository)', () => {
       is_platform_admin: false,
       email: 'e',
       display_name: 'D',
+      mfa_enrolled: true,
+      mfa_verified_at: '2026-11-18T10:00:00Z',
     };
     const lookup = vi.fn().mockResolvedValueOnce(row).mockResolvedValueOnce(undefined);
     const service = createSessionsService({
@@ -140,6 +142,8 @@ describe('sessions service (fake repository)', () => {
       isPlatformAdmin: false,
       email: 'e',
       displayName: 'D',
+      mfaEnrolled: true,
+      mfaVerifiedAt: new Date('2026-11-18T10:00:00Z'),
     });
     expect(lookup).toHaveBeenCalledWith(tx, {
       tokenHash: hash,

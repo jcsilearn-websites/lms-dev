@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { assertTestDatabases, projectKey, TestGuardError } from '../../../test/guards';
 import {
   apiEnvSchema,
+  assertMfaPolicy,
   assertSslPolicy,
   assertVideoPolicy,
   cookieSettings,
@@ -248,6 +249,15 @@ describe('video provider policy', () => {
     SUPPRESSION_HASH_KEYS: `k1:${'p'.repeat(40)}`,
     MFA_ENCRYPTION_KEYS: `k1:${'m'.repeat(40)}`,
   };
+  it('two-step sign-in is enforced by default, and production refuses to switch it off', () => {
+    expect(parseApiEnv({ ...dev, NODE_ENV: 'development' }).MFA_ENFORCEMENT).toBe('required');
+    expect(
+      parseApiEnv({ ...dev, NODE_ENV: 'development', MFA_ENFORCEMENT: 'off' }).MFA_ENFORCEMENT,
+    ).toBe('off');
+    expect(() =>
+      assertMfaPolicy({ ...dev, NODE_ENV: 'production', MFA_ENFORCEMENT: 'off' }),
+    ).toThrow(/MFA_ENFORCEMENT/);
+  });
   it('the local provider (ffmpeg in the worker) is the default for development and test', () => {
     for (const NODE_ENV of ['development', 'test']) {
       expect(parseApiEnv({ ...dev, NODE_ENV }).VIDEO_PROVIDER).toBe('local');

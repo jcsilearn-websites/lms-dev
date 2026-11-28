@@ -39,6 +39,12 @@ const SAMPLE: Record<string, Record<string, unknown>> = {
   mfa_enrolled: {},
   mfa_recovery_used: { remaining: 9 },
   mfa_locked: {},
+  mfa_replaced: {},
+  mfa_disabled: {},
+  mfa_recovery_regenerated: {},
+  mfa_reset_requested: {},
+  mfa_reset_approved: {},
+  mfa_reset_done: {},
   grade_released: {
     course: 'Physics I',
     item: 'Lab 3',
@@ -121,6 +127,12 @@ describe('templates', () => {
         'mfa_enrolled',
         'mfa_recovery_used',
         'mfa_locked',
+        'mfa_replaced',
+        'mfa_disabled',
+        'mfa_recovery_regenerated',
+        'mfa_reset_requested',
+        'mfa_reset_approved',
+        'mfa_reset_done',
       ].includes(name);
       const platform = name === 'usage_closed';
       const out = render(

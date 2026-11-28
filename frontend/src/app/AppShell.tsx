@@ -147,6 +147,14 @@ export function AppShell() {
                   Account erasures
                 </Link>
               )}
+              {hostKind === 'admin' && has('platform.mfa_reset.manage') && (
+                <Link to={'/platform/mfa-resets' as '/'} className={navLink}>
+                  Two-step sign-in resets
+                </Link>
+              )}
+              <Link to={'/me/security' as '/'} className={navLink}>
+                Sign-in security
+              </Link>
               <ThemeChoice />
               <button
                 type="button"

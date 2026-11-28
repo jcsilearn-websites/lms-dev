@@ -1,5 +1,7 @@
 import type { MfaEnrolStartResponse, MfaStatus } from '../../contracts';
+import { STEP_UP_MAX_AGE_MS } from '../../core/authz';
 import type { ClientInfo, RequestContext } from '../../core/context';
+import { UnauthorizedError } from '../../core/errors';
 import {
   type MfaCrypto,
   MfaKeyError,
@@ -14,10 +16,14 @@ import type { Database } from '../../db/client';
 import {
   InvalidCredentialsError,
   InvalidTokenError,
+  MfaCannotDisableError,
   MfaChallengeInvalidError,
   MfaCodeInvalidError,
   MfaCodeRequiredError,
   MfaLockedError,
+  MfaNotEnrolledError,
+  MfaSetupEndedError,
+  MfaWrongCodeError,
 } from './auth.errors';
 import type { MfaRepository, SessionInput, SignedIn } from './auth.mfa.repository';
 import type { AuthRepository } from './auth.repository';
@@ -73,6 +79,14 @@ export function createMfaService(deps: {
   };
   const now = deps.now ?? (() => new Date());
   const tenantIdOf = (tenant: MfaTenant | null) => tenant?.id ?? null;
+  const sessionOf = (ctx: RequestContext) => ({
+    userId: ctx.userId,
+    sessionId: ctx.sessionId,
+    tenantId: ctx.tenantId,
+    ip: ctx.ip,
+  });
+  const hashCodes = (codes: string[]) =>
+    codes.map((c) => keys().hashRecoveryCode(normalizeRecoveryCode(c) as string));
 
   async function newSession(client: ClientInfo): Promise<{ token: string; input: SessionInput }> {
     const token = await generateToken();
@@ -302,9 +316,7 @@ export function createMfaService(deps: {
       const step = matchTotpStep(keys().open(attempt.userId, attempt.sealed), input.code, at);
       if (step === null) throw new MfaCodeInvalidError();
       const recoveryCodes = newRecoveryCodes();
-      const codes = recoveryCodes.map((c) =>
-        keys().hashRecoveryCode(normalizeRecoveryCode(c) as string),
-      );
+      const codes = hashCodes(recoveryCodes);
       const session = await newSession(input.client);
       const signed = await db.withoutTenant((exec) =>
         mfaRepo.enrolComplete(exec, {
@@ -342,7 +354,147 @@ export function createMfaService(deps: {
         enrolled: s.enrolledAt !== null,
         enrolledAt: s.enrolledAt?.toISOString() ?? null,
         recoveryCodesRemaining: s.recoveryCodesRemaining,
+        canDisable: s.canDisable,
       };
+    },
+
+    /**
+     * The second factor again, inside a session: a code of the app or a recovery code, throttled by the SAME per-person
+     * counters as sign-in. The session is then good for the sensitive actions for 10 minutes.
+     */
+    async stepUp(
+      ctx: RequestContext,
+      input: { code?: string | undefined; recoveryCode?: string | undefined },
+    ): Promise<{ validUntil: string }> {
+      if ((input.code === undefined) === (input.recoveryCode === undefined)) {
+        throw new MfaCodeRequiredError();
+      }
+      const at = now();
+      const session = sessionOf(ctx);
+      const validUntil = new Date(at.getTime() + STEP_UP_MAX_AGE_MS).toISOString();
+      if (input.code === undefined) {
+        const candidates = keys().recoveryCandidates(
+          normalizeRecoveryCode(input.recoveryCode as string) ?? '',
+        );
+        const r = await db.withoutTenant((exec) =>
+          mfaRepo.stepUpRecovery(exec, { ...session, candidates, auditId: newId(), now: at }),
+        );
+        if (r.status === 'locked') throw new MfaLockedError(r.retryAfterSeconds);
+        if (r.status === 'wrong') throw new MfaWrongCodeError();
+        if (r.status === 'not_enrolled') throw new MfaNotEnrolledError();
+        if (r.status !== 'ok') throw new UnauthorizedError();
+        return { validUntil };
+      }
+      // charged and audited BEFORE the code is looked at
+      const attempt = await db.withoutTenant((exec) =>
+        mfaRepo.stepUpAttempt(exec, {
+          ...session,
+          auditId: newId(),
+          lockAuditId: newId(),
+          now: at,
+        }),
+      );
+      if (attempt.status === 'locked') throw new MfaLockedError(attempt.retryAfterSeconds);
+      if (attempt.status === 'not_enrolled') throw new MfaNotEnrolledError();
+      if (attempt.status !== 'ok') throw new UnauthorizedError();
+      const step = matchTotpStep(keys().open(ctx.userId, attempt.sealed), input.code, at);
+      if (step === null) throw new MfaWrongCodeError();
+      const result = await db.withoutTenant((exec) =>
+        mfaRepo.stepUpAccept(exec, { ...session, step, auditId: newId(), now: at }),
+      );
+      if (result === 'replayed') throw new MfaWrongCodeError();
+      if (result !== 'ok') throw new UnauthorizedError();
+      return { validUntil };
+    },
+
+    /** A new authenticator app (the route asks for a step-up): the secret is pending until its first code. */
+    async startReplacement(
+      ctx: RequestContext,
+    ): Promise<MfaEnrolStartResponse & { challengeToken: string }> {
+      const secret = newTotpSecret();
+      const challengeToken = await generateToken();
+      const started = await db.withoutTenant((exec) =>
+        mfaRepo.replaceStart(exec, {
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
+          id: newId(),
+          challengeHash: hashToken(challengeToken),
+          sealed: keys().seal(ctx.userId, secret),
+          ttlSeconds: MFA_ENROL_CHALLENGE_TTL_SECONDS,
+          ip: ctx.ip,
+          userAgent: ctx.userAgent,
+          auditId: newId(),
+          now: now(),
+        }),
+      );
+      if (!started) throw new MfaNotEnrolledError();
+      return {
+        secret: base32Encode(secret),
+        otpauthUri: otpauthUri({ secret, account: ctx.email, issuer: ISSUER }),
+        challengeToken,
+      };
+    },
+
+    /** The new app showed a right code: it replaces the old one; every OTHER session ends. */
+    async confirmReplacement(
+      ctx: RequestContext,
+      input: { challengeToken: string | undefined; code: string },
+    ): Promise<void> {
+      if (!input.challengeToken) throw new MfaSetupEndedError();
+      const challengeHash = hashToken(input.challengeToken);
+      const at = now();
+      const sealed = await db.withoutTenant((exec) =>
+        mfaRepo.replaceAttempt(exec, {
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
+          challengeHash,
+          max: MFA_TRIES_PER_CHALLENGE,
+          ip: ctx.ip,
+          auditId: newId(),
+          now: at,
+        }),
+      );
+      if (!sealed) throw new MfaSetupEndedError();
+      const step = matchTotpStep(keys().open(ctx.userId, sealed), input.code, at);
+      if (step === null) throw new MfaWrongCodeError();
+      const done = await db.withoutTenant((exec) =>
+        mfaRepo.replaceComplete(exec, {
+          ...sessionOf(ctx),
+          challengeHash,
+          step,
+          auditId: newId(),
+          now: at,
+        }),
+      );
+      if (!done) throw new MfaSetupEndedError();
+    },
+
+    /** Ten new recovery codes; the earlier ones stop working. */
+    async regenerateRecoveryCodes(ctx: RequestContext): Promise<string[]> {
+      const recoveryCodes = newRecoveryCodes();
+      const codes = hashCodes(recoveryCodes);
+      const done = await db.withoutTenant((exec) =>
+        mfaRepo.regenerateCodes(exec, {
+          userId: ctx.userId,
+          tenantId: ctx.tenantId,
+          codeIds: codes.map(() => newId()),
+          codes,
+          ip: ctx.ip,
+          auditId: newId(),
+          now: now(),
+        }),
+      );
+      if (!done) throw new MfaNotEnrolledError();
+      return recoveryCodes;
+    },
+
+    /** Removes the factor. Refused while any role of the person requires one. */
+    async disable(ctx: RequestContext): Promise<void> {
+      const result = await db.withoutTenant((exec) =>
+        mfaRepo.disable(exec, { ...sessionOf(ctx), auditId: newId(), now: now() }),
+      );
+      if (result === 'required') throw new MfaCannotDisableError();
+      if (result === 'not_enrolled') throw new MfaNotEnrolledError();
     },
   };
 }

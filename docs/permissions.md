@@ -75,8 +75,9 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 | `platform.usage.read` | yes |  |  |  |  |  | Read the monthly usage of every college (aggregates only, admin host) |
 | `platform.email.manage` | yes |  |  |  |  |  | Manage email delivery: clear any suppressed address, set a college's verified From address (admin host) |
 | `platform.account_erasure.manage` | yes |  |  |  |  |  | File, approve (a different platform administrator than the one who filed it), reject or cancel the erasure of a global account that has no active membership (admin host) |
+| `platform.mfa_reset.manage` | yes |  |  |  |  |  | Reset the second factor of a person who lost it: file, approve (a third person), reject or cancel (admin host) |
 
-54 permissions. Notes:
+55 permissions. Notes:
 
 - An institution admin has read-only `content.view` on every course of the college but edits, publishes, creates assessments and grades only as a participant of that course.
 - "in the offering": the permission comes from the caller's participation in that offering (instructor, assistant or learner), or, for read access, from an account-level permission. The route only requires a session; the service answers 404 to a member who does not participate (offerings cannot be enumerated) and 403 to a participant without the permission.
@@ -84,7 +85,7 @@ Account roles are `platform_admin` (admin host only), `institution_admin` and `m
 
 ## Routes
 
-Every route declares exactly one of `config.permission`, `config.authenticated` or `config.public` (the app refuses to start otherwise).
+Every route declares exactly one of `config.permission`, `config.authenticated` or `config.public` (the app refuses to start otherwise). **+ step-up**: a person with two-step sign-in must have passed their second factor less than 10 minutes ago, otherwise 403 `mfa_step_up_required` (docs/adr/0026-mfa.md).
 
 | Method | Path | Authorization |
 |---|---|---|
@@ -99,16 +100,16 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/analytics/settings` | `report.view` |
 | PATCH | `/api/analytics/settings` | `tenant.manage` |
 | GET | `/api/audit` | `audit.read` |
-| POST | `/api/auth/invites` | `member.invite` |
+| POST | `/api/auth/invites` | `member.invite` + step-up (for an institution admin invite) |
 | POST | `/api/auth/invites/accept` | public |
 | POST | `/api/auth/login` | public |
 | POST | `/api/auth/logout` | any signed-in user |
 | GET | `/api/auth/me` | any signed-in user |
-| POST | `/api/auth/members/:userId/unlock` | `member.unlock` or `platform.user.unlock` |
+| POST | `/api/auth/members/:userId/unlock` | `member.unlock` or `platform.user.unlock` + step-up |
 | POST | `/api/auth/mfa/enrol/confirm` | public |
 | POST | `/api/auth/mfa/enrol/start` | public |
 | POST | `/api/auth/mfa/verify` | public |
-| POST | `/api/auth/password/change` | any signed-in user |
+| POST | `/api/auth/password/change` | any signed-in user + step-up |
 | POST | `/api/auth/password/forgot` | public |
 | POST | `/api/auth/password/reset` | public |
 | GET | `/api/auth/sessions` | any signed-in user |
@@ -189,21 +190,26 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | POST | `/api/me/erasure/cancel` | any signed-in user |
 | GET | `/api/me/erasure/preview` | any signed-in user |
 | GET | `/api/me/mfa` | any signed-in user |
+| POST | `/api/me/mfa/disable` | any signed-in user + step-up |
+| POST | `/api/me/mfa/recovery-codes` | any signed-in user + step-up |
+| POST | `/api/me/mfa/replace/confirm` | any signed-in user + step-up |
+| POST | `/api/me/mfa/replace/start` | any signed-in user + step-up |
+| POST | `/api/me/mfa/step-up` | any signed-in user |
 | GET | `/api/me/notification-preferences` | any signed-in user |
 | PUT | `/api/me/notification-preferences` | any signed-in user |
 | GET | `/api/me/profile` | `profile.read_own` |
 | GET | `/api/me/progress` | any signed-in user |
 | GET | `/api/me/teaching/dashboard` | any signed-in user |
 | GET | `/api/members` | `member.read` |
-| DELETE | `/api/members/:userId` | `member.remove` |
+| DELETE | `/api/members/:userId` | `member.remove` + step-up |
 | GET | `/api/members/:userId` | `member.read` |
 | GET | `/api/members/:userId/profile` | `profile.manage` |
 | PATCH | `/api/members/:userId/profile` | `profile.manage` |
 | POST | `/api/members/:userId/profile/section` | `profile.manage` |
-| POST | `/api/members/:userId/reactivate` | `member.suspend` |
+| POST | `/api/members/:userId/reactivate` | `member.suspend` + step-up |
 | POST | `/api/members/:userId/resend-invite` | `member.invite` |
-| PATCH | `/api/members/:userId/role` | `member.update_role` |
-| POST | `/api/members/:userId/suspend` | `member.suspend` |
+| PATCH | `/api/members/:userId/role` | `member.update_role` + step-up |
+| POST | `/api/members/:userId/suspend` | `member.suspend` + step-up |
 | GET | `/api/notifications` | any signed-in user |
 | POST | `/api/notifications/:id/read` | any signed-in user |
 | POST | `/api/notifications/read-all` | any signed-in user |
@@ -251,7 +257,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/offerings/:id/gradebook/review` | `gradebook.read` in the offering |
 | PATCH | `/api/offerings/:id/gradebook/settings` | `gradebook.manage` in the offering |
 | POST | `/api/offerings/:id/gradebook/submit` | `gradebook.manage` in the offering |
-| POST | `/api/offerings/:id/gradebook/unlock` | `gradebook.approve` in the offering |
+| POST | `/api/offerings/:id/gradebook/unlock` | `gradebook.approve` in the offering + step-up |
 | DELETE | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
 | GET | `/api/offerings/:id/items/:itemId` | `content.view` in the offering |
 | PATCH | `/api/offerings/:id/items/:itemId` | `course.edit` in the offering |
@@ -329,30 +335,35 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/offerings/:id/videos/:videoId/upload` | `course.edit` in the offering |
 | PATCH | `/api/offerings/:id/videos/:videoId/upload` | `course.edit` in the offering |
 | GET | `/api/platform/account-erasures` | `platform.account_erasure.manage` |
-| POST | `/api/platform/account-erasures` | `platform.account_erasure.manage` |
-| POST | `/api/platform/account-erasures/:id/approve` | `platform.account_erasure.manage` |
-| POST | `/api/platform/account-erasures/:id/cancel` | `platform.account_erasure.manage` |
-| POST | `/api/platform/account-erasures/:id/reject` | `platform.account_erasure.manage` |
+| POST | `/api/platform/account-erasures` | `platform.account_erasure.manage` + step-up |
+| POST | `/api/platform/account-erasures/:id/approve` | `platform.account_erasure.manage` + step-up |
+| POST | `/api/platform/account-erasures/:id/cancel` | `platform.account_erasure.manage` + step-up |
+| POST | `/api/platform/account-erasures/:id/reject` | `platform.account_erasure.manage` + step-up |
 | GET | `/api/platform/audit` | `platform.audit.read` |
 | GET | `/api/platform/email/suppressions` | `platform.email.manage` |
-| DELETE | `/api/platform/email/suppressions/:id` | `platform.email.manage` |
+| DELETE | `/api/platform/email/suppressions/:id` | `platform.email.manage` + step-up |
+| GET | `/api/platform/mfa-resets` | `platform.mfa_reset.manage` |
+| POST | `/api/platform/mfa-resets` | `platform.mfa_reset.manage` + step-up |
+| POST | `/api/platform/mfa-resets/:id/approve` | `platform.mfa_reset.manage` + step-up |
+| POST | `/api/platform/mfa-resets/:id/cancel` | `platform.mfa_reset.manage` + step-up |
+| POST | `/api/platform/mfa-resets/:id/reject` | `platform.mfa_reset.manage` + step-up |
 | GET | `/api/platform/notifications` | `platform.usage.read` |
 | POST | `/api/platform/notifications/read` | `platform.usage.read` |
 | GET | `/api/platform/tenants` | `platform.tenant.read` |
-| POST | `/api/platform/tenants` | `platform.tenant.manage` |
+| POST | `/api/platform/tenants` | `platform.tenant.manage` + step-up |
 | GET | `/api/platform/tenants/:id` | `platform.tenant.read` |
-| PATCH | `/api/platform/tenants/:id` | `platform.tenant.manage` |
-| POST | `/api/platform/tenants/:id/admin-invite` | `platform.tenant.manage` |
-| PUT | `/api/platform/tenants/:id/email-sender` | `platform.email.manage` |
-| GET | `/api/platform/tenants/:id/members` | `platform.tenant.read` |
-| POST | `/api/platform/tenants/:id/reactivate` | `platform.tenant.manage` |
-| POST | `/api/platform/tenants/:id/suspend` | `platform.tenant.manage` |
+| PATCH | `/api/platform/tenants/:id` | `platform.tenant.manage` + step-up |
+| POST | `/api/platform/tenants/:id/admin-invite` | `platform.tenant.manage` + step-up |
+| PUT | `/api/platform/tenants/:id/email-sender` | `platform.email.manage` + step-up |
+| GET | `/api/platform/tenants/:id/members` | `platform.tenant.read` + step-up |
+| POST | `/api/platform/tenants/:id/reactivate` | `platform.tenant.manage` + step-up |
+| POST | `/api/platform/tenants/:id/suspend` | `platform.tenant.manage` + step-up |
 | GET | `/api/platform/usage` | `platform.usage.read` |
 | GET | `/api/platform/usage/export` | `platform.usage.read` |
 | GET | `/api/privacy/erasure-requests` | `privacy.erasure.approve` |
-| POST | `/api/privacy/erasure-requests/:id/approve` | `privacy.erasure.approve` |
-| POST | `/api/privacy/erasure-requests/:id/cancel` | `privacy.erasure.approve` |
-| POST | `/api/privacy/erasure-requests/:id/reject` | `privacy.erasure.approve` |
+| POST | `/api/privacy/erasure-requests/:id/approve` | `privacy.erasure.approve` + step-up |
+| POST | `/api/privacy/erasure-requests/:id/cancel` | `privacy.erasure.approve` + step-up |
+| POST | `/api/privacy/erasure-requests/:id/reject` | `privacy.erasure.approve` + step-up |
 | GET | `/api/programs` | `academic.read` |
 | POST | `/api/programs` | `academic.manage` |
 | DELETE | `/api/programs/:id` | `academic.manage` |

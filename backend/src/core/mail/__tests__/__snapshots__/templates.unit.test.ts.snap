@@ -663,6 +663,39 @@ This is a security email about your account at St. Joseph’s College on JCS iLe
 }
 `;
 
+exports[`templates > mfa_disabled: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Two-step sign-in was turned off</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Two-step sign-in was turned off</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">Signing in to your account now needs your password only.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">If this was not you, reset your password now and tell your college&#39;s administrator.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/forgot-password" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Reset your password</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/forgot-password</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Two-step sign-in was turned off",
+  "text": "Two-step sign-in was turned off
+
+Signing in to your account now needs your password only.
+If this was not you, reset your password now and tell your college's administrator.
+
+Reset your password:
+https://stjosephs.jcs-ilearn.example/forgot-password
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
 exports[`templates > mfa_enrol: HTML + text snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -764,6 +797,39 @@ This is a security email about your account at St. Joseph’s College on JCS iLe
 }
 `;
 
+exports[`templates > mfa_recovery_regenerated: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>New recovery codes were made</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">New recovery codes were made</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">New recovery codes were made for your account. The earlier codes no longer work.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">If this was not you, reset your password now.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/forgot-password" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Reset your password</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/forgot-password</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "New recovery codes were made",
+  "text": "New recovery codes were made
+
+New recovery codes were made for your account. The earlier codes no longer work.
+If this was not you, reset your password now.
+
+Reset your password:
+https://stjosephs.jcs-ilearn.example/forgot-password
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
 exports[`templates > mfa_recovery_used: HTML + text snapshot 1`] = `
 {
   "html": "<!doctype html>
@@ -792,6 +858,130 @@ If this was not you, reset your password now.
 
 Reset your password:
 https://stjosephs.jcs-ilearn.example/forgot-password
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
+exports[`templates > mfa_replaced: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your authenticator app was replaced</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your authenticator app was replaced</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">A different authenticator app now gives the sign-in codes of your account, and your other sessions were signed out.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">If this was not you, reset your password now and tell your college&#39;s administrator.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/forgot-password" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Reset your password</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/forgot-password</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Your authenticator app was replaced",
+  "text": "Your authenticator app was replaced
+
+A different authenticator app now gives the sign-in codes of your account, and your other sessions were signed out.
+If this was not you, reset your password now and tell your college's administrator.
+
+Reset your password:
+https://stjosephs.jcs-ilearn.example/forgot-password
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
+exports[`templates > mfa_reset_approved: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your two-step sign-in will be reset in 24 hours</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">The reset was approved</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">In 24 hours the two-step sign-in of your account is removed, every session ends and your password stops working.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">To stop it, sign in with your authenticator app or a recovery code before then. If you did not ask for this, tell your administrator now.</p>
+
+
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Your two-step sign-in will be reset in 24 hours",
+  "text": "The reset was approved
+
+In 24 hours the two-step sign-in of your account is removed, every session ends and your password stops working.
+To stop it, sign in with your authenticator app or a recovery code before then. If you did not ask for this, tell your administrator now.
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
+exports[`templates > mfa_reset_done: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your two-step sign-in was reset</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">Your two-step sign-in was reset</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">Your authenticator app and recovery codes were removed, you were signed out everywhere and your old password no longer works.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">Choose a new password. If your role needs it, you will then be asked to set up two-step sign-in again.</p>
+
+<p style="margin:20px 0"><a href="https://stjosephs.jcs-ilearn.example/forgot-password" style="display:inline-block;background:#1d4ed8;color:#ffffff;text-decoration:none;padding:12px 20px;border-radius:6px;font-weight:bold">Choose a new password</a></p>
+<p style="margin:0 0 12px;font-size:13px;color:#475569;word-break:break-all">https://stjosephs.jcs-ilearn.example/forgot-password</p>
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "Your two-step sign-in was reset",
+  "text": "Your two-step sign-in was reset
+
+Your authenticator app and recovery codes were removed, you were signed out everywhere and your old password no longer works.
+Choose a new password. If your role needs it, you will then be asked to set up two-step sign-in again.
+
+Choose a new password:
+https://stjosephs.jcs-ilearn.example/forgot-password
+
+--
+This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",
+}
+`;
+
+exports[`templates > mfa_reset_requested: HTML + text snapshot 1`] = `
+{
+  "html": "<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>A reset of your two-step sign-in was requested</title></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 12px"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:560px;background:#ffffff;border-radius:8px;overflow:hidden">
+<tr><td style="background:#1d4ed8;color:#ffffff;padding:16px 24px;font-size:16px;font-weight:bold">St. Joseph’s College on JCS iLearn</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 16px;font-size:20px;line-height:1.3">A reset of your two-step sign-in was requested</h1>
+<p style="margin:0 0 12px;font-size:15px;line-height:1.5">A platform administrator asked to reset the two-step sign-in of your account. A second administrator must approve it first.</p><p style="margin:0 0 12px;font-size:15px;line-height:1.5">If you still have your authenticator app or a recovery code, sign in: that cancels the request. If you did not ask for this, tell your administrator now.</p>
+
+
+
+</td></tr>
+<tr><td style="padding:16px 24px;border-top:1px solid #e2e8f0;font-size:12px;color:#475569"><p style="margin:0 0 6px">This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.</p></td></tr>
+</table></td></tr></table>
+</body></html>",
+  "subject": "A reset of your two-step sign-in was requested",
+  "text": "A reset of your two-step sign-in was requested
+
+A platform administrator asked to reset the two-step sign-in of your account. A second administrator must approve it first.
+If you still have your authenticator app or a recovery code, sign in: that cancels the request. If you did not ask for this, tell your administrator now.
 
 --
 This is a security email about your account at St. Joseph’s College on JCS iLearn. It cannot be switched off.",

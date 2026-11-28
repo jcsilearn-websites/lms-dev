@@ -20,7 +20,7 @@ describe('worker lifecycle', () => {
   it('boots, connects to the database and shuts down gracefully (idempotent stop)', async () => {
     const worker = await startWorker(env(), silent);
     // the purges are scheduled: a system job per time slot on the queue
-    expect(worker.scheduled).toBe(19);
+    expect(worker.scheduled).toBe(20);
     expect(Object.keys(worker.handlers).sort()).toEqual([
       'analytics.rollup', // the dashboard rollups: scheduled
       'assessments.sweep', // auto-submit: scheduled every few seconds
@@ -36,6 +36,7 @@ describe('worker lifecycle', () => {
       'imports.reap',
       'invites.send', // enqueued by the import: not scheduled
       'jobs.purge',
+      'mfa.reset_run', // approved two-factor resets run, undecided ones expire: scheduled
       'notifications.purge', // read notifications: scheduled
       'notifications.scan', // reminders, digests, summaries: scheduled
       'privacy.erasure_run', // erasures that are due, undecided requests that expired, the ledger: scheduled

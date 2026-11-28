@@ -211,6 +211,8 @@ async function main(): Promise<void> {
     );
 
     const env = parseApiEnv({
+      // benchmarks sign in with a password alone
+      MFA_ENFORCEMENT: 'off',
       ...process.env,
       LOG_LEVEL: 'silent',
       RATE_LIMIT_LOGIN_PER_IP: '100000',

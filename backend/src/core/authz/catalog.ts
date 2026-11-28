@@ -56,6 +56,7 @@ export const PERMISSION_GROUPS = {
     'platform.usage.read',
     'platform.email.manage',
     'platform.account_erasure.manage',
+    'platform.mfa_reset.manage',
   ],
 } as const;
 
@@ -138,6 +139,8 @@ export const PERMISSION_DESCRIPTIONS: Readonly<Record<Permission, string>> = {
   'notification.settings.manage':
     "Set the college's notification defaults, quiet hours, digest hour and email sender name",
   'email.suppression.manage': "See and clear bouncing email addresses of the college's members",
+  'platform.mfa_reset.manage':
+    'Reset the second factor of a person who lost it: file, approve (a third person), reject or cancel (admin host)',
   'platform.account_erasure.manage':
     'File, approve (a different platform administrator than the one who filed it), reject or cancel the erasure of a global account that has no active membership (admin host)',
   'privacy.erasure.approve':

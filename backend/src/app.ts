@@ -59,6 +59,16 @@ export interface AppDeps {
 }
 
 /**
+ * Which addresses of a request are believed. With a hop count only the entries the proxies themselves appended are: hop 0 is the
+ * socket, each further one the next X-Forwarded-For entry from the RIGHT, and the first untrusted one is the client's address.
+ */
+function trustedProxies(env: Pick<ApiEnv, 'TRUST_PROXY' | 'TRUST_PROXY_HOPS'>) {
+  const hops = env.TRUST_PROXY_HOPS;
+  if (!env.TRUST_PROXY || hops === undefined) return env.TRUST_PROXY;
+  return (_address: string, hop: number) => hop < hops;
+}
+
+/**
  * Builds (but does not start) the API: composition root that wires every module's routes.
  * Callers `listen()` (server.ts) or use `inject()` (tests).
  */
@@ -72,7 +82,7 @@ export function buildApp({ env, db, logger, emailProvider, now }: AppDeps) {
     requestIdHeader: false,
     genReqId,
     bodyLimit: env.BODY_LIMIT_BYTES,
-    trustProxy: env.TRUST_PROXY,
+    trustProxy: trustedProxies(env),
     forceCloseConnections: 'idle',
     // the signed storage URLs carry a token of ~250 characters in the path
     routerOptions: { maxParamLength: 2048 },
@@ -136,7 +146,11 @@ export function buildApp({ env, db, logger, emailProvider, now }: AppDeps) {
     }),
     cookieName: modules.config.cookie.name,
   });
-  registerRoutePolicy(app);
+  // step-up uses the same clock as every other decision of the second factor
+  registerRoutePolicy(app, {
+    enforced: modules.config.mfa.enforced,
+    now: now ?? (() => new Date()),
+  });
   // Activity (one write per user and local day): recorded AFTER the response, so a request never waits for it. Polling and
   // media-segment requests do not count as a person being active.
   app.addHook('onResponse', async (request, reply) => {

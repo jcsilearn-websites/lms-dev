@@ -35,6 +35,13 @@ export function registerHttpTelemetry(app: FastifyInstance): void {
       1,
       labels,
     );
+    // the status class cannot tell a refused-for-rate answer from any other 4xx
+    if (status === 429) {
+      counter(
+        'lms_http_rate_limited_total',
+        '429 answers (rate limits, code lockouts) by route',
+      ).add(1, { route });
+    }
     histogram('lms_http_request_duration_seconds', 'HTTP request duration', LATENCY_BUCKETS).record(
       reply.elapsedTime / 1000,
       labels,

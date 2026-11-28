@@ -64,6 +64,7 @@ video session cache are deliberately non-durable.
 | p95 latency regression (L1-L4)               | over objective for 30 min                                                                                                                       |
 | Circuit breaker opened                       | `increase(lms_circuit_breaker_transitions_total{to="open"}[15m]) > 0`, with the circuit name                                                    |
 | Dead jobs or dead emails                     | `lms_jobs_dead` or `lms_email_outbox_dead` increasing                                                                                           |
+| Rate limiting biting                         | `lms_http_rate_limited_total` by route rising, above all on `/api/auth/login` (a lab behind one address)                                        | raise the limit or look for abuse (`docs/system-design-review.md`) |
 | Rollup lag                                   | `lms_rollup_lag_seconds` > 30 min                                                                                                               |
 | Video backlog                                | `lms_video_oldest_age_seconds` > 60 min                                                                                                         |
 | Rate-limit store failing                     | `increase(lms_rate_limit_store_errors_total[10m]) > 0` (limits degrade to per instance)                                                         |
