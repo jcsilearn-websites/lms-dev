@@ -204,6 +204,9 @@ jobs:
       - name: Install Chromium for Playwright
         run: pnpm --filter @lms/frontend exec playwright install --with-deps chromium
       - run: pnpm e2e
+      # The client demo (docs/demo-walkthrough.md): seeds the demo college, then every demo role signs in and loads its screens
+      - name: Demo college, every role in the browser
+        run: E2E_SKIP_BUILD=1 pnpm e2e:demo
       # The load-test harness against the same stack at a tiny scale: all six scenarios through the real API (the dist built by the line above is reused)
       - name: Load-test harness smoke run (tiny scale, real stack)
         run: E2E_SKIP_BUILD=1 pnpm loadtest:smoke

@@ -308,7 +308,8 @@ its own schema (no RLS / hand-written migrations / tenant column) - see ADR 0010
 Full reasoning: `docs/adr/0013-courses-content-storage.md`. Numbers: `docs/benchmarks.md`.
 - **Domain**: `courses` (department OPTIONAL) -> `course_offerings` (draft | published | archived) -> `offering_sections` +
   `course_participants` (instructor | assistant | learner; `source` manual | section). Admin-managed participants for now:
-  instructors and assistants only READ the class list (`participant.read`).
+  instructors and assistants only READ the class list (`participant.read`; the offering's SECTION list, the filter of the class pages, is read with it,
+  adding / removing a section stays `offering.manage`).
 - **`scope: 'offering'` routes** (`config: { permission, scope: 'offering' }`): the hook only needs a session; the service
   puts the access CTE (`courses/courses.access.ts`, exported from the courses index) into the SAME statement as the work:
   non-participant -> 404 `offering_not_found`, participant lacking the permission -> 403. Administrators (`course.read`)
@@ -942,6 +943,9 @@ spec 20 uses a SECOND API instance (ports 3101 / 4175, `withStack(..., { mfa: tr
 - Two-step sign-in is never switched off: the admin is enrolled through the product flow; secret and recovery codes are saved in `.demo/` (git-ignored).
 - `demo:reset` uses `deleteTenantCascade`: **a new tenant-owned table goes into `db/dev-cleanup.ts`** (`test/demo.seed.test.ts`, serial, fails when a row of the college survives in any table with `tenant_id`).
 - A UI label or flow named in the walkthrough that changes needs the walkthrough changed.
+- **Tests**: `test/demo.seed.test.ts` (serial) holds the EXACT people and objects, written out by hand: a change to the seed changes it. `pnpm e2e:demo`
+  (`frontend/e2e/demo`, CI `e2e` job) seeds the demo into a fresh `lms_e2e` BEFORE the worker starts, then every demo role signs in (two-step enforcement on) and
+  loads its screens with no console or network error.
 
 ## Launch checklist (before the first production college goes live)
 
@@ -1151,6 +1155,7 @@ pnpm --filter @lms/backend run bench:ratelimit  the shared limiter: store latenc
 pnpm mfa:reset --email x@y.z   break glass: remove one account's second factor (owner connection, docs/mfa-runbook.md)
 pnpm audit:deps          dependency audit gate (high / critical fail unless an unexpired reviewed exception exists in audit-allowlist.json)
 pnpm --filter @lms/backend run bench:video    transcode speed + GB per viewing hour per rendition + playback-session latency (needs ffmpeg)
+pnpm e2e:demo            the demo college in the browser, every role (lms_e2e; E2E_SKIP_BUILD=1 reuses dist)
 pnpm e2e                 Playwright E2E (lms_e2e)   | pnpm bundle:check (after build) | pnpm lighthouse | pnpm screenshots
 ```
 Per package: `pnpm --filter @lms/backend run <script>` / `pnpm --filter @lms/frontend run <script>`.

@@ -27,6 +27,7 @@ let bystander: Record<string, number>;
 /** measured as soon as the first seed is done: later tests sign in (security mail) and attach videos */
 let seeded: Record<string, unknown>;
 let queuedAfterSeed: number;
+let counted: Awaited<ReturnType<typeof inventory>>;
 
 /** Rows of one college in every table that has a tenant_id (the whole database, not a list somebody has to keep). */
 async function rowsOf(tenantId: string): Promise<Record<string, number>> {
@@ -90,6 +91,7 @@ beforeAll(async () => {
   };
   first = await seedDemo({ slug: SLUG, env, password: PASSWORD, log: () => {} });
   seeded = await shape(first.tenantId);
+  counted = await inventory(first.tenantId);
   queuedAfterSeed = (
     await owner.query(
       "SELECT count(*)::int AS n FROM lms.email_outbox WHERE tenant_id = $1 AND status = 'queued'",
@@ -104,7 +106,144 @@ afterAll(async () => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
+/** Everything the seed makes, counted in the database. */
+async function inventory(tenantId: string) {
+  const one = async (sql: string) =>
+    (await owner.query(`SELECT count(*)::int AS n FROM ${sql}`, [tenantId])).rows[0].n as number;
+  const rows = async (sql: string) => (await owner.query(sql, [tenantId])).rows;
+  const mine = (table: string, extra = '') => one(`lms.${table} WHERE tenant_id = $1 ${extra}`);
+  return {
+    people: {
+      accounts: await mine('tenant_memberships', "AND status = 'active'"),
+      admins: await mine('tenant_memberships', "AND role = 'institution_admin'"),
+      studentProfiles: await mine('member_profiles', "AND profile_type = 'student'"),
+      facultyProfiles: await mine('member_profiles', "AND profile_type = 'faculty'"),
+    },
+    // DIFFERENT people by what they do in a course
+    roles: await rows(
+      `SELECT participation::text AS role, count(DISTINCT membership_id)::int AS people, count(*)::int AS enrolments
+         FROM lms.course_participants WHERE tenant_id = $1 AND status = 'active' GROUP BY 1 ORDER BY 1`,
+    ),
+    structure: {
+      departments: await mine('departments'),
+      programs: await mine('programs'),
+      batches: await mine('batches'),
+      sections: await mine('sections'),
+      academicYears: await mine('academic_years'),
+      terms: await mine('terms'),
+      gradeScales: await mine('grade_scales'),
+      gradeBands: await mine('grade_scale_bands'),
+      courses: await mine('courses'),
+      publishedOfferings: await mine('course_offerings', "AND status = 'published'"),
+      modules: await mine('content_modules'),
+    },
+    content: await rows(
+      `SELECT c.code, i.kind::text AS kind, count(*)::int AS items
+         FROM lms.content_items i
+         JOIN lms.content_modules m ON m.tenant_id = i.tenant_id AND m.id = i.module_id
+         JOIN lms.course_offerings o ON o.tenant_id = m.tenant_id AND o.id = m.offering_id
+         JOIN lms.courses c ON c.tenant_id = o.tenant_id AND c.id = o.course_id
+        WHERE i.tenant_id = $1 GROUP BY 1, 2 ORDER BY 1, 2`,
+    ),
+    work: (
+      await rows(
+        `SELECT title FROM lms.content_items WHERE tenant_id = $1 AND kind IN ('assessment', 'assignment')
+          ORDER BY title`,
+      )
+    ).map((r) => r.title),
+    assessed: {
+      questions: await mine('questions'),
+      quizSlots: await mine('assessment_slots'),
+      rubrics: await mine('rubrics'),
+      assignmentsWithRubric: await mine('assignments', 'AND rubric_version_id IS NOT NULL'),
+      gradebookCategories: await mine('gradebook_categories'),
+      gradebookItems: await mine('gradebook_items'),
+      manualMarks: await mine('manual_marks'),
+    },
+    history: {
+      attempts: await mine('attempts', "AND status = 'graded'"),
+      submissions: await mine('submissions'),
+      handedInFiles: await mine('submission_files'),
+      gradesReleased: await mine('assignment_grades', 'AND released_at IS NOT NULL'),
+      gradesWaiting: await mine('assignment_grades', 'AND released_at IS NULL'),
+      progressRows: await mine('item_progress'),
+    },
+    flagged: await rows(
+      `SELECT c.code, count(*)::int AS learners FROM lms.atrisk_flags($1, now()) f
+         JOIN lms.course_offerings o ON o.id = f.offering_id
+         JOIN lms.courses c ON c.id = o.course_id
+        WHERE f.f_behind OR f.f_missed OR f.f_low OR f.f_inactive GROUP BY 1 ORDER BY 1`,
+    ),
+  };
+}
+
 describe('the seed', () => {
+  it('holds exactly the people and objects the walkthrough promises', () => {
+    // written out by hand, on purpose: nothing here is computed from the seed's own data
+    expect(counted).toEqual({
+      people: { accounts: 34, admins: 1, studentProfiles: 30, facultyProfiles: 3 },
+      roles: [
+        { role: 'assistant', people: 1, enrolments: 1 },
+        { role: 'instructor', people: 2, enrolments: 2 },
+        { role: 'learner', people: 30, enrolments: 60 },
+      ],
+      structure: {
+        departments: 2,
+        programs: 1,
+        batches: 1,
+        sections: 2,
+        academicYears: 1,
+        terms: 1,
+        gradeScales: 1,
+        gradeBands: 6,
+        courses: 2,
+        publishedOfferings: 2,
+        modules: 5,
+      },
+      content: [
+        { code: 'CS201', kind: 'assessment', items: 2 },
+        { code: 'CS201', kind: 'assignment', items: 2 },
+        { code: 'CS201', kind: 'link', items: 1 },
+        { code: 'CS201', kind: 'text', items: 5 },
+        { code: 'CS201', kind: 'video', items: 2 },
+        { code: 'ME101', kind: 'assessment', items: 1 },
+        { code: 'ME101', kind: 'assignment', items: 1 },
+        { code: 'ME101', kind: 'text', items: 3 },
+        { code: 'ME101', kind: 'video', items: 1 },
+      ],
+      work: [
+        'Assignment 1: free body diagrams',
+        'Assignment 1: linked list operations',
+        'Assignment 2: a queue from two stacks',
+        'Timed quiz: stacks and queues',
+        'Unit test 1',
+        'Unit test 1',
+      ],
+      assessed: {
+        questions: 14,
+        quizSlots: 22,
+        rubrics: 2,
+        assignmentsWithRubric: 3,
+        gradebookCategories: 4,
+        gradebookItems: 6,
+        manualMarks: 60,
+      },
+      // 22 of the 30 learners are active (4 fell behind, 4 never came), in two courses
+      history: {
+        attempts: 44,
+        submissions: 44,
+        handedInFiles: 12,
+        gradesReleased: 22,
+        gradesWaiting: 6,
+        progressRows: 247,
+      },
+      flagged: [
+        { code: 'CS201', learners: 11 },
+        { code: 'ME101', learners: 11 },
+      ],
+    });
+  });
+
   it('makes a college with the people, courses and history of the walkthrough', async () => {
     const s = await shape(first.tenantId);
     expect(s).toMatchObject({

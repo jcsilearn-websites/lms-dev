@@ -26,8 +26,12 @@ export function run(cmd, args, opts = {}) {
   return spawnSync(cmd, args, { cwd: ROOT, shell: isWindows, encoding: 'utf8', ...opts });
 }
 
-/** Starts the stack, runs `fn({ webPort, apiPort, mailFile, password })`, stops the stack. Returns fn's result. */
-export async function withStack(fn, { extraMembers = 0, mfa = false } = {}) {
+/**
+ * Starts the stack, runs `fn({ webPort, apiPort, mailFile, password })`, stops the stack. Returns fn's result.
+ * `prepare(serviceEnv)` runs after the database is ready and BEFORE any service starts (data that must be made while no
+ * worker is claiming jobs: the demo college).
+ */
+export async function withStack(fn, { extraMembers = 0, mfa = false, prepare } = {}) {
   // ---- 1. database
   console.log('> preparing the E2E database (lms_e2e)');
   const prep = run('pnpm', ['--filter', '@lms/backend', 'exec', 'tsx', 'test/e2e-prepare.ts'], {
@@ -104,6 +108,8 @@ export async function withStack(fn, { extraMembers = 0, mfa = false } = {}) {
     // analytics (step 12): the rollup refresh every few seconds so the dashboards fill within a test
     ANALYTICS_ROLLUP_SECONDS: '5',
   };
+  if (prepare) prepare(serviceEnv);
+
   const children = [];
   function start(name, cmd, args, shell = isWindows, env = serviceEnv) {
     // shell:false for node itself: its path may contain spaces (C:\Program Files\nodejs)

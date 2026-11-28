@@ -321,7 +321,7 @@ Every route declares exactly one of `config.permission`, `config.authenticated` 
 | GET | `/api/offerings/:id/progress/class.csv` | `progress.view_class` in the offering |
 | GET | `/api/offerings/:id/progress/learners/:participantId` | `progress.view_class` in the offering |
 | POST | `/api/offerings/:id/publish` | `course.publish` in the offering |
-| GET | `/api/offerings/:id/sections` | `offering.manage` in the offering |
+| GET | `/api/offerings/:id/sections` | `participant.read` in the offering |
 | POST | `/api/offerings/:id/sections` | `offering.manage` in the offering |
 | DELETE | `/api/offerings/:id/sections/:sectionId` | `offering.manage` in the offering |
 | POST | `/api/offerings/:id/unpublish` | `course.publish` in the offering |

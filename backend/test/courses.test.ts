@@ -272,6 +272,40 @@ describe('participants', () => {
 });
 
 describe('enrolment through sections', () => {
+  it('the section list (the filter of the class pages) is read by whoever may read the class list', async () => {
+    const c = await newCourse(admin);
+    const o = await newOffering(admin, c.id, S.termId);
+    ok(await admin.post(`/offerings/${o.id}/sections`, { sectionId: S.sectionA }));
+    const as = async (participation: 'instructor' | 'assistant' | 'learner') => {
+      const who = await person(owner, t, A, `sec-${participation}`);
+      ok(
+        await admin.post(`/offerings/${o.id}/participants`, { userId: who.userId, participation }),
+      );
+      return who.client;
+    };
+    const instructor = await as('instructor');
+    const assistant = await as('assistant');
+    const learner = await as('learner');
+    // a learner does not see a draft offering at all (404): published, the refusal is about the permission
+    ok(await instructor.post(`/offerings/${o.id}/publish`));
+    for (const staff of [admin, instructor, assistant]) {
+      const items = ok(await staff.get(`/offerings/${o.id}/sections`)).items;
+      expect(items.map((x: { sectionId: string }) => x.sectionId)).toEqual([S.sectionA]);
+    }
+    expect((await learner.get(`/offerings/${o.id}/sections`)).statusCode).toBe(403);
+    const outsider = await person(owner, t, A, 'sec-outsider');
+    expect((await outsider.client.get(`/offerings/${o.id}/sections`)).statusCode).toBe(404);
+    // reading it changes nothing about who may CHANGE it
+    for (const staff of [instructor, assistant]) {
+      expect(
+        (await staff.post(`/offerings/${o.id}/sections`, { sectionId: S.sectionB })).statusCode,
+      ).toBe(403);
+      expect((await staff.delete(`/offerings/${o.id}/sections/${S.sectionA}`)).statusCode).toBe(
+        403,
+      );
+    }
+  });
+
   it('students of an enrolled section become learners after the sync; moving them updates access', async () => {
     const c = await newCourse(admin);
     const o = await newOffering(admin, c.id, S.termId);

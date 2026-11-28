@@ -87,10 +87,11 @@ export function createCoursesRoutes(deps: {
       c.archive,
     );
 
+    // read by whoever may read the class list: it fills the Section filter of the class progress, grading and gradebook pages
     app.get(
       '/offerings/:id/sections',
       {
-        config: { permission: 'offering.manage', scope: 'offering' },
+        config: { permission: 'participant.read', scope: 'offering' },
         schema: s.listSectionsRouteSchema,
       },
       c.listSections,

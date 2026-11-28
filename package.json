@@ -45,6 +45,7 @@
     "audit:deps": "node scripts/audit.mjs",
     "secrets:scan": "gitleaks git --redact --no-banner --config .gitleaks.toml",
     "e2e": "pnpm --filter @lms/frontend run e2e",
+    "e2e:demo": "pnpm --filter @lms/frontend run e2e:demo",
     "bundle:check": "pnpm --filter @lms/frontend run bundle:check",
     "lighthouse": "pnpm --filter @lms/frontend run lighthouse",
     "screenshots": "pnpm --filter @lms/frontend run screenshots"

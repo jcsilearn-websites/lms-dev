@@ -296,7 +296,7 @@ export function createCoursesService(deps: {
 
     // ---------------------------------------------------------------- sections
     async listSections(ctx: RequestContext, id: string): Promise<Row[]> {
-      const a = spec(ctx, id, 'offering.manage');
+      const a = spec(ctx, id, 'participant.read');
       const r = await db.withTenant(a.tenantId, (tx) => coursesRepo.listSections(tx, a));
       assertAccess(r.acc);
       return r.rows;
